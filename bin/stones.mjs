@@ -46,6 +46,29 @@ function parseArgs(argv) {
   return args;
 }
 
+async function maybeStartRoadmap(target, args, ask, stack, out) {
+  const roadmapPath = join(target, 'ROADMAP.md');
+  const hasRoadmap = existsSync(roadmapPath) && readFileSync(roadmapPath, 'utf8').trim();
+  if (hasRoadmap) return;
+
+  const interactive = !args.yes;
+  const shouldOffer = args.roadmap && interactive && stack.tooling.claude;
+  if (!shouldOffer) {
+    out.write('Next: run `npx claude-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    return;
+  }
+
+  const start = await ask.confirm('roadmap.start', '\nStart a Claude session now to write ROADMAP.md?', true);
+  ask.close();
+  if (!start) {
+    out.write('Next: run `npx claude-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    return;
+  }
+
+  const result = await startRoadmapSession(target);
+  if (!result.started) out.write(`${result.message}\n`);
+}
+
 async function init(target, args) {
   if (!existsSync(target)) throw new Error(`No such directory: ${target}`);
   const stack = detect(target);
@@ -55,8 +78,9 @@ async function init(target, args) {
   const ask = interactive ? createPrompter() : createScriptedPrompter({}, { output: undefined });
 
   out.write(`claude-stones: setting up ${target}\n`);
-  out.write(`Detected: ${[...stack.languages, ...stack.frameworks].join(', ') || 'no known stack'}`
-    + `${stack.packageManagers.length ? ` (${stack.packageManagers.join(', ')})` : ''}\n`);
+  const detected = [...stack.languages, ...stack.frameworks].join(', ') || 'no known stack';
+  const pms = stack.packageManagers.length ? ` (${stack.packageManagers.join(', ')})` : '';
+  out.write(`Detected: ${detected}${pms}\n`);
   if (Object.keys(previous).length) out.write('Using your previous answers as defaults.\n');
 
   try {
@@ -71,17 +95,7 @@ async function init(target, args) {
     out.write(`\nDone. Answers saved to .claude/stones.json; re-run init any time to update.\n`);
     if (conflicts.length) out.write(`${conflicts.length} edited file(s) were left untouched (see "!" above).\n`);
 
-    const hasRoadmap = existsSync(join(target, 'ROADMAP.md')) && readFileSync(join(target, 'ROADMAP.md'), 'utf8').trim();
-    if (args.roadmap && interactive && !hasRoadmap && stack.tooling.claude) {
-      const start = await ask.confirm('roadmap.start', '\nStart a Claude session now to write ROADMAP.md?', true);
-      ask.close();
-      if (start) {
-        const result = await startRoadmapSession(target);
-        if (!result.started) out.write(`${result.message}\n`);
-        return;
-      }
-    }
-    out.write(hasRoadmap ? '' : 'Next: run `npx claude-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    await maybeStartRoadmap(target, args, ask, stack, out);
   } finally {
     ask.close();
   }
