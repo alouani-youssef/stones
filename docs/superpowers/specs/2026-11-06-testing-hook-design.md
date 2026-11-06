@@ -15,6 +15,7 @@ behavior.
   behavior is changing and gives a reason.
 - Keep the rule in the existing Claude Code hook configuration and provide a
   clear block message describing how to proceed.
+- Seed a task-note template when the testing hook is installed.
 
 ## Non-goals
 
@@ -45,8 +46,10 @@ common test directories and filename conventions, plus OpenSpec spec paths.
 
 The hook is advisory only when parsing an unrelated command or a non-target
 file. It must fail closed for a test command or target test/spec edit if the
-task note is missing or malformed. The hook will be wired to the root `hooks/`
-directory, matching the repository layout.
+task note is missing or malformed. Hook source stays in the package's root
+`hooks/` folder; the installer copies it to `.claude/hooks/`, which is the path
+used by generated settings. The installer also seeds
+`context/tasks/active.md` when the testing hook is selected.
 
 ## Verification
 

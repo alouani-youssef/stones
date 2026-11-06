@@ -4,6 +4,16 @@ Testing provides evidence that software meets its contract and continues to do s
 
 Testing is part of design. A system that exposes clear boundaries, controls side effects, and makes important state observable is easier to verify and safer to change. Decide how critical behavior will be tested while shaping the feature, rather than adding test seams after implementation has become tightly coupled.
 
+## Active task scenarios
+
+When the testing hook is installed, keep `context/tasks/active.md` current for the task being worked on. Before running tests, fill in:
+
+- **Expected behavior:** the source behavior the task should provide.
+- **Scenarios:** at least one bullet in the form `- Scenario: <condition or input>. Expected: <observable outcome>.` Add cases for relevant boundaries and failure paths.
+- **Contract change:** write `none` when existing behavior is still correct, or `behavior changed: <reason>` when the requirement or expected behavior has changed.
+
+The hook blocks test commands until these sections are complete. It blocks edits to test and spec files while the contract is unchanged, directing fixes toward the source. If expected behavior changes, record why in **Contract change** before updating those files. The hook checks that the rationale is present; review is still needed to decide whether it is valid.
+
 ## Design for testability
 
 Testability is a design quality: how easily a system can be placed into a known state, stimulated with a relevant input, and observed for the expected result. Design decisions should make those three steps explicit.

@@ -5,6 +5,10 @@
         {
           "type": "command",
           "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/four-d.mjs\""
+        },
+        {
+          "type": "command",
+          "command": "node --no-warnings \"$CLAUDE_PROJECT_DIR/.claude/hooks/history.mjs\" prompt"
         }
       ]
     }
@@ -25,6 +29,15 @@
         {
           "type": "command",
           "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\""
+        }
+      ]
+    },
+    {
+      "matcher": "Bash|Edit|MultiEdit|Write",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/testing.mjs\""
         }
       ]
     },
@@ -62,7 +75,27 @@
       "hooks": [
         {
           "type": "command",
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/complexity.mjs\"",
+          "timeout": 60
+        }
+      ]
+    },
+    {
+      "matcher": "Edit|MultiEdit|Write",
+      "hooks": [
+        {
+          "type": "command",
           "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/graph.mjs\" update"
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node --no-warnings \"$CLAUDE_PROJECT_DIR/.claude/hooks/history.mjs\" reply"
         }
       ]
     }

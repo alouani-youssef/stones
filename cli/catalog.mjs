@@ -29,7 +29,10 @@ const HOOK_HINTS = {
   naming: 'enforces the project naming convention on new files',
   graph: 'gives Claude file summaries from OpenSpec and keeps the code graph',
   format: 'formats files after edits with the project formatter',
+  complexity: 'flags functions an edit pushed over SonarQube\'s cognitive-complexity limit (Python, JS/TS, Go)',
+  testing: 'requires clear test scenarios and guards spec/test edits unless expected behavior changes',
   'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
+  history: 'logs prompts and replies per session to a local, git-ignored SQLite db (.claude/history.db)',
 };
 
 const HOOK_REQUIRES = { 'block-rm': ['jq'] };
