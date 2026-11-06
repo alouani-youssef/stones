@@ -12,7 +12,7 @@ When the testing hook is installed, keep `context/tasks/active.md` current for t
 - **Scenarios:** at least one bullet in the form `- Scenario: <condition or input>. Expected: <observable outcome>.` Add cases for relevant boundaries and failure paths.
 - **Contract change:** write `none` when existing behavior is still correct, or `behavior changed: <reason>` when the requirement or expected behavior has changed.
 
-The hook blocks test commands until these sections are complete. It blocks edits to test and spec files while the contract is unchanged, directing fixes toward the source. If expected behavior changes, record why in **Contract change** before updating those files. The hook checks that the rationale is present; review is still needed to decide whether it is valid.
+The hook blocks test commands until these sections are complete. It blocks edits to test and spec files, OpenSpec specifications, and snapshots while the contract is unchanged, directing fixes toward the source. If expected behavior changes, record why in **Contract change** before updating those files. The hook checks that the rationale is present; review is still needed to decide whether it is valid.
 
 ## Design for testability
 

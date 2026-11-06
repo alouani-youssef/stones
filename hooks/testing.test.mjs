@@ -67,7 +67,15 @@ describe('testing hook', () => {
 
   it('detects common runner and monorepo test commands', () => {
     const root = project();
-    for (const command of ['npx jest', 'pnpm exec vitest run', 'npx nx test api', 'turbo run test']) {
+    for (const command of [
+      'npx jest',
+      'pnpm exec vitest run',
+      'npx nx test api',
+      'turbo run test',
+      'npm --workspace api test',
+      'pnpm --filter api test',
+      'yarn workspace api test',
+    ]) {
       const result = evaluate(bash(command), { projectDir: root });
       assert.equal(result.block, true, command);
     }
@@ -79,6 +87,9 @@ describe('testing hook', () => {
       'src/auth/auth.spec.ts',
       'tests/authentication.test.ts',
       'openspec/specs/authentication/spec.md',
+      'openspec/changes/auth-expiry/specs/authentication/spec.md',
+      'src/components/__snapshots__/button.test.tsx.snap',
+      'src/components/button.snap',
     ]) {
       const result = evaluate(edit(file), { projectDir: root });
       assert.equal(result.block, true, file);

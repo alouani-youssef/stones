@@ -6,7 +6,7 @@ const TASK_NOTE = 'context/tasks/active.md';
 const isPlaceholder = (text) =>
   /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
 const TEST_COMMANDS = [
-  /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test(?:[:.-][\w.-]+)?|spec|e2e)(?=\s|$)/i,
+  /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:(?:--workspace|--filter|--scope)(?:=|\s+)[^\s]+\s+|workspace\s+[^\s]+\s+)*(?:run\s+)?(?:tests?(?:[:.-][\w.-]+)?|unit:tests?|specs?|e2e)(?=\s|$)/i,
   /(?:^|\s)(?:node|npx|bunx|npm\s+exec|pnpm\s+exec|yarn\s+dlx)\s+[^;&|\n]*(?:--test\b|\b(?:jest|vitest|mocha|playwright|cypress|pytest)\b)/i,
   /(?:^|\s)(?:(?:npx|bunx|npm\s+exec|pnpm\s+exec)\s+)?nx\s+(?:run\s+)?(?:test\b|[^\s:]+:test\b)/i,
   /(?:^|\s)turbo\s+(?:run\s+)?test\b/i,
@@ -78,9 +78,10 @@ function isTestOrSpecFile(file) {
   const normalized = file.split(sep).join('/');
   const parts = normalized.split('/');
   const basename = parts.at(-1) ?? '';
-  if (/\.(?:feature)$/i.test(basename)) return true;
-  if (parts.some((part) => /^(?:__tests__|tests?|specs?|features)$/i.test(part))) return true;
-  if (/(?:^|\/)(?:openspec|context)\/specs?\//i.test(normalized)) return true;
+  if (/\.(?:feature|snap)$/i.test(basename)) return true;
+  if (parts.some((part) => /^(?:__tests__|__snapshots__|tests?|specs?|features)$/i.test(part))) return true;
+  if (/(?:^|\/)openspec\/(?:specs|changes\/[^/]+\/specs)\//i.test(normalized)) return true;
+  if (/(?:^|\/)context\/specs?\//i.test(normalized)) return true;
   return /(?:^|[._-])(?:test|tests|spec|specs|e2e)(?:[._-]|$)/i.test(basename) ||
     /(?:^|\/)test_[^/]+\.py$/i.test(normalized) ||
     /_test\.go$/i.test(basename);
