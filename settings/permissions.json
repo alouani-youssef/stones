@@ -1,12 +1,5 @@
 {
   "allow": [
-    "Bash(npx nx lint:*)",
-    "Bash(npx nx test:*)",
-    "Bash(npx nx typecheck:*)",
-    "Bash(npx nx build:*)",
-    "Bash(npx nx run-many:*)",
-    "Bash(npx nx affected:*)",
-    "Bash(npm run test:hooks)",
     "Bash(git status:*)",
     "Bash(git diff:*)",
     "Bash(git log:*)",

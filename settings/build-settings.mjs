@@ -1,29 +1,23 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+// Regenerates settings/settings.json: the settings this template produces for
+// its own repository, with every available hook enabled. Target projects get
+// a tailored version from `npx claude-stones init`.
+import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { hookCatalog } from '../cli/catalog.mjs';
+import { detect } from '../cli/detect.mjs';
+import { composeSettings } from '../cli/settings.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
+const stack = detect(join(directory, '..'));
 
-async function readConfig(name) {
-  return JSON.parse(await readFile(join(directory, name), "utf8"));
-}
+const settings = composeSettings({
+  hooks: hookCatalog().map((h) => h.id),
+  ecosystems: stack.ecosystems,
+  packageManagers: stack.packageManagers,
+  monorepo: stack.monorepo,
+  commands: stack.commands,
+});
 
-const [global, permissions, hooks, sandbox] = await Promise.all([
-  readConfig("global.json"),
-  readConfig("permissions.json"),
-  readConfig("hooks.json"),
-  readConfig("sandbox.json"),
-]);
-
-const settings = {
-  $schema: "https://json.schemastore.org/claude-code-settings.json",
-  ...global,
-  permissions,
-  hooks,
-  sandbox,
-};
-
-await writeFile(
-  join(directory, "settings.json"),
-  `${JSON.stringify(settings, null, 2)}\n`,
-);
+await writeFile(join(directory, 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`);

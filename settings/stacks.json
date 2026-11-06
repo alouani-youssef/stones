@@ -1,0 +1,36 @@
+{
+  "node": {
+    "domains": ["registry.npmjs.org"]
+  },
+  "yarn": {
+    "domains": ["registry.yarnpkg.com"]
+  },
+  "nx": {
+    "permissions": [
+      "Bash(npx nx lint:*)",
+      "Bash(npx nx test:*)",
+      "Bash(npx nx typecheck:*)",
+      "Bash(npx nx build:*)",
+      "Bash(npx nx run-many:*)",
+      "Bash(npx nx affected:*)"
+    ]
+  },
+  "python": {
+    "domains": ["pypi.org", "files.pythonhosted.org"]
+  },
+  "go": {
+    "domains": ["proxy.golang.org", "sum.golang.org"]
+  },
+  "rust": {
+    "domains": ["crates.io", "index.crates.io", "static.crates.io"]
+  },
+  "jvm": {
+    "domains": ["repo.maven.apache.org", "plugins.gradle.org", "services.gradle.org"]
+  },
+  "ruby": {
+    "domains": ["rubygems.org"]
+  },
+  "php": {
+    "domains": ["repo.packagist.org"]
+  }
+}

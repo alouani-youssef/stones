@@ -1,14 +1,6 @@
 {
   "enabled": true,
-  "filesystem": {
-    "allowWrite": [
-      "/tmp/build"
-    ]
-  },
   "network": {
-    "allowedDomains": [
-      "registry.npmjs.org",
-      "*.example.com"
-    ]
+    "allowedDomains": []
   }
 }

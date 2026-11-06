@@ -1,0 +1,38 @@
+{
+  "name": "claude-stones",
+  "version": "0.1.0",
+  "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
+  "type": "module",
+  "bin": {
+    "stones": "bin/stones.mjs",
+    "claude-stones": "bin/stones.mjs"
+  },
+  "files": [
+    "bin/",
+    "cli/*.mjs",
+    "!cli/*.test.mjs",
+    "hooks/*.mjs",
+    "hooks/*.sh",
+    "!hooks/*.test.mjs",
+    "settings/*.json",
+    "!settings/settings.json",
+    "docs/",
+    "!docs/superpowers/",
+    "graph/",
+    "commands/",
+    "mcps/",
+    "AGENT.md",
+    "setup.bash"
+  ],
+  "scripts": {
+    "test": "node --test hooks/ cli/",
+    "test:hooks": "node --test hooks/",
+    "build:settings": "node settings/build-settings.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": ["claude", "claude-code", "agent", "hooks", "scaffold"],
+  "author": "ALOUANI YOUSSEF",
+  "license": "MIT"
+}
