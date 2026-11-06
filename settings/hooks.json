@@ -30,11 +30,29 @@
   ],
   "PostToolUse": [
     {
+      "matcher": "Read",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/graph.mjs\" read"
+        }
+      ]
+    },
+    {
       "matcher": "Edit|MultiEdit|Write",
       "hooks": [
         {
           "type": "command",
           "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/format.mjs\""
+        }
+      ]
+    },
+    {
+      "matcher": "Edit|MultiEdit|Write",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/graph.mjs\" update"
         }
       ]
     }
