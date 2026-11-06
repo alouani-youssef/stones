@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const TASK_NOTE = 'context/tasks/active.md';
-const isPlaceholder = (text) => /\b(?:TODO|TBD|replace me)\b|\[[^\]]+\]/i.test(text);
+const isPlaceholder = (text) =>
+  /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
 const TEST_COMMANDS = [
   /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test(?:[:.-][\w.-]+)?|spec|e2e)(?=\s|$)/i,
   /(?:^|\s)(?:node|npx|bunx|npm\s+exec|pnpm\s+exec|yarn\s+dlx)\s+[^;&|\n]*(?:--test\b|\b(?:jest|vitest|mocha|playwright|cypress|pytest)\b)/i,
@@ -61,6 +62,18 @@ function isTestCommand(command) {
   return command.split(/&&|\|\||[;|\n]/).some((part) => TEST_COMMANDS.some((pattern) => pattern.test(part.trim())));
 }
 
+function shellWriteTargets(command) {
+  const targets = [];
+  const capture = (match) => match[1] ?? match[2] ?? match[3];
+  for (const match of command.matchAll(/(?:^|\s)\d*>>?\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/g)) {
+    targets.push(capture(match));
+  }
+  for (const match of command.matchAll(/(?:^|\s)(?:tee|touch)\s+(?:-a\s+)?(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/g)) {
+    targets.push(capture(match));
+  }
+  return targets;
+}
+
 function isTestOrSpecFile(file) {
   const normalized = file.split(sep).join('/');
   const parts = normalized.split('/');
@@ -79,9 +92,24 @@ export function evaluate(event, { projectDir } = {}) {
   const { tool_name, tool_input = {} } = event ?? {};
   const project = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
 
-  if (tool_name === 'Bash' && isTestCommand(tool_input.command ?? '')) {
-    const status = inspectTaskNote(readTaskNote(project));
-    return status.valid ? { block: false } : blocked(status.reason);
+  if (tool_name === 'Bash') {
+    const command = tool_input.command ?? '';
+    if (isTestCommand(command)) {
+      const status = inspectTaskNote(readTaskNote(project));
+      if (!status.valid) return blocked(status.reason);
+    }
+    for (const target of shellWriteTargets(command)) {
+      const file = resolve(project, target);
+      const rel = relative(project, file);
+      if (rel && !rel.startsWith('..') && !isAbsolute(rel) && isTestOrSpecFile(rel)) {
+        const status = inspectTaskNote(readTaskNote(project));
+        if (!status.valid) return blocked(status.reason);
+        if (!status.changed) {
+          return blocked(`do not edit ${rel} to make a failing check pass. Fix the source; if expected behavior is changing, record the change and rationale in ## Contract change in ${TASK_NOTE}.`);
+        }
+      }
+    }
+    return { block: false };
   }
 
   if (!['Edit', 'MultiEdit', 'Write'].includes(tool_name) || typeof tool_input.file_path !== 'string') {

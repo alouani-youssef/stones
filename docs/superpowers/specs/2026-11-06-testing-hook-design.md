@@ -41,8 +41,9 @@ The task note will include `## Expected behavior`, `## Scenarios`, and
 `## Contract change` sections. Each scenario states a behavior and an expected
 outcome. The contract-change section must say `none` or give a rationale for
 updating tests/specs. The hook checks these sections before test commands and
-before edits targeting test/spec files. Test/spec classification will cover
-common test directories and filename conventions, plus OpenSpec spec paths.
+before edits targeting test/spec files, including common shell redirection,
+`tee`, and `touch` writes. Test/spec classification will cover common test
+directories and filename conventions, plus OpenSpec spec paths.
 
 The hook is advisory only when parsing an unrelated command or a non-target
 file. It must fail closed for a test command or target test/spec edit if the
