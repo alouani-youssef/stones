@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -159,6 +159,20 @@ describe('init', () => {
     assert.ok(loadManifest(root).files['AGENT.md']);
   });
 
+  it('installs the testing hook and active scenario note only when selected', async () => {
+    const withTesting = nextApp();
+    await runInit(withTesting, { 'install.hooks': ['testing'] });
+    const settings = JSON.parse(read(withTesting, '.claude/settings.json'));
+    assert.ok(read(withTesting, '.claude/hooks/testing.mjs').length > 0);
+    assert.match(read(withTesting, 'context/tasks/active.md'), /^## Expected behavior$/m);
+    assert.match(JSON.stringify(settings.hooks.PreToolUse), /testing\.mjs/);
+    assert.ok(loadManifest(withTesting).files['context/tasks/active.md']);
+
+    const withoutTesting = nextApp();
+    await runInit(withoutTesting, { 'install.hooks': ['guard'] });
+    assert.equal(existsSync(join(withoutTesting, 'context/tasks/active.md')), false);
+  });
+
   it('is idempotent and keeps user edits on re-run', async () => {
     const root = nextApp();
     await runInit(root);
@@ -183,6 +197,19 @@ describe('init', () => {
     const { ops } = await runInit(root, { 'project.description': 'A different shop.' });
     assert.equal(actions(ops)['AGENT.md'], 'update');
     assert.match(read(root, 'AGENT.md'), /A different shop\./);
+  });
+
+  it('git-ignores the history database only when the history hook is installed', async () => {
+    const withHistory = nextApp();
+    execFileSync('git', ['init', '-q'], { cwd: withHistory });
+    await runInit(withHistory, { 'install.hooks': ['history'] });
+    assert.match(read(withHistory, '.gitignore'), /^\.claude\/history\.db\*$/m);
+    assert.match(JSON.stringify(JSON.parse(read(withHistory, '.claude/settings.json')).hooks.Stop), /history\.mjs\\" reply/);
+
+    const without = nextApp();
+    execFileSync('git', ['init', '-q'], { cwd: without });
+    await runInit(without, { 'install.hooks': ['guard'] });
+    assert.doesNotMatch(read(without, '.gitignore'), /history\.db/);
   });
 
   it('remembers previous answers', async () => {

@@ -1,0 +1,88 @@
+# Code-quality services for Claude Code hooks.
+#
+#   docker compose -f quality/compose.yaml up -d --build
+#       analyzer container used by hooks/complexity.mjs on every edit
+#
+#   docker compose -f quality/compose.yaml --profile sonarqube up -d
+#       + SonarQube Community Build on http://localhost:9000 (admin/admin)
+#
+#   SONAR_TOKEN=... docker compose -f quality/compose.yaml run --rm scanner
+#       full SonarQube analysis of the project (quality gate, duplication,
+#       security hotspots); SONAR_PROJECT_DIR defaults to the parent folder.
+name: claude-quality
+
+services:
+  analyzers:
+    build:
+      context: ..
+      dockerfile: quality/analyzers.Dockerfile
+    image: claude-analyzers:latest
+    container_name: claude-analyzers
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+
+  sonarqube:
+    profiles: [sonarqube]
+    image: sonarqube:community
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:-sonar}
+    ports: ["127.0.0.1:9000:9000"]
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    healthcheck:
+      # The image has neither curl nor wget; use bash's /dev/tcp.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /api/system/status HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  db:
+    profiles: [sonarqube]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD:-sonar}
+      POSTGRES_DB: sonar
+    volumes:
+      - postgresql:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  scanner:
+    profiles: [sonarqube]
+    image: sonarsource/sonar-scanner-cli:latest
+    depends_on:
+      sonarqube:
+        condition: service_healthy
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      # Create one in SonarQube under My Account > Security.
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    command:
+      - -Dsonar.projectKey=${SONAR_PROJECT_KEY:-local}
+      - -Dsonar.qualitygate.wait=true
+      - -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/.venv/**,**/dist/**,**/build/**
+    volumes:
+      - ${SONAR_PROJECT_DIR:-..}:/usr/src
+
+volumes:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  postgresql:

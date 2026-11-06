@@ -11,7 +11,7 @@ npx claude-stones roadmap       # start a Claude session that writes ROADMAP.md
 ```
 
 From a clone of this repository: `bash setup.bash init /path/to/project`.
-Requires Node.js 18.17+.
+Requires Node.js 22.13+ (the history hook uses the built-in `node:sqlite`).
 
 ## What `init` does
 

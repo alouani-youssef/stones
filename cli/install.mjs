@@ -15,6 +15,7 @@ import { composeSettings, mergeSettings } from './settings.mjs';
 
 export const MANIFEST = '.claude/stones.json';
 const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json'];
+const HISTORY_GITIGNORE = ['.claude/history.db*'];
 
 const sha = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16);
 const readText = (file) => {
@@ -46,6 +47,9 @@ function desiredFiles({ answers, stack, root }) {
     files.push({ path: '.claude/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
     files.push({ path: '.claude/graph/project.json', content: pkg('graph/project.json'), kind: 'seed' });
   }
+  if (answers.install.hooks.includes('testing')) {
+    files.push({ path: 'context/tasks/active.md', content: pkg('context/tasks/active.md'), kind: 'managed' });
+  }
   const docIds = new Set([...answers.install.docs, ...answers.patterns]);
   for (const doc of docCatalog(root).filter((d) => docIds.has(d.id))) {
     for (const rel of doc.files) files.push({ path: `.claude/docs/${rel}`, content: pkg(`docs/${rel}`), kind: 'managed' });
@@ -75,7 +79,8 @@ function desiredFiles({ answers, stack, root }) {
   files.push({ path: 'AGENT.md', content: renderAgentDoc(answers, stack, root), kind: 'managed' });
   files.push({ path: 'CLAUDE.md', line: '@AGENT.md', content: '@AGENT.md\n', kind: 'line' });
   if (stack.git) {
-    for (const line of GITIGNORE_LINES) files.push({ path: '.gitignore', line, content: `${line}\n`, kind: 'line' });
+    const ignored = [...GITIGNORE_LINES, ...(answers.install.hooks.includes('history') ? HISTORY_GITIGNORE : [])];
+    for (const line of ignored) files.push({ path: '.gitignore', line, content: `${line}\n`, kind: 'line' });
   }
   return files;
 }
