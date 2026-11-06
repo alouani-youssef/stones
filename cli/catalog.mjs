@@ -29,6 +29,7 @@ const HOOK_HINTS = {
   naming: 'enforces the project naming convention on new files',
   graph: 'gives Claude file summaries from OpenSpec and keeps the code graph',
   format: 'formats files after edits with the project formatter',
+  'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
 };
 
 const HOOK_REQUIRES = { 'block-rm': ['jq'] };

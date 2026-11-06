@@ -331,6 +331,36 @@ function projectPath(project, given) {
 
 const isSpecDoc = (rel) => /^openspec\/specs\/[^/]+\/(spec|files)\.md$/.test(rel);
 
+function isSummaryStale(entry, known, node) {
+  return entry.scope === 'file' && known?.signature && known.signature !== node.signature;
+}
+
+function buildReadLines(rel, entry, specs, graph, node) {
+  const lines = [`[graph] ${rel}`];
+
+  if (entry) {
+    const cap = specs.capabilities[entry.capability];
+    lines.push(`Capability: ${entry.capability} (${cap.spec})${cap.purpose ? ` — ${cap.purpose}` : ''}`);
+    lines.push(`Summary${entry.scope === 'directory' ? ` (of ${entry.path})` : ''}: ${entry.summary}`);
+    if (isSummaryStale(entry, graph.summaries[rel], node)) {
+      lines.push(`Summary may be stale: exports/imports changed since it was written — update it in ${cap.files}.`);
+    }
+  } else if (node.header) {
+    lines.push(`Header: ${node.header}`);
+  }
+
+  if (node.exports.length) lines.push(`Exports: ${list(node.exports)}`);
+  if (node.imports.length) lines.push(`Imports: ${list(node.imports)}`);
+  if (node.packages.length) lines.push(`Packages: ${list(node.packages)}`);
+
+  const dependents = dependentsOf(graph, rel);
+  if (dependents.length) lines.push(`Used by: ${list(dependents)}`);
+  else if (!graph.complete) lines.push('Used by: unknown — run `node .claude/hooks/graph.mjs build` for dependents.');
+
+  if (!entry) lines.push(missingSummaryHint(specs, rel));
+  return lines;
+}
+
 function missingSummaryHint(specs, rel) {
   const guess = guessCapability(specs.entries, rel);
   const names = Object.keys(specs.capabilities);
@@ -365,26 +395,7 @@ export function onRead(project, rel) {
   if (dirty || before !== JSON.stringify(graph.summaries)) saveGraph(project, graph);
 
   const entry = specEntryFor(specs.entries, rel);
-  const lines = [`[graph] ${rel}`];
-  if (entry) {
-    const cap = specs.capabilities[entry.capability];
-    lines.push(`Capability: ${entry.capability} (${cap.spec})${cap.purpose ? ` — ${cap.purpose}` : ''}`);
-    lines.push(`Summary${entry.scope === 'directory' ? ` (of ${entry.path})` : ''}: ${entry.summary}`);
-    const known = graph.summaries[rel];
-    if (entry.scope === 'file' && known?.signature && known.signature !== node.signature) {
-      lines.push(`Summary may be stale: exports/imports changed since it was written — update it in ${cap.files}.`);
-    }
-  } else if (node.header) {
-    lines.push(`Header: ${node.header}`);
-  }
-  if (node.exports.length) lines.push(`Exports: ${list(node.exports)}`);
-  if (node.imports.length) lines.push(`Imports: ${list(node.imports)}`);
-  if (node.packages.length) lines.push(`Packages: ${list(node.packages)}`);
-  const dependents = dependentsOf(graph, rel);
-  if (dependents.length) lines.push(`Used by: ${list(dependents)}`);
-  else if (!graph.complete) lines.push('Used by: unknown — run `node .claude/hooks/graph.mjs build` for dependents.');
-  if (!entry) lines.push(missingSummaryHint(specs, rel));
-  return lines.join('\n');
+  return buildReadLines(rel, entry, specs, graph, node).join('\n');
 }
 
 export function onUpdate(project, rel) {
