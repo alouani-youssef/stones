@@ -33,6 +33,86 @@ const blockPath = (p) => ({
   reason: `Blocked: ${p} is a secret or private file (see CLAUDE.md).`,
 });
 
+function skipComment(command, i) {
+  let next = i;
+  while (next + 1 < command.length && command[next + 1] !== '\n') next++;
+  return next;
+}
+
+function skipHeredocBodies(command, startIndex, heredocs) {
+  let i = startIndex;
+  for (const { word, strip } of heredocs.splice(0)) {
+    while (i + 1 < command.length) {
+      const end = command.indexOf('\n', i + 1);
+      const lineEnd = end < 0 ? command.length : end;
+      const line = command.slice(i + 1, lineEnd);
+      i = lineEnd;
+      if ((strip ? line.trim() : line) === word) break;
+    }
+  }
+  return i;
+}
+
+function processHeredocHeader(command, i, heredocs) {
+  const m = /^<<(-?)\s*(['"]?)([\w.-]+)\2/.exec(command.slice(i));
+  if (m) {
+    heredocs.push({ word: m[3], strip: m[1] === '-' });
+    return i + m[0].length - 1;
+  }
+  return i + 1;
+}
+
+function processQuoted(command, i, state) {
+  const ch = command[i];
+  if (ch === state.quote) {
+    state.quote = null;
+    return i;
+  }
+  if (ch === '\\' && state.quote === '"' && i + 1 < command.length) {
+    state.token += command[i + 1];
+    return i + 1;
+  }
+  state.token += ch;
+  return i;
+}
+
+function processUnquoted(command, i, state, endToken) {
+  const ch = command[i];
+  if (ch === '"' || ch === "'") {
+    state.quote = ch;
+    return i;
+  }
+  if (ch === '\\') {
+    if (command[i + 1] === '\n') endToken();
+    else state.token += command[i + 1] ?? '';
+    return i + 1;
+  }
+  if (ch === '#' && !state.token) {
+    return skipComment(command, i);
+  }
+  if (ch === '<' && /^<<(?!<)/.test(command.slice(i))) {
+    const nextI = processHeredocHeader(command, i, state.heredocs);
+    endToken();
+    return nextI;
+  }
+  if (ch === '\n') {
+    endToken();
+    state.segments.push([]);
+    return skipHeredocBodies(command, i, state.heredocs);
+  }
+  if (/[;&|()`]/.test(ch)) {
+    endToken();
+    state.segments.push([]);
+    return i;
+  }
+  if (/[\s<>]/.test(ch)) {
+    endToken();
+    return i;
+  }
+  state.token += ch;
+  return i;
+}
+
 // Splits a command into segments of tokens. Unquoted shell operators and
 // grouping characters end a token; `;`, `&`, `|`, newlines, parentheses and
 // backticks also end the segment. Quote characters are removed, backslashes
@@ -40,59 +120,28 @@ const blockPath = (p) => ({
 // comment and heredoc bodies are skipped. `unclosed` is true when a quote is
 // still open at the end, so the caller can fail closed.
 function parse(command) {
-  const segments = [[]];
-  const heredocs = [];
-  let token = '';
-  let quote = null;
-  const endToken = () => {
-    if (token) segments.at(-1).push(token.replace(/^\.\//, ''));
-    token = '';
+  const state = {
+    segments: [[]],
+    heredocs: [],
+    token: '',
+    quote: null,
   };
+
+  const endToken = () => {
+    if (state.token) state.segments.at(-1).push(state.token.replace(/^\.\//, ''));
+    state.token = '';
+  };
+
   for (let i = 0; i < command.length; i++) {
-    const ch = command[i];
-    if (quote) {
-      if (ch === quote) quote = null;
-      else if (ch === '\\' && quote === '"' && i + 1 < command.length) {
-        token += command[++i];
-      } else token += ch;
-    } else if (ch === '\\') {
-      if (command[i + 1] === '\n') endToken();
-      else token += command[i + 1] ?? '';
-      i++;
-    } else if (ch === '"' || ch === "'") {
-      quote = ch;
-    } else if (ch === '#' && !token) {
-      while (i + 1 < command.length && command[i + 1] !== '\n') i++;
-    } else if (ch === '<' && /^<<(?!<)/.test(command.slice(i))) {
-      const m = /^<<(-?)\s*(['"]?)([\w.-]+)\2/.exec(command.slice(i));
-      if (m) {
-        heredocs.push({ word: m[3], strip: m[1] === '-' });
-        i += m[0].length - 1;
-      } else i++;
-      endToken();
-    } else if (ch === '\n') {
-      endToken();
-      segments.push([]);
-      for (const { word, strip } of heredocs.splice(0)) {
-        // skip body lines up to and including the delimiter line
-        while (i + 1 < command.length) {
-          const end = command.indexOf('\n', i + 1);
-          const line = command.slice(i + 1, end < 0 ? command.length : end);
-          i = end < 0 ? command.length : end;
-          if ((strip ? line.trim() : line) === word) break;
-        }
-      }
-    } else if (/[;&|()`]/.test(ch)) {
-      endToken();
-      segments.push([]);
-    } else if (/[\s<>]/.test(ch)) {
-      endToken();
+    if (state.quote) {
+      i = processQuoted(command, i, state);
     } else {
-      token += ch;
+      i = processUnquoted(command, i, state, endToken);
     }
   }
+
   endToken();
-  return { segments, unclosed: quote !== null };
+  return { segments: state.segments, unclosed: state.quote !== null };
 }
 
 const WRAPPERS = ['sudo', 'env', 'time', 'command', 'nice', 'exec', 'xargs'];
