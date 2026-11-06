@@ -2,6 +2,22 @@
 
 Test planning turns a feature's behavior and risks into a set of checks with clear evidence. The goal is not to maximize test count or chase a universal coverage percentage. The goal is to make important failures likely to be detected at a maintainable cost.
 
+Testing is designed into the feature. Before implementation, decide which behavior is policy, which parts perform external effects, what state must be observable, and how tests can control nondeterministic inputs. If a critical requirement cannot be checked without starting the entire system or reaching production services, revisit the design boundary before coding further.
+
+## Design review for testability
+
+For each feature, answer these questions as part of design and implementation planning:
+
+1. **What is the contract?** Identify the source of truth for outputs, errors, state transitions, permissions, and side effects. Separate confirmed requirements from assumptions and open questions.
+2. **Where are decisions made?** Locate business policy and validation. Can those rules be exercised without HTTP, database, UI, or network setup?
+3. **Where do effects happen?** Identify reads and writes to storage, calls to providers, event publication, time, randomness, and filesystem access. Define narrow boundaries where the behavior needs independent verification or a controlled test double.
+4. **What must remain true?** State invariants across success and failure: no partial mutation, one charge per request, tenant isolation, transaction consistency, or retry safety, as applicable.
+5. **How is state created and observed?** Determine how tests establish initial state, observe the final result, and clean up. Avoid requiring private state inspection when a public result or persisted outcome can prove the contract.
+6. **What can vary?** Plan how tests control clocks, generated IDs, random values, asynchronous work, concurrency, and external responses. Use existing framework tools where they fit.
+7. **What is the minimum valuable seam?** Add a boundary only where it isolates a real effect, variation, or independently owned responsibility. Do not create generic test-only abstractions or inject every pure helper.
+
+This review should inform the production design. A test should not require a second implementation path or special behavior that production never uses. If setup is difficult, diagnose whether the cause is a real architecture boundary, missing contract, or merely a test fixture problem before changing the design.
+
 ## Planning steps
 
 1. **Understand the change.** Read the requirement, affected code, interfaces, data model, and existing tests. Record ambiguities rather than silently deciding product behavior.
@@ -49,6 +65,13 @@ For workflows, identify valid transitions, forbidden transitions, and retry beha
 ## Risks
 - [Impact, likelihood, and relevant failure mode]
 
+## Testability design
+- Policy and effect boundaries: [where decisions end and external effects begin]
+- Controlled inputs: [clock, randomness, IDs, scheduling, provider responses]
+- Observable outcomes and invariants: [what can be asserted, including failure behavior]
+- State setup and cleanup: [fixtures/resources and isolation]
+- Design seams: [existing or proposed boundary, and why it is needed]
+
 ## Tests
 - Unit: [case, assertion, command]
 - Integration: [boundary, real dependency, setup/cleanup]
@@ -65,4 +88,4 @@ For workflows, identify valid transitions, forbidden transitions, and retry beha
 
 An LLM should inspect the implementation and repository before proposing commands or test cases. It should identify the contract source, test framework and naming conventions, nearby tests, available test infrastructure, and affected boundaries. It must not invent requirements, assume unavailable services, or claim a test ran when it did not.
 
-For each proposed test, state the behavior, level, setup, assertion, and why that level is appropriate. Prefer a small set of discriminating cases over many near-duplicates. Call out unresolved product decisions separately. Map every high-risk behavior to evidence, and explain any high-risk gap. Reuse existing helpers only after verifying what they set up and clean up.
+For each proposed test, state the behavior, level, setup, assertion, and why that level is appropriate. Also explain whether the current design makes the behavior controllable and observable. If not, propose the smallest production design change that creates a real boundary or observable contract; do not recommend broad mockability as an end in itself. Prefer a small set of discriminating cases over many near-duplicates. Call out unresolved product decisions separately. Map every high-risk behavior to evidence, and explain any high-risk gap. Reuse existing helpers only after verifying what they set up and clean up.

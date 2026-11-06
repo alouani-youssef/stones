@@ -76,39 +76,59 @@ function processQuoted(command, i, state) {
   return i;
 }
 
+function handleQuoteStart(ch, _command, i, state, _endToken) {
+  state.quote = ch;
+  return i;
+}
+
+function handleBackslash(_ch, command, i, state, endToken) {
+  if (command[i + 1] === '\n') endToken();
+  else state.token += command[i + 1] ?? '';
+  return i + 1;
+}
+
+function handleComment(_ch, command, i, _state, _endToken) {
+  return skipComment(command, i);
+}
+
+function handleHeredoc(_ch, command, i, state, endToken) {
+  const nextI = processHeredocHeader(command, i, state.heredocs);
+  endToken();
+  return nextI;
+}
+
+function handleNewline(_ch, command, i, state, endToken) {
+  endToken();
+  state.segments.push([]);
+  return skipHeredocBodies(command, i, state.heredocs);
+}
+
+function handleSegmentBreak(_ch, _command, i, state, endToken) {
+  endToken();
+  state.segments.push([]);
+  return i;
+}
+
+function handleWhitespace(_ch, _command, i, _state, endToken) {
+  endToken();
+  return i;
+}
+
+function classifyUnquoted(ch, command, i, state) {
+  if (ch === '"' || ch === "'") return handleQuoteStart;
+  if (ch === '\\') return handleBackslash;
+  if (ch === '#' && !state.token) return handleComment;
+  if (ch === '<' && /^<<(?!<)/.test(command.slice(i))) return handleHeredoc;
+  if (ch === '\n') return handleNewline;
+  if (/[;&|()`]/.test(ch)) return handleSegmentBreak;
+  if (/[\s<>]/.test(ch)) return handleWhitespace;
+  return null;
+}
+
 function processUnquoted(command, i, state, endToken) {
   const ch = command[i];
-  if (ch === '"' || ch === "'") {
-    state.quote = ch;
-    return i;
-  }
-  if (ch === '\\') {
-    if (command[i + 1] === '\n') endToken();
-    else state.token += command[i + 1] ?? '';
-    return i + 1;
-  }
-  if (ch === '#' && !state.token) {
-    return skipComment(command, i);
-  }
-  if (ch === '<' && /^<<(?!<)/.test(command.slice(i))) {
-    const nextI = processHeredocHeader(command, i, state.heredocs);
-    endToken();
-    return nextI;
-  }
-  if (ch === '\n') {
-    endToken();
-    state.segments.push([]);
-    return skipHeredocBodies(command, i, state.heredocs);
-  }
-  if (/[;&|()`]/.test(ch)) {
-    endToken();
-    state.segments.push([]);
-    return i;
-  }
-  if (/[\s<>]/.test(ch)) {
-    endToken();
-    return i;
-  }
+  const handler = classifyUnquoted(ch, command, i, state);
+  if (handler) return handler(ch, command, i, state, endToken);
   state.token += ch;
   return i;
 }

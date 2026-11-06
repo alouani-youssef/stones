@@ -75,3 +75,9 @@ For a bug, capture the externally visible failure in a regression test first. En
 - Treat tests as executable examples of the contract, and update them when the contract intentionally changes.
 
 TDD is a development technique, not proof that a feature is correct. It complements review, integration checks, security analysis, and validation against real requirements.
+
+## Design the behavior to be testable
+
+TDD works best when the design gives behavior a clear contract and keeps decisions distinguishable from external effects. Start by identifying the input, outcome, errors, state changes, and side effects that matter. Then place the rule where it can be exercised without unrelated infrastructure. Keep the production path and test path the same; control the boundary inputs (such as time or a provider response) rather than adding test-only branches.
+
+When a test is hard to write, use that friction as design feedback. Check whether the component has too many responsibilities, hides dependencies in globals, mixes policy with I/O, or offers no meaningful observable result. Refactor around the smallest real boundary that resolves the problem. Do not add layers solely to satisfy a test that could be written more simply through the existing public contract.

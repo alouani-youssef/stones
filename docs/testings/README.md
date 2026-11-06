@@ -2,6 +2,39 @@
 
 Testing provides evidence that software meets its contract and continues to do so as it changes. A useful strategy selects tests by risk and responsibility, uses the fastest reliable feedback for each behavior, and includes a small number of checks through the complete system.
 
+Testing is part of design. A system that exposes clear boundaries, controls side effects, and makes important state observable is easier to verify and safer to change. Decide how critical behavior will be tested while shaping the feature, rather than adding test seams after implementation has become tightly coupled.
+
+## Design for testability
+
+Testability is a design quality: how easily a system can be placed into a known state, stimulated with a relevant input, and observed for the expected result. Design decisions should make those three steps explicit.
+
+- **Separate policy from mechanism.** Keep domain decisions distinct from database, network, clock, filesystem, and framework details. Test policy directly; test adapters and wiring at their boundaries.
+- **Make effects visible.** Pass required collaborators into a component or keep effectful work behind a narrow adapter. Avoid hidden global clients and service-locator lookups that make dependencies and setup unpredictable.
+- **Control nondeterminism.** Provide a seam for time, randomness, identifiers, and scheduling when behavior depends on them. Production uses real implementations; tests can supply fixed ones.
+- **Expose meaningful outcomes.** Return results or errors and persist state through explicit interfaces. Avoid behavior that can only be inferred from private mutable state or incidental logs.
+- **Define invariants and failure behavior.** Specify what must remain true after invalid input, timeout, retry, or partial failure, then design transaction and idempotency boundaries accordingly.
+- **Make state reproducible.** Use explicit data setup, isolated resources, and reliable cleanup. Important workflows should not depend on execution order or developer-local state.
+
+These are design goals, not a mandate to add an interface or injection framework around every function. Add seams at genuine sources of variation or effects. Prefer a simple pure function over an abstraction when there is no dependency to replace.
+
+### Example: controlling time
+
+Avoid embedding the system clock in business decisions when the exact boundary matters:
+
+```ts
+interface Clock {
+  now(): Date;
+}
+
+function isExpired(expiresAt: Date, clock: Clock): boolean {
+  return clock.now().getTime() >= expiresAt.getTime();
+}
+
+const fixedClock: Clock = { now: () => new Date("2030-01-01T00:00:00Z") };
+```
+
+The test can verify the instant before, at, and after expiration without sleeping or depending on the machine clock. If the codebase already has a supported fake-timer facility, use it instead of introducing a new clock abstraction solely for one test.
+
 ## Test levels
 
 | Level | Main question | Typical scope | Dependencies |
