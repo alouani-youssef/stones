@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { evaluate } from './testing.mjs';
 
@@ -84,6 +86,14 @@ describe('testing hook', () => {
     }
   });
 
+  it('blocks shell redirection that would modify a test file', () => {
+    const result = evaluate(bash('cat > tests/authentication.test.ts'), {
+      projectDir: project(note()),
+    });
+    assert.equal(result.block, true);
+    assert.match(result.reason, /do not edit/i);
+  });
+
   it('allows spec and test edits when an expected behavior change is explained', () => {
     const root = project(note({ contractChange: 'behavior changed: expired tokens must now return 403.' }));
     assert.deepEqual(evaluate(edit('tests/authentication.test.ts'), { projectDir: root }), { block: false });
@@ -95,5 +105,17 @@ describe('testing hook', () => {
     assert.deepEqual(evaluate(edit('src/auth/session.ts'), { projectDir: root }), { block: false });
     assert.deepEqual(evaluate(bash('git status --short'), { projectDir: root }), { block: false });
     assert.deepEqual(evaluate(bash('test -f src/auth/session.ts'), { projectDir: root }), { block: false });
+  });
+
+  it('exits with a clear block reason when invoked as a Claude Code hook', () => {
+    const root = project();
+    const script = fileURLToPath(new URL('./testing.mjs', import.meta.url));
+    const result = spawnSync(process.execPath, [script], {
+      input: JSON.stringify(bash('npm test')),
+      encoding: 'utf8',
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+    });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /Create context\/tasks\/active\.md/);
   });
 });
