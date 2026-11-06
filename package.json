@@ -1,6 +1,6 @@
 {
-  "name": "claude-stones",
-  "version": "0.1.0",
+  "name": "@alouani-youssef/stones",
+  "version": "1.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "type": "module",
   "bin": {
@@ -32,7 +32,13 @@
   "engines": {
     "node": ">=18.17"
   },
-  "keywords": ["claude", "claude-code", "agent", "hooks", "scaffold"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agent",
+    "hooks",
+    "scaffold"
+  ],
   "author": "ALOUANI YOUSSEF",
   "license": "MIT"
 }
