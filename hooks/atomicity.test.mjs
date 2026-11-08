@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass } from './atomicity.mjs';
+import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets } from './atomicity.mjs';
 
 const withConfig = (json) => {
   const root = mkdtempSync(join(tmpdir(), 'atomicity-'));
@@ -213,5 +213,33 @@ describe('classify', () => {
 
   it('keeps .mcp.json network by path', () => {
     assert.equal(classify({ file: '.mcp.json', added: [] }, DEFAULTS), 'network');
+  });
+});
+
+describe('bash parsing', () => {
+  it('tokenize splits, quotes, comments, heredocs', () => {
+    assert.deepEqual(tokenize('a "b c" && d; e | f # no\ng'), [['a', 'b c'], ['d'], ['e'], ['f'], ['g']]);
+    assert.deepEqual(tokenize("cat <<'EOF' > x\ngit commit\nEOF\nls"), [['cat', '>', 'x'], ['ls']]);
+  });
+  it('gitIntents commit', () => {
+    assert.deepEqual(gitIntents('git commit -am "x"').commit, { all: true, paths: [] });
+    assert.deepEqual(gitIntents('git -C repo commit -m x -- src/a.ts').commit.paths, ['src/a.ts']);
+    assert.deepEqual(gitIntents('git -c a=b --no-pager commit -m msg src/b.ts').commit, { all: false, paths: ['src/b.ts'] });
+    assert.equal(gitIntents('echo "git commit"').commit, null);
+  });
+  it('gitIntents add/push/pr', () => {
+    assert.equal(gitIntents('git add -A && git commit -m x').adds, 'all');
+    assert.equal(gitIntents('git add .').adds, 'all');
+    assert.deepEqual(gitIntents('git add a b && git add c').adds, ['a', 'b', 'c']);
+    assert.equal(gitIntents('git add a && git add -A').adds, 'all');
+    assert.equal(gitIntents('ls').adds, null);
+    assert.deepEqual(gitIntents('gh pr create --base deps/zod --title t').pr, { base: 'deps/zod' });
+    assert.equal(gitIntents('git push origin HEAD').push, true);
+  });
+  it('shellWriteTargets', () => {
+    assert.ok(shellWriteTargets('echo x > prisma/migrations/1/m.sql').includes('prisma/migrations/1/m.sql'));
+    assert.ok(shellWriteTargets('cp a.sql db/migrate/1.rb').includes('db/migrate/1.rb'));
+    assert.deepEqual(shellWriteTargets('mv -f a b && echo hi | tee -a c >> d 2>&1'), ['b', 'd', 'c']);
+    assert.deepEqual(shellWriteTargets('touch x y'), ['x', 'y']);
   });
 });

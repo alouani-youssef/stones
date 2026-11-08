@@ -293,3 +293,233 @@ function incomingPath(rel, config) {
 function contentClass(change, config, ignored) {
   return !ignored && networkHit(change.added ?? [], config) ? 'network' : 'code';
 }
+
+// ---------------------------------------------------------------------------
+// Bash command parsing
+// ---------------------------------------------------------------------------
+
+function readHeredocTag(command, i) {
+  const m = /^<<(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z0-9_]+))/.exec(command.slice(i));
+  return m ? { length: m[0].length, tag: m[2] ?? m[3] ?? m[4], strip: m[1] === '-' } : null;
+}
+
+function skipHeredocBody(command, from, heredocs) {
+  let i = from;
+  for (const { tag, strip } of heredocs) {
+    while (i < command.length) {
+      let end = command.indexOf('\n', i);
+      if (end === -1) end = command.length;
+      const line = command.slice(i, end);
+      i = Math.min(end + 1, command.length);
+      if ((strip ? line.replace(/^\t+/, '') : line) === tag) break;
+    }
+  }
+  return i;
+}
+
+export function tokenize(command) {
+  const commands = [];
+  let words = [];
+  let word = '';
+  let has = false;
+  const heredocs = [];
+  const endWord = () => {
+    if (has) words.push(word);
+    word = '';
+    has = false;
+  };
+  const endCommand = () => {
+    endWord();
+    if (words.length) commands.push(words);
+    words = [];
+  };
+  let i = 0;
+  while (i < command.length) {
+    const c = command[i];
+    if (c === "'") {
+      const end = command.indexOf("'", i + 1);
+      const stop = end === -1 ? command.length : end;
+      word += command.slice(i + 1, stop);
+      has = true;
+      i = stop + 1;
+    } else if (c === '"') {
+      i += 1;
+      has = true;
+      while (i < command.length && command[i] !== '"') {
+        if (command[i] === '\\' && i + 1 < command.length && '"\\$`\n'.includes(command[i + 1])) i += 1;
+        if (!(command[i] === '\n' && command[i - 1] === '\\')) word += command[i];
+        i += 1;
+      }
+      i += 1;
+    } else if (c === '\\') {
+      if (command[i + 1] === '\n') {
+        i += 2;
+      } else {
+        word += command[i + 1] ?? '';
+        has = true;
+        i += 2;
+      }
+    } else if (c === '#' && !has) {
+      while (i < command.length && command[i] !== '\n') i += 1;
+    } else if (c === '<' && command[i + 1] === '<' && command[i + 2] !== '<') {
+      const h = readHeredocTag(command, i);
+      if (h) {
+        heredocs.push(h);
+        i += h.length;
+      } else {
+        i += 2;
+      }
+    } else if (c === '\n') {
+      endCommand();
+      i += 1;
+      if (heredocs.length) {
+        i = skipHeredocBody(command, i, heredocs);
+        heredocs.length = 0;
+      }
+    } else if (c === ';' || c === '|' || c === '&') {
+      if (c === '&' && (command[i - 1] === '>' || command[i - 1] === '<')) {
+        word += c;
+        has = true;
+        i += 1;
+        continue;
+      }
+      endCommand();
+      i += command[i + 1] === c || (c === '|' && command[i + 1] === '&') ? 2 : 1;
+    } else if (c === '>') {
+      if (/^\d+$/.test(word)) {
+        word = '';
+        has = false;
+      }
+      endWord();
+      const op = command[i + 1] === '>' ? '>>' : '>';
+      i += op.length;
+      if (command[i] === '&') {
+        words.push('>&');
+        i += 1;
+      } else {
+        words.push(op);
+      }
+    } else if (c === ' ' || c === '\t' || c === '\r') {
+      endWord();
+      i += 1;
+    } else {
+      word += c;
+      has = true;
+      i += 1;
+    }
+  }
+  endCommand();
+  return commands;
+}
+
+const GIT_GLOBAL_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path']);
+const COMMIT_VALUE_FLAGS = new Set([
+  '-m', '--message', '-F', '--file', '--author', '-C', '--reuse-message', '-c', '--reedit-message',
+  '--date', '-t', '--template', '--cleanup', '--fixup', '--squash', '-S', '--gpg-sign', '--pathspec-from-file',
+  '--trailer', '-u', '--untracked-files',
+]);
+const COMMIT_SHORT_VALUE = new Set(['m', 'F', 'C', 'c', 't']);
+
+function gitSubcommand(words) {
+  let i = words[0] === 'git' ? 1 : -1;
+  if (i < 0) return null;
+  while (i < words.length && words[i].startsWith('-')) {
+    i += GIT_GLOBAL_WITH_VALUE.has(words[i]) ? 2 : 1;
+  }
+  return i < words.length ? { name: words[i], args: words.slice(i + 1) } : null;
+}
+
+function parseCommit(args) {
+  let all = false;
+  const paths = [];
+  let afterDashes = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (afterDashes || !a.startsWith('-') || a === '-') {
+      paths.push(a);
+    } else if (a === '--') {
+      afterDashes = true;
+    } else if (a.startsWith('--')) {
+      if (a === '--all') all = true;
+      else if (!a.includes('=') && COMMIT_VALUE_FLAGS.has(a)) i += 1;
+    } else {
+      for (let j = 1; j < a.length; j += 1) {
+        if (a[j] === 'a') all = true;
+        if (COMMIT_SHORT_VALUE.has(a[j])) {
+          if (j === a.length - 1) i += 1;
+          break;
+        }
+      }
+    }
+  }
+  return { all, paths };
+}
+
+function parseAdd(args) {
+  const paths = [];
+  let all = false;
+  let afterDashes = false;
+  for (const a of args) {
+    if (afterDashes || !a.startsWith('-')) {
+      if (a === '.') all = true;
+      else paths.push(a);
+    } else if (a === '--') {
+      afterDashes = true;
+    } else if (a === '-A' || a === '--all') {
+      all = true;
+    }
+  }
+  return { all, paths };
+}
+
+function ghPrBase(args) {
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--base' || args[i] === '-B') return args[i + 1] ?? null;
+    if (args[i].startsWith('--base=')) return args[i].slice(7);
+  }
+  return null;
+}
+
+export function gitIntents(command) {
+  const out = { adds: null, commit: null, push: false, pr: null };
+  for (const words of tokenize(command)) {
+    if (words[0] === 'gh' && words[1] === 'pr' && words[2] === 'create') {
+      out.pr = { base: ghPrBase(words.slice(3)) };
+      continue;
+    }
+    const sub = gitSubcommand(words);
+    if (!sub) continue;
+    if (sub.name === 'add') {
+      const { all, paths } = parseAdd(sub.args);
+      if (all || out.adds === 'all') out.adds = 'all';
+      else out.adds = [...(out.adds ?? []), ...paths];
+    } else if (sub.name === 'commit') {
+      out.commit = parseCommit(sub.args);
+    } else if (sub.name === 'push') {
+      out.push = true;
+    }
+  }
+  return out;
+}
+
+export function shellWriteTargets(command) {
+  const targets = [];
+  for (const words of tokenize(command)) {
+    const args = [];
+    for (let i = 0; i < words.length; i += 1) {
+      if (words[i] === '>' || words[i] === '>>') {
+        if (words[i + 1] !== undefined) targets.push(words[i + 1]);
+        i += 1;
+      } else if (words[i] === '>&') {
+        i += 1;
+      } else {
+        args.push(words[i]);
+      }
+    }
+    const [cmd, ...rest] = args;
+    const operands = rest.filter((a) => !a.startsWith('-'));
+    if (cmd === 'tee' || cmd === 'touch') targets.push(...operands);
+    else if ((cmd === 'cp' || cmd === 'mv') && operands.length) targets.push(operands.at(-1));
+  }
+  return targets.filter((t) => t && !t.startsWith('/dev/'));
+}
