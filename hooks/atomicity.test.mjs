@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets, git, isRepo, currentBranch, defaultBranch, stagedChanges, branchBase, branchChanges, readAtRef } from './atomicity.mjs';
+import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets, git, isRepo, currentBranch, defaultBranch, stagedChanges, branchBase, branchChanges, readAtRef, specPath, inspectSpec } from './atomicity.mjs';
 
 const withConfig = (json) => {
   const root = mkdtempSync(join(tmpdir(), 'atomicity-'));
@@ -389,5 +389,39 @@ describe('git layer', () => {
     const changes = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
     assert.deepEqual(changes.map((c) => c.file), ['src/[id].ts']);
     assert.deepEqual(changes[0].added, ['++x', 'mine']);
+  });
+});
+
+describe('spec checker', () => {
+  const full = (zone = 'db', over = {}) => {
+    const s = { Zone: zone, 'What changes': 'adds a column', Why: 'needed for billing', 'Blast radius': 'orders table', Rollback: 'drop the column', Verification: 'run migrations', ...over };
+    return Object.entries(s).filter(([, v]) => v !== null).map(([k, v]) => `## ${k}\n${v}\n`).join('\n');
+  };
+
+  it('builds the spec path', () => {
+    assert.equal(specPath(DEFAULTS, 'db/add-col'), '.claude/danger/db--add-col.md');
+  });
+  it('rejects a missing spec', () => {
+    const r = inspectSpec(null, 'db');
+    assert.equal(r.valid, false);
+    assert.match(r.reason, /spec file is missing/);
+  });
+  it('names a missing section', () => {
+    const r = inspectSpec(full('db', { Rollback: null }), 'db');
+    assert.equal(r.valid, false);
+    assert.match(r.reason, /Rollback/);
+  });
+  it('rejects placeholders', () => {
+    const r = inspectSpec(full('db', { Why: 'TBD' }), 'db');
+    assert.equal(r.valid, false);
+    assert.match(r.reason, /Why/);
+  });
+  it('rejects a zone mismatch', () => {
+    const r = inspectSpec(full('network'), 'db');
+    assert.equal(r.valid, false);
+    assert.match(r.reason, /Zone/);
+  });
+  it('accepts a complete spec', () => {
+    assert.deepEqual(inspectSpec(full('db'), 'db'), { valid: true });
   });
 });

@@ -673,3 +673,33 @@ export function branchChanges(project, config, base) {
     return change;
   });
 }
+
+const SPEC_SECTIONS = ['Zone', 'What changes', 'Why', 'Blast radius', 'Rollback', 'Verification'];
+
+const specSection = (text, heading) => {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
+  if (start < 0) return '';
+  const end = lines.findIndex((line, index) => index > start && /^##\s/.test(line));
+  return lines.slice(start + 1, end < 0 ? lines.length : end)
+    .join('\n')
+    .replace(/<!--([\s\S]*?)-->/g, '')
+    .trim();
+};
+
+const isSpecPlaceholder = (text) =>
+  /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
+
+export const specPath = (config, branch) => `${config.specDir}/${branch.replaceAll('/', '--')}.md`;
+
+export function inspectSpec(text, zone) {
+  if (text === null || text === undefined) return { valid: false, reason: 'spec file is missing' };
+  for (const heading of SPEC_SECTIONS) {
+    const body = specSection(text, heading);
+    if (!body) return { valid: false, reason: `spec section "## ${heading}" is missing or empty` };
+    if (isSpecPlaceholder(body)) return { valid: false, reason: `spec section "## ${heading}" still contains placeholder text` };
+  }
+  const declared = specSection(text, 'Zone').toLowerCase();
+  if (declared !== zone) return { valid: false, reason: `spec section "## Zone" is "${declared}" but this branch is in zone "${zone}"` };
+  return { valid: true };
+}
