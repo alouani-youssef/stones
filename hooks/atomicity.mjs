@@ -672,7 +672,12 @@ export function stagedChanges(project, config, extra = {}) {
   return changes;
 }
 
-export function branchBase(project, config, prBase) {
+/**
+ * allowAtHead: keep non-default candidates whose tip is at HEAD (used for `git commit`, so the first commit on a
+ * branch freshly cut from an unmerged danger branch is judged on its own). push / pr leave it false: such a
+ * candidate could be a decoy (`git branch deps/tmp`) hiding the branch's history.
+ */
+export function branchBase(project, config, prBase, { allowAtHead = false } = {}) {
   if (prBase) return prBase;
   const current = currentBranch(project);
   const prefixes = Object.values(config?.prefixes ?? {});
@@ -689,7 +694,7 @@ export function branchBase(project, config, prBase) {
     const mb = git(project, ['merge-base', cand, 'HEAD']);
     if (!mb.ok) continue;
     // A non-default branch whose tip is at or ahead of HEAD would hide this branch's own commits.
-    if (cand !== def && mb.out.trim() === head) continue;
+    if (!allowAtHead && cand !== def && mb.out.trim() === head) continue;
     const count = Number(git(project, ['rev-list', '--count', `${mb.out.trim()}..HEAD`]).out.trim());
     if (Number.isFinite(count) && count < bestCount) {
       best = cand;
@@ -898,7 +903,7 @@ function evaluateBranch(project, config, intents, branch, commit) {
   let base;
   if (intents.pr) base = intents.pr.base ?? defaultBranch(project, config);
   else if (intents.newBranch) base = 'HEAD';
-  else base = branchBase(project, config, null);
+  else base = branchBase(project, config, null, { allowAtHead: Boolean(commit) && !intents.push });
   if (!base) return allow('atomicity: no default branch, branch checks skipped');
   const groups = mergeGroups(groupByClass(branchChanges(project, config, base), config), commit?.groups ?? {});
   const classes = orderedClasses(groups);

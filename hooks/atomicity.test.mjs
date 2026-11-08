@@ -641,8 +641,10 @@ describe('evaluate', () => {
       sh(p, 'reset', '-q', 'HEAD', 'src/a.ts');
       sh(p, 'switch', '-c', 'feat/after-orders');
       sh(p, 'add', 'src/a.ts');
-      // Tip of db/orders == HEAD: indistinguishable from a decoy branch, so judged against main.
-      blocked(run(p, bash('git commit -m x')), 'R2');
+      // First commit: db/orders tip == HEAD is allowed as the base for a commit...
+      allowed(run(p, bash('git commit -m x')));
+      // ...but not for push / pr (decoy defence), so a push before the branch has its own commit is judged against main.
+      blocked(run(p, bash('git commit -m x && git push')), 'R2');
       sh(p, 'reset', '-q', 'HEAD', 'src/a.ts');
       put(p, 'docs/notes.md', 'stacked\n');
       sh(p, 'add', 'docs/notes.md');
@@ -650,6 +652,19 @@ describe('evaluate', () => {
       sh(p, 'add', 'src/a.ts');
       allowed(run(p, bash('git commit -m x')));
       allowed(run(p, bash('git push')));
+    });
+    it('first src-only commit on a branch freshly cut from an unmerged deps branch is allowed', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'deps/zod');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      put(p, '.claude/danger/deps--zod.md', spec('packages'));
+      commitAll(p, 'add zod');
+      sh(p, 'switch', '-c', 'feat/use-zod');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      sh(p, 'add', 'src/a.ts');
+      allowed(run(p, bash('git commit -m x')));
+      assert.equal(branchBase(p, DEFAULTS, null, { allowAtHead: true }), 'deps/zod');
+      assert.equal(branchBase(p, DEFAULTS, null), 'main');
     });
     it('a decoy danger branch at HEAD does not hide the branch history', () => {
       const p = project();
