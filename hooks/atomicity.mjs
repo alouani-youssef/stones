@@ -361,7 +361,10 @@ export function tokenize(command) {
       }
     } else if (c === '#' && !has) {
       while (i < command.length && command[i] !== '\n') i += 1;
-    } else if (c === '<' && command[i + 1] === '<' && command[i + 2] !== '<') {
+    } else if (c === '<' && command.startsWith('<<<', i)) {
+      endWord();
+      i += 3;
+    } else if (c === '<' && command[i + 1] === '<') {
       const h = readHeredocTag(command, i);
       if (h) {
         heredocs.push(h);

@@ -221,6 +221,12 @@ describe('bash parsing', () => {
     assert.deepEqual(tokenize('a "b c" && d; e | f # no\ng'), [['a', 'b c'], ['d'], ['e'], ['f'], ['g']]);
     assert.deepEqual(tokenize("cat <<'EOF' > x\ngit commit\nEOF\nls"), [['cat', '>', 'x'], ['ls']]);
   });
+  it('here-string is not a heredoc', () => {
+    assert.deepEqual(tokenize('cat <<< x'), [['cat', 'x']]);
+    const cmd = 'cat <<< "x"\ngit commit -am y';
+    assert.equal(tokenize(cmd).length, 2);
+    assert.deepEqual(gitIntents(cmd).commit, { all: true, paths: [] });
+  });
   it('gitIntents commit', () => {
     assert.deepEqual(gitIntents('git commit -am "x"').commit, { all: true, paths: [] });
     assert.deepEqual(gitIntents('git -C repo commit -m x -- src/a.ts').commit.paths, ['src/a.ts']);
