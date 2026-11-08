@@ -50,6 +50,29 @@ const read = (root, path) => readFileSync(join(root, path), 'utf8');
 const actions = (ops) => Object.fromEntries(ops.map((o) => [o.path, o.action]));
 
 describe('detect', () => {
+  it('detects the migration tool, dirs and generator', () => {
+    const prisma = detect(project({ 'package.json': { devDependencies: { prisma: '5' } }, 'pnpm-lock.yaml': '' }));
+    assert.equal(prisma.migrations.tool, 'Prisma');
+    assert.deepEqual(prisma.migrations.dirs, ['prisma/migrations']);
+    assert.equal(prisma.migrations.generate, 'pnpm exec prisma migrate dev --name <name>');
+    const django = detect(project({ 'manage.py': '', 'requirements.txt': 'Django==5\n' }));
+    assert.equal(django.migrations.tool, 'Django');
+    assert.equal(django.migrations.generate, 'python manage.py makemigrations');
+    assert.deepEqual(django.migrations.dirs, ['**/migrations']);
+    assert.deepEqual(django.migrations.models, ['**/models.py', '**/models/**']);
+    const drizzle = detect(project({
+      'package.json': { devDependencies: { 'drizzle-kit': '1' } },
+      'drizzle.config.ts': "export default { out: './db/migrations' }",
+    }));
+    assert.deepEqual(drizzle.migrations.dirs, ['db/migrations']);
+    assert.equal(drizzle.migrations.generate, 'npx drizzle-kit generate');
+    const alembic = detect(project({ 'alembic.ini': '[alembic]\nscript_location = db/alembic\n' }));
+    assert.deepEqual(alembic.migrations.dirs, ['db/alembic/versions']);
+    const rails = detect(project({ Gemfile: "gem 'rails'\n" }));
+    assert.equal(rails.migrations.generate, 'bin/rails generate migration <Name>');
+    assert.equal(detect(project()).migrations, null);
+  });
+
   it('reads a Next.js + pnpm project', () => {
     const s = detect(nextApp());
     assert.equal(s.name, 'shop');
