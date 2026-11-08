@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets, git, isRepo, currentBranch, defaultBranch, stagedChanges, branchBase, branchChanges, readAtRef, specPath, inspectSpec } from './atomicity.mjs';
+import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets, git, isRepo, currentBranch, defaultBranch, stagedChanges, branchBase, branchChanges, readAtRef, specPath, inspectSpec, evaluate } from './atomicity.mjs';
 
 const withConfig = (json) => {
   const root = mkdtempSync(join(tmpdir(), 'atomicity-'));
@@ -423,5 +423,271 @@ describe('spec checker', () => {
   });
   it('accepts a complete spec', () => {
     assert.deepEqual(inspectSpec(full('db'), 'db'), { valid: true });
+  });
+});
+
+describe('evaluate', () => {
+  const GEN = 'npx prisma migrate dev --name <name>';
+  const spec = (zone, over = {}) => {
+    const s = { Zone: zone, 'What changes': 'adds a column', Why: 'needed for billing', 'Blast radius': 'orders table', Rollback: 'drop the column', Verification: 'run migrations', ...over };
+    return Object.entries(s).map(([k, v]) => `## ${k}\n${v}\n`).join('\n');
+  };
+  const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
+  const write = (file_path) => ({ tool_name: 'Write', tool_input: { file_path, content: 'x' } });
+  const run = (p, event) => evaluate(event, { projectDir: p });
+  const project = (config = { migrations: { generate: GEN } }) => {
+    const p = repo();
+    put(p, '.claude/atomicity.json', JSON.stringify(config));
+    put(p, 'src/index.ts', 'export const a = 1;\n');
+    put(p, 'src/a.ts', 'export const b = 1;\n');
+    commitAll(p, 'init');
+    return p;
+  };
+  const blocked = (r, rule) => {
+    assert.equal(r.block, true, JSON.stringify(r));
+    assert.ok(r.reason.startsWith(`Atomicity guard (${rule}):`), r.reason);
+  };
+  const allowed = (r) => assert.equal(r.block, false, JSON.stringify(r));
+  const stageMigration = (p) => {
+    put(p, 'prisma/migrations/1/m.sql', 'CREATE TABLE o (id int);\n');
+    sh(p, 'add', 'prisma/migrations/1/m.sql');
+  };
+
+  describe('R4 and config protection', () => {
+    it('blocks writes into a migration dir with the generate command', () => {
+      const p = project();
+      for (const event of [write('prisma/migrations/1/m.sql'), write(join(p, 'prisma/migrations/1/m.sql')), { tool_name: 'Edit', tool_input: { file_path: 'db/migrate/001_x.rb' } }, bash('echo x > prisma/migrations/1/m.sql')]) {
+        const r = run(p, event);
+        blocked(r, 'R4');
+        assert.ok(r.reason.includes(GEN), r.reason);
+      }
+    });
+    it('falls back to generic generator text', () => {
+      const r = run(project({}), write('alembic/versions/a1.py'));
+      blocked(r, 'R4');
+      assert.match(r.reason, /run your ORM's migration generator/);
+    });
+    it('allows model files, configured dirs and allowEdits', () => {
+      allowed(run(project(), write('prisma/schema.prisma')));
+      allowed(run(project(), write('app/models.py')));
+      const custom = project({ migrations: { dirs: ['sql/changes'] } });
+      blocked(run(custom, write('sql/changes/1.sql')), 'R4');
+      allowed(run(custom, write('prisma/migrations/1/m.sql')));
+      allowed(run(project({ migrations: { allowEdits: true } }), write('prisma/migrations/1/m.sql')));
+    });
+    it('blocks agent writes to .claude/atomicity.json', () => {
+      const p = project();
+      for (const event of [write('.claude/atomicity.json'), bash('echo {} > .claude/atomicity.json')]) {
+        const r = run(p, event);
+        blocked(r, 'R4');
+        assert.match(r.reason, /only a human edits this file/);
+      }
+    });
+    it('enabled: false allows everything', () => {
+      const p = project({ enabled: false });
+      allowed(run(p, write('prisma/migrations/1/m.sql')));
+      sh(p, 'switch', '-c', 'feat/x');
+      stageMigration(p);
+      allowed(run(p, bash('git commit -m x')));
+    });
+  });
+
+  describe('R1', () => {
+    it('blocks a mixed staged set and lists both files', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'db/orders');
+      stageMigration(p);
+      put(p, 'src/index.ts', 'export const a = 2;\n');
+      sh(p, 'add', 'src/index.ts');
+      const r = run(p, bash('git commit -m x'));
+      blocked(r, 'R1');
+      assert.ok(r.reason.includes('prisma/migrations/1/m.sql'), r.reason);
+      assert.ok(r.reason.includes('src/index.ts'), r.reason);
+      assert.match(r.reason, /git restore --staged src\/index\.ts/);
+    });
+    it('counts what `git add -A` in the same command would stage', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'feat/x');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      const r = run(p, bash('git add -A && git commit -m x'));
+      blocked(r, 'R1');
+      assert.ok(r.reason.includes('pnpm-lock.yaml') && r.reason.includes('src/a.ts'), r.reason);
+    });
+    it('counts `git commit -a` and directory pathspecs in `git add`', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'deps/x');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      sh(p, 'add', 'pnpm-lock.yaml');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      blocked(run(p, bash('git commit -am x')), 'R1');
+      blocked(run(p, bash('git add src && git commit -m x')), 'R1');
+    });
+    it('lets neutral files ride along', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'feat/x');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      put(p, 'src/a.test.ts', 'fetch("https://api.stripe.com")\n');
+      sh(p, 'add', '-A');
+      allowed(run(p, bash('git commit -m x')));
+    });
+  });
+
+  describe('R2 / R3 on commit', () => {
+    it('blocks a db commit on the default branch', () => {
+      const p = project();
+      stageMigration(p);
+      const r = run(p, bash('git commit -m x'));
+      blocked(r, 'R2');
+      assert.match(r.reason, /git switch -c db\//);
+      assert.ok(r.reason.includes('prisma/migrations/1/m.sql'));
+    });
+    it('blocks a db commit on a branch without the db/ prefix', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'feat/x');
+      stageMigration(p);
+      const r = run(p, bash('git commit -m x'));
+      blocked(r, 'R2');
+      assert.match(r.reason, /db\//);
+    });
+    it('blocks a db commit without a spec', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'db/orders');
+      stageMigration(p);
+      const r = run(p, bash('git commit -m x'));
+      blocked(r, 'R3');
+      assert.ok(r.reason.includes('.claude/danger/db--orders.md'), r.reason);
+      assert.match(r.reason, /spec file is missing/);
+    });
+    it('accepts a valid spec staged in the same commit', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'db/orders');
+      stageMigration(p);
+      put(p, '.claude/danger/db--orders.md', spec('db'));
+      sh(p, 'add', '.claude/danger/db--orders.md');
+      allowed(run(p, bash('git commit -m x')));
+    });
+    it('accepts a spec added by the same command, and checks the index version otherwise', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'db/orders');
+      stageMigration(p);
+      put(p, '.claude/danger/db--orders.md', spec('db'));
+      allowed(run(p, bash('git add .claude/danger/db--orders.md && git commit -m x')));
+      blocked(run(p, bash('git commit -m x')), 'R3');
+    });
+    it('allows a code-only commit on a feature branch and on main', () => {
+      const p = project();
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      sh(p, 'add', 'src/a.ts');
+      allowed(run(p, bash('git commit -m x')));
+      sh(p, 'switch', '-c', 'feat/x');
+      allowed(run(p, bash('git commit -m x')));
+    });
+  });
+
+  describe('branch-wide checks', () => {
+    const dbBranch = () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'db/orders');
+      put(p, 'prisma/migrations/1/m.sql', 'CREATE TABLE o (id int);\n');
+      put(p, '.claude/danger/db--orders.md', spec('db'));
+      commitAll(p, 'migration');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      sh(p, 'add', 'src/a.ts');
+      return p;
+    };
+    it('blocks a code commit on a branch already holding a migration', () => {
+      const r = run(dbBranch(), bash('git commit -m x'));
+      blocked(r, 'R2');
+      assert.ok(r.reason.includes('prisma/migrations/1/m.sql') && r.reason.includes('src/a.ts'), r.reason);
+    });
+    it('exempt branches skip R1-R3', () => {
+      const p = dbBranch();
+      put(p, '.claude/atomicity.json', JSON.stringify({ exempt: ['db/orders'] }));
+      allowed(run(p, bash('git commit -m x')));
+    });
+    it('blocks gh pr create when the HEAD spec has a placeholder', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'net/stripe');
+      put(p, '.mcp.json', '{"mcpServers":{}}');
+      put(p, '.claude/danger/net--stripe.md', spec('network', { Rollback: 'TBD' }));
+      commitAll(p, 'net');
+      const r = run(p, bash('gh pr create --fill'));
+      blocked(r, 'R3');
+      assert.match(r.reason, /Rollback/);
+      assert.ok(r.reason.includes('.claude/danger/net--stripe.md'));
+      put(p, '.claude/danger/net--stripe.md', spec('network'));
+      commitAll(p, 'fix spec');
+      allowed(run(p, bash('gh pr create --fill')));
+      allowed(run(p, bash('git push -u origin net/stripe')));
+    });
+    it('commit chained with push reads the spec being committed', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'db/orders');
+      stageMigration(p);
+      put(p, '.claude/danger/db--orders.md', spec('db'));
+      allowed(run(p, bash('git add -A && git commit -m x && git push')));
+      blocked(run(p, bash('git commit -m x && git push')), 'R3');
+    });
+    it('blocks pushing a danger change from a branch without the prefix', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'feat/x');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      commitAll(p, 'deps');
+      blocked(run(p, bash('git push')), 'R2');
+    });
+    it('a branch stacked on a danger branch is judged on its own commits', () => {
+      const p = dbBranch();
+      sh(p, 'reset', '-q', 'HEAD', 'src/a.ts');
+      sh(p, 'switch', '-c', 'feat/after-orders');
+      sh(p, 'add', 'src/a.ts');
+      allowed(run(p, bash('git commit -m x')));
+    });
+  });
+
+  describe('cannot decide', () => {
+    it('non-repo allows with a note; non-git bash allows', () => {
+      const r = run(mkdtempSync(join(tmpdir(), 'plain-')), bash('git commit -m x'));
+      allowed(r);
+      assert.equal(r.note, 'atomicity: not a git repo, skipped');
+      allowed(run(project(), bash('echo "git commit" && ls')));
+    });
+    it('no default branch skips branch checks with a note but keeps R1', () => {
+      const p = repo('trunk');
+      put(p, 'src/index.ts', 'x\n');
+      commitAll(p, 'init');
+      stageMigration(p);
+      const r = run(p, bash('git commit -m x'));
+      allowed(r);
+      assert.match(r.note, /no default branch/);
+      put(p, 'src/index.ts', 'y\n');
+      sh(p, 'add', 'src/index.ts');
+      blocked(run(p, bash('git commit -m x')), 'R1');
+    });
+    it('internal errors allow with a note', () => {
+      const p = project({ exempt: 5 });
+      stageMigration(p);
+      const r = run(p, bash('git commit -m x'));
+      allowed(r);
+      assert.match(r.note, /^atomicity: internal error, skipped: /);
+    });
+  });
+
+  describe('CLI', () => {
+    const cli = (input, cwd) => spawnSync('node', [join(import.meta.dirname, 'atomicity.mjs')], { input, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: cwd } });
+    it('exits 2 with the reason on a block', () => {
+      const p = project();
+      const r = cli(JSON.stringify(write('prisma/migrations/1/m.sql')), p);
+      assert.equal(r.status, 2);
+      assert.match(r.stderr, /Atomicity guard/);
+    });
+    it('exits 0 on garbage and prints notes to stdout', () => {
+      const p = project();
+      assert.equal(cli('garbage', p).status, 0);
+      const plain = mkdtempSync(join(tmpdir(), 'plain-'));
+      const r = cli(JSON.stringify(bash('git commit -m x')), plain);
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /not a git repo/);
+    });
   });
 });
