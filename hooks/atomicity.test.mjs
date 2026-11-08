@@ -1005,6 +1005,8 @@ describe('evaluate', () => {
       blocked(r, 'R4');
       assert.doesNotMatch(r.reason, /then run: run your ORM/);
       assert.match(r.reason, /no migration generator is configured — set migrations\.generate, or set migrations\.allowEdits: true for tools whose migrations are hand-written \(golang-migrate, Flyway, dbmate, goose\)/);
+      const doc = readFileSync(join(import.meta.dirname, '../docs/atomicity/README.md'), 'utf8');
+      assert.ok(doc.includes('no migration generator is configured — set `migrations.generate`, or set `migrations.allowEdits: true` for tools whose migrations are hand-written (golang-migrate, Flyway, dbmate, goose)'));
     });
 
     it('#13 gh pr create without --base on a stacked branch suggests --base <parent>', () => {
