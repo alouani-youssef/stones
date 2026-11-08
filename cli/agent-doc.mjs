@@ -83,6 +83,7 @@ function sections(answers, stack) {
 
     guardrails: bullets([
       ...answers.install.hooks.map((id) => hooks.get(id)).filter(Boolean).map((h) => `\`${h.id}\` hook: ${h.hint}.`),
+      has('atomicity') && `Danger zones (db, packages, network) go on their own \`db/\`, \`deps/\`, \`net/\` branch and PR with a spec in \`.claude/danger/\`; never mix them with other changes; generate migrations with \`${stack.migrations?.generate || "your ORM's migration generator"}\`${doc('atomicity') ? ` (${docLink(doc('atomicity'))})` : ''}.`,
       has('graph') && 'When the graph hook asks for a file summary, add it to the OpenSpec `files.md` it names (see `.claude/graph/README.md`).',
       answers.guardrails.notes,
     ]) || '_None yet._',

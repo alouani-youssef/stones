@@ -31,6 +31,7 @@ const HOOK_HINTS = {
   format: 'formats files after edits with the project formatter',
   complexity: 'flags functions an edit pushed over SonarQube\'s cognitive-complexity limit (Python, JS/TS, Go)',
   testing: 'requires clear test scenarios and guards spec/test edits unless expected behavior changes',
+  atomicity: 'blocks mixed commits/branches and requires dedicated, specced branches for db, packages and network changes',
   'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
   history: 'logs prompts and replies per session to a local, git-ignored SQLite db (.claude/history.db)',
 };
