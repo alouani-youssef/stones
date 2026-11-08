@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -525,4 +526,147 @@ export function shellWriteTargets(command) {
     else if ((cmd === 'cp' || cmd === 'mv') && operands.length) targets.push(operands.at(-1));
   }
   return targets.filter((t) => t && !t.startsWith('/dev/'));
+}
+
+// ---------------------------------------------------------------------------
+// Git layer
+// ---------------------------------------------------------------------------
+
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+export function git(project, args) {
+  try {
+    const r = spawnSync('git', ['-C', project, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    return { ok: r.status === 0, out: r.stdout ?? '' };
+  } catch {
+    return { ok: false, out: '' };
+  }
+}
+
+const gitLines = (project, args) => git(project, args).out.split('\n').filter(Boolean);
+const gitNul = (project, args) => git(project, args).out.split('\0').filter(Boolean);
+const refExists = (project, ref) => git(project, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).ok;
+
+export const isRepo = (project) => git(project, ['rev-parse', '--git-dir']).ok;
+
+export function currentBranch(project) {
+  const r = git(project, ['symbolic-ref', '--short', '-q', 'HEAD']);
+  return r.ok && r.out.trim() ? r.out.trim() : null;
+}
+
+export function defaultBranch(project, config) {
+  const configured = config?.defaultBranch;
+  if (configured && refExists(project, configured)) return configured;
+  const head = git(project, ['symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD']);
+  if (head.ok && head.out.trim()) return head.out.trim();
+  return ['main', 'master'].find((b) => refExists(project, b)) ?? null;
+}
+
+export function readAtRef(project, ref, file) {
+  const r = git(project, ['show', `${ref ?? ''}:${file}`]);
+  return r.ok ? r.out : null;
+}
+
+function nameStatus(project, args) {
+  const tokens = gitNul(project, ['diff', '--name-status', '-z', ...args]);
+  const files = [];
+  for (let i = 0; i < tokens.length; ) {
+    const status = tokens[i];
+    if (/^[RC]/.test(status)) {
+      files.push(tokens[i + 2]);
+      i += 3;
+    } else {
+      files.push(tokens[i + 1]);
+      i += 2;
+    }
+  }
+  return files.filter((f) => f !== undefined);
+}
+
+function addedLines(project, args, file) {
+  const out = git(project, ['diff', '--no-color', '--no-ext-diff', '--no-renames', '-U0', ...args, '--', file]).out;
+  return out
+    .split('\n')
+    .filter((l) => l.startsWith('+') && !l.startsWith('+++'))
+    .map((l) => l.slice(1));
+}
+
+function workTreeText(project, file) {
+  try {
+    return readFileSync(join(project, file), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function untrackedAdded(project, file) {
+  const text = workTreeText(project, file);
+  if (text.includes('\0')) return [];
+  return text.split('\n').filter((l, i, a) => i < a.length - 1 || l !== '');
+}
+
+export function stagedChanges(project, config, extra = {}) {
+  const hasHead = refExists(project, 'HEAD');
+  const base = hasHead ? 'HEAD' : EMPTY_TREE;
+  const staged = nameStatus(project, ['--cached', base]);
+  const work = new Set();
+  if (extra.all || extra.paths === 'all') for (const f of gitNul(project, ['diff', '--name-only', '-z'])) work.add(f);
+  if (extra.paths === 'all') for (const f of gitNul(project, ['ls-files', '--others', '--exclude-standard', '-z'])) work.add(f);
+  else if (Array.isArray(extra.paths)) for (const f of extra.paths) work.add(f);
+  const tracked = new Set(gitNul(project, ['ls-files', '-z']));
+
+  const changes = [];
+  for (const file of new Set([...staged, ...work])) {
+    const inWork = work.has(file);
+    const isTracked = tracked.has(file);
+    let added;
+    if (inWork && !isTracked) added = untrackedAdded(project, file);
+    else added = addedLines(project, inWork ? [base] : ['--cached', base], file);
+    const change = { file, added };
+    if (pathClass(file, config) === 'manifest') {
+      change.before = hasHead ? (readAtRef(project, 'HEAD', file) ?? '') : '';
+      change.after = inWork ? workTreeText(project, file) : (readAtRef(project, null, file) ?? '');
+    }
+    changes.push(change);
+  }
+  return changes;
+}
+
+export function branchBase(project, config, prBase) {
+  if (prBase) return prBase;
+  const current = currentBranch(project);
+  const prefixes = Object.values(config?.prefixes ?? {});
+  const candidates = [];
+  const def = defaultBranch(project, config);
+  if (def && def !== current) candidates.push(def);
+  for (const b of gitLines(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])) {
+    if (b !== current && !candidates.includes(b) && prefixes.some((p) => b.startsWith(p))) candidates.push(b);
+  }
+  let best = null;
+  let bestCount = Infinity;
+  for (const cand of candidates) {
+    const mb = git(project, ['merge-base', cand, 'HEAD']);
+    if (!mb.ok) continue;
+    const count = Number(git(project, ['rev-list', '--count', `${mb.out.trim()}..HEAD`]).out.trim());
+    if (Number.isFinite(count) && count < bestCount) {
+      best = cand;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+export function branchChanges(project, config, base) {
+  const mbRes = base ? git(project, ['merge-base', base, 'HEAD']) : { ok: false, out: '' };
+  if (!mbRes.ok) return [];
+  const mb = mbRes.out.trim();
+  const range = `${mb}..HEAD`;
+  return nameStatus(project, [range]).map((file) => {
+    const change = { file, added: addedLines(project, [range], file) };
+    if (pathClass(file, config) === 'manifest') {
+      change.before = readAtRef(project, mb, file) ?? '';
+      change.after = readAtRef(project, 'HEAD', file) ?? '';
+    }
+    return change;
+  });
 }
