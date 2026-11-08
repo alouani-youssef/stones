@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -114,7 +114,10 @@ const normalize = (file) => file.replaceAll('\\', '/').replace(/^\.\//, '');
 
 const escapeChar = (c) => c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
 
+const globCache = new Map();
+
 export function globToRegExp(glob) {
+  if (globCache.has(glob)) return globCache.get(glob);
   let out = '';
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];
@@ -130,7 +133,9 @@ export function globToRegExp(glob) {
     else if (c === '?') out += '[^/]';
     else out += escapeChar(c);
   }
-  return new RegExp(`^${out}$`);
+  const re = new RegExp(`^${out}$`);
+  globCache.set(glob, re);
+  return re;
 }
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -289,21 +294,26 @@ function settingsNetworkChanged(before, after) {
 }
 
 const ENV_KEY_RE = /^\s*(?:export\s+)?[A-Za-z0-9_]*(?:_URL|_HOST|_ENDPOINT|_API_KEY)\s*=/;
-const envNetworkChanged = (added) => (added ?? []).some((l) => ENV_KEY_RE.test(l));
 
-export function classify(change, config) {
+export const classify = (change, config) => classifyDetail(change, config).cls;
+
+/** { cls, line }: line is the added line that made a file network by content (for block messages). */
+export function classifyDetail(change, config) {
   const rel = normalize(change.file);
   const base = pathClass(rel, config);
   const ignored = matchesAny(config.zones?.network?.ignore ?? [], rel);
   if (base === 'manifest') {
-    if (isSettings(rel)) return !ignored && settingsNetworkChanged(change.before, change.after) ? 'network' : 'code';
-    if (isEnvExample(rel)) return !ignored && envNetworkChanged(change.added) ? 'network' : 'code';
-    if (dependencyChanged(rel, change.before, change.after)) return 'packages';
+    if (isSettings(rel)) return { cls: !ignored && settingsNetworkChanged(change.before, change.after) ? 'network' : 'code' };
+    if (isEnvExample(rel)) {
+      const line = ignored ? undefined : (change.added ?? []).find((l) => ENV_KEY_RE.test(l));
+      return line === undefined ? { cls: 'code' } : { cls: 'network', line };
+    }
+    if (dependencyChanged(rel, change.before, change.after)) return { cls: 'packages' };
     return contentClass(change, config, ignored);
   }
-  if (base === 'network') return 'network';
-  if (base === 'code') return incomingPath(rel, config) ? 'network' : contentClass(change, config, ignored);
-  return base;
+  if (base === 'network') return { cls: 'network' };
+  if (base === 'code') return incomingPath(rel, config) ? { cls: 'network' } : contentClass(change, config, ignored);
+  return { cls: base };
 }
 
 function incomingPath(rel, config) {
@@ -312,7 +322,8 @@ function incomingPath(rel, config) {
 }
 
 function contentClass(change, config, ignored) {
-  return !ignored && networkHit(change.added ?? [], config, change.file) ? 'network' : 'code';
+  const line = ignored ? null : networkHit(change.added ?? [], config, change.file);
+  return line === null ? { cls: 'code' } : { cls: 'network', line };
 }
 
 // ---------------------------------------------------------------------------
@@ -632,12 +643,53 @@ export function currentBranch(project) {
   return r.ok && r.out.trim() ? r.out.trim() : null;
 }
 
+/** [{ ref, upstream }] for refs/heads/<name> and refs/remotes/origin/<name> that exist, in one call. */
+const localAndOrigin = (project, name) =>
+  gitLines(project, ['for-each-ref', '--format=%(refname:short)%09%(upstream:short)', `refs/heads/${name}`, `refs/remotes/origin/${name}`]).map((l) => {
+    const [ref, upstream] = l.split('\t');
+    return { ref, upstream };
+  });
+const localOrRemote = (project, name) => localAndOrigin(project, name).length > 0;
+
+/** The default branch's name (never `origin/…`): configured if it exists locally or on origin, else origin/HEAD, else main/master. */
 export function defaultBranch(project, config) {
   const configured = config?.defaultBranch;
-  if (configured && refExists(project, configured)) return configured;
-  const head = git(project, ['symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD']);
-  if (head.ok && head.out.trim()) return head.out.trim();
-  return ['main', 'master'].find((b) => refExists(project, b)) ?? null;
+  if (configured && localOrRemote(project, configured)) return configured;
+  const head = git(project, ['symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD']).out.trim();
+  if (head) return head.replace(/^origin\//, '');
+  return ['main', 'master'].find((b) => localOrRemote(project, b)) ?? null;
+}
+
+/** Refs that stand for a branch: the local branch, origin/<name> and its configured upstream (whichever exist). */
+export function branchRefs(project, name) {
+  if (!name) return [];
+  const found = localAndOrigin(project, name);
+  const refs = found.map((r) => r.ref);
+  const up = found.find((r) => r.ref === name)?.upstream;
+  if (up && !refs.includes(up) && refExists(project, up)) refs.push(up);
+  return refs;
+}
+
+/** The ref with the fewest commits between its merge-base with HEAD and HEAD; `skip(ref, mergeBase)` drops candidates. */
+function nearestRef(project, refs, skip = () => false) {
+  let best = null;
+  let bestCount = Infinity;
+  for (const ref of refs) {
+    const mb = git(project, ['merge-base', ref, 'HEAD']);
+    if (!mb.ok || skip(ref, mb.out.trim())) continue;
+    const count = Number(git(project, ['rev-list', '--count', `${mb.out.trim()}..HEAD`]).out.trim());
+    if (Number.isFinite(count) && count < bestCount) {
+      best = ref;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/** `gh pr create --base X` (or the default): the nearest of X and origin/X, so a stale local X does not count others' commits. */
+export function prBaseRef(project, base) {
+  if (!base) return null;
+  return nearestRef(project, branchRefs(project, base)) ?? base;
 }
 
 export function readAtRef(project, ref, file) {
@@ -661,15 +713,69 @@ function nameStatus(project, args) {
   return files.filter((f) => f !== undefined);
 }
 
-function addedLines(project, args, file) {
-  const out = git(project, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-renames', '-U0', ...args, '--', file]).out;
-  const lines = out.split('\n');
+const DIFF_ARGS = ['-c', 'core.quotePath=false', '--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-renames', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '-U0'];
+const C_ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+
+/** A path from a `---` / `+++` header: strip the a/ b/ prefix, the trailing tab git adds after paths with spaces, and C quoting. */
+function headerPath(raw) {
+  let p = raw.replace(/\t$/, '');
+  if (p.startsWith('"') && p.endsWith('"')) {
+    const bytes = [];
+    for (let i = 1; i < p.length - 1; i += 1) {
+      if (p[i] !== '\\') {
+        bytes.push(...Buffer.from(p[i], 'utf8'));
+      } else if (/[0-7]{3}/.test(p.slice(i + 1, i + 4))) {
+        bytes.push(parseInt(p.slice(i + 1, i + 4), 8));
+        i += 3;
+      } else {
+        bytes.push(C_ESCAPES[p[i + 1]] ?? p.charCodeAt(i + 1));
+        i += 1;
+      }
+    }
+    p = Buffer.from(bytes).toString('utf8');
+  }
+  return p === '/dev/null' ? null : p.replace(/^[ab]\//, '');
+}
+
+/** Binary and mode-only diffs have no ---/+++ lines: read `diff --git a/P b/P` (with --no-renames both sides match). */
+function gitLinePath(line) {
+  const rest = line.slice('diff --git '.length);
+  const quoted = /^("(?:[^"\\]|\\.)*") ("(?:[^"\\]|\\.)*")$/.exec(rest);
+  if (quoted) return headerPath(quoted[2]);
+  const half = (rest.length - 1) / 2;
+  const [a, b] = [rest.slice(0, half), rest.slice(half + 1)];
+  return Number.isInteger(half) && a.startsWith('a/') && b === `b/${a.slice(2)}` ? a.slice(2) : null;
+}
+
+function parseDiffChunk(chunk, out) {
+  const lines = chunk.split('\n');
   const first = lines.findIndex((l) => l.startsWith('@@'));
-  if (first === -1) return [];
-  return lines
-    .slice(first)
-    .filter((l) => l.startsWith('+'))
-    .map((l) => l.slice(1));
+  const header = first === -1 ? lines : lines.slice(0, first);
+  const plus = header.find((l) => l.startsWith('+++ '));
+  const minus = header.find((l) => l.startsWith('--- '));
+  const file = (plus && headerPath(plus.slice(4))) ?? (minus && headerPath(minus.slice(4))) ?? gitLinePath(lines[0]);
+  if (!file) return;
+  const added = first === -1 ? [] : lines.slice(first).filter((l) => l.startsWith('+')).map((l) => l.slice(1));
+  out.set(file, [...(out.get(file) ?? []), ...added]);
+}
+
+/** Added lines per file for a whole diff range, in one `git diff -U0` call. */
+function addedByFile(project, args) {
+  const out = new Map();
+  const text = git(project, [...DIFF_ARGS, ...args]).out;
+  for (const chunk of text.split(/^(?=diff --git )/m)) if (chunk.startsWith('diff --git ')) parseDiffChunk(chunk, out);
+  return out;
+}
+
+/** Added lines for `files`: one diff for the range; a file the batch parse missed falls back to its own diff. */
+function addedLinesFor(project, args, files) {
+  const batch = files.length ? addedByFile(project, args) : new Map();
+  const result = new Map();
+  for (const file of files) {
+    if (batch.has(file)) result.set(file, batch.get(file));
+    else result.set(file, addedByFile(project, [...args, '--', file]).values().next().value ?? []);
+  }
+  return result;
 }
 
 function workTreeText(project, file) {
@@ -686,24 +792,32 @@ function untrackedAdded(project, file) {
   return text.split('\n').filter((l, i, a) => i < a.length - 1 || l !== '');
 }
 
+/**
+ * What the commit will hold: the index plus what `extra` (commit -a, pathspecs, a chained git add) stages.
+ * Each change carries staged (already in the index) and viaCommand (staged only by this command's add / -a / pathspecs).
+ */
 export function stagedChanges(project, config, extra = {}) {
   const hasHead = refExists(project, 'HEAD');
   const base = hasHead ? 'HEAD' : EMPTY_TREE;
   const staged = nameStatus(project, ['--cached', base]);
+  const stagedSet = new Set(staged);
   const work = new Set();
   if (extra.all || extra.paths === 'all') for (const f of gitNul(project, ['diff', '--name-only', '-z'])) work.add(f);
   if (extra.paths === 'all') for (const f of gitNul(project, ['ls-files', '--others', '--exclude-standard', '-z'])) work.add(f);
   else if (Array.isArray(extra.paths)) for (const f of extra.paths) work.add(f);
   const tracked = new Set(gitNul(project, ['ls-files', '-z']));
 
+  const files = [...new Set([...staged, ...work])];
+  const workTracked = files.filter((f) => work.has(f) && tracked.has(f));
+  const indexOnly = files.filter((f) => !work.has(f));
+  const fromWork = addedLinesFor(project, [base], workTracked);
+  const fromIndex = addedLinesFor(project, ['--cached', base], indexOnly);
+
   const changes = [];
-  for (const file of new Set([...staged, ...work])) {
+  for (const file of files) {
     const inWork = work.has(file);
-    const isTracked = tracked.has(file);
-    let added;
-    if (inWork && !isTracked) added = untrackedAdded(project, file);
-    else added = addedLines(project, inWork ? [base] : ['--cached', base], file);
-    const change = { file, added };
+    const added = fromWork.get(file) ?? fromIndex.get(file) ?? untrackedAdded(project, file);
+    const change = { file, added, staged: stagedSet.has(file), viaCommand: inWork };
     if (pathClass(file, config) === 'manifest') {
       change.before = hasHead ? (readAtRef(project, 'HEAD', file) ?? '') : '';
       change.after = inWork ? workTreeText(project, file) : (readAtRef(project, null, file) ?? '');
@@ -718,31 +832,18 @@ export function stagedChanges(project, config, extra = {}) {
  * branch freshly cut from an unmerged danger branch is judged on its own). push / pr leave it false: such a
  * candidate could be a decoy (`git branch deps/tmp`) hiding the branch's history.
  */
-export function branchBase(project, config, prBase, { allowAtHead = false } = {}) {
+export function branchBase(project, config, prBase, { allowAtHead = false, current = currentBranch(project), def = defaultBranch(project, config) } = {}) {
   if (prBase) return prBase;
-  const current = currentBranch(project);
   const prefixes = Object.values(config?.prefixes ?? {});
-  const candidates = [];
-  const def = defaultBranch(project, config);
-  if (def && def !== current) candidates.push(def);
+  // The default branch counts as local, origin/<def> and its upstream: a stale local copy must not add others' commits.
+  const defRefs = branchRefs(project, def).filter((r) => r !== current);
+  const candidates = [...defRefs];
   for (const b of gitLines(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])) {
     if (b !== current && !candidates.includes(b) && prefixes.some((p) => b.startsWith(p))) candidates.push(b);
   }
-  let best = null;
-  let bestCount = Infinity;
   const head = git(project, ['rev-parse', 'HEAD']).out.trim();
-  for (const cand of candidates) {
-    const mb = git(project, ['merge-base', cand, 'HEAD']);
-    if (!mb.ok) continue;
-    // A non-default branch whose tip is at or ahead of HEAD would hide this branch's own commits.
-    if (!allowAtHead && cand !== def && mb.out.trim() === head) continue;
-    const count = Number(git(project, ['rev-list', '--count', `${mb.out.trim()}..HEAD`]).out.trim());
-    if (Number.isFinite(count) && count < bestCount) {
-      best = cand;
-      bestCount = count;
-    }
-  }
-  return best;
+  // A non-default branch whose tip is at or ahead of HEAD would hide this branch's own commits.
+  return nearestRef(project, candidates, (ref, mb) => !allowAtHead && !defRefs.includes(ref) && mb === head);
 }
 
 export function branchChanges(project, config, base) {
@@ -750,8 +851,10 @@ export function branchChanges(project, config, base) {
   if (!mbRes.ok) return [];
   const mb = mbRes.out.trim();
   const range = `${mb}..HEAD`;
-  return nameStatus(project, [range]).map((file) => {
-    const change = { file, added: addedLines(project, [range], file) };
+  const files = nameStatus(project, [range]);
+  const added = addedLinesFor(project, [range], files);
+  return files.map((file) => {
+    const change = { file, added: added.get(file) ?? [] };
     if (pathClass(file, config) === 'manifest') {
       change.before = readAtRef(project, mb, file) ?? '';
       change.after = readAtRef(project, 'HEAD', file) ?? '';
@@ -798,7 +901,8 @@ const DANGER = ['db', 'packages', 'network'];
 const CLASS_ORDER = ['db', 'packages', 'network', 'code'];
 const MIGRATION_DIRS = ['**/migrations/**', '**/db/migrate/**', '**/alembic/versions/**', '**/drizzle/**'];
 const CONFIG_FILE = '.claude/atomicity.json';
-const GENERATE_FALLBACK = "run your ORM's migration generator";
+const NO_GENERATOR =
+  'no migration generator is configured — set migrations.generate, or set migrations.allowEdits: true for tools whose migrations are hand-written (golang-migrate, Flyway, dbmate, goose)';
 
 const allow = (note) => (note ? { block: false, note } : { block: false });
 const block = (rule, text) => ({ block: true, reason: `Atomicity guard (${rule}): ${text}` });
@@ -806,9 +910,26 @@ const quote = (f) => (/^[\w./@%+=:,-]+$/.test(f) ? f : `'${f.replaceAll("'", `'\
 const fileList = (files) => files.map(quote).join(' ');
 const slug = (branch) => (branch ?? 'change').replace(/^[^/]*\//, '').replace(/[^\w.-]+/g, '-') || 'change';
 
-function projectRel(project, file) {
-  const rel = relative(project, resolve(project, file)).replaceAll('\\', '/');
+/** `file` relative to `root`, comparing real paths (symlinked temp dirs, worktrees); null when outside. */
+function relInside(root, file) {
+  const rel = relative(realish(root), realish(file)).replaceAll('\\', '/');
   return !rel || rel.startsWith('..') || isAbsolute(rel) ? null : rel;
+}
+
+/** realpath of the longest existing ancestor, with the missing tail re-appended (the file may not exist yet). */
+function realish(path) {
+  const tail = [];
+  let head = resolve(path);
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return resolve(path);
+      tail.unshift(basename(head));
+      head = parent;
+    }
+  }
 }
 
 function inMigrationDir(rel, config) {
@@ -817,57 +938,73 @@ function inMigrationDir(rel, config) {
   return matchesAny(globs, rel);
 }
 
-function guardWrite(project, file, config) {
-  const rel = projectRel(project, file);
-  if (!rel) return null;
-  if (rel === CONFIG_FILE) {
+/** R4. Relative paths resolve against the tool's cwd; the migration check is relative to the repo holding the file. */
+function guardWrite(ctx, file, config) {
+  const abs = resolve(ctx.cwd, file);
+  const repoRel = relInside(ctx.repo, abs);
+  const projectRel = relInside(ctx.project, abs);
+  if (repoRel === CONFIG_FILE || projectRel === CONFIG_FILE) {
     return block('R4', `${CONFIG_FILE} configures this hook; only a human edits this file. Ask the user to make the change themselves.`);
   }
-  if (inMigrationDir(rel, config) && !config.migrations?.allowEdits) {
-    const generate = config.migrations?.generate || GENERATE_FALLBACK;
-    return block(
-      'R4',
-      `${rel} is inside a migration directory; migrations are generated, not hand-written. ` +
-        `Edit the schema/model source instead, then run: ${generate}. ` +
-        `(A human can allow hand edits with "migrations": { "allowEdits": true } in ${CONFIG_FILE}.)`,
-    );
+  const rel = repoRel ?? projectRel;
+  if (rel && inMigrationDir(rel, config) && !config.migrations?.allowEdits) {
+    const generate = config.migrations?.generate;
+    const next = generate
+      ? `Edit the schema/model source instead, then run: ${generate}. (A human can allow hand edits with "migrations": { "allowEdits": true } in ${CONFIG_FILE}.)`
+      : `Edit the schema/model source instead and generate the migration with your tool. Note: ${NO_GENERATOR} in ${CONFIG_FILE} (a human edits that file).`;
+    return block('R4', `${rel} is inside a migration directory; migrations are generated, not hand-written. ${next}`);
   }
   return null;
 }
 
-/** Expand `git add` / commit pathspecs to the concrete files they would stage. */
-function expandPaths(project, paths) {
+/** Expand `git add` / commit pathspecs (relative to the shell's cwd) to the concrete repo-relative files they would stage. */
+function expandPaths(cwd, paths) {
   if (!paths.length) return [];
-  const files = gitNul(project, ['ls-files', '-z', '--modified', '--others', '--exclude-standard', '--', ...paths]);
+  const files = gitNul(cwd, ['ls-files', '-z', '--full-name', '--modified', '--others', '--exclude-standard', '--', ...paths]);
   return [...new Set(files)];
 }
 
-function commitPlan(project, intents) {
+function commitPlan(ctx, intents) {
   const { adds, commit } = intents;
   const raw = [...(Array.isArray(adds) ? adds : []), ...(commit.paths ?? [])];
-  const paths = adds === 'all' ? 'all' : expandPaths(project, raw);
+  const paths = adds === 'all' ? 'all' : expandPaths(ctx.cwd, raw);
   return { all: commit.all || intents.addsTracked, paths };
 }
 
-function willStage(project, plan, file) {
+function willStage(repo, plan, file) {
   if (plan.paths === 'all') return true;
   if (plan.paths.includes(file)) return true;
-  return plan.all && gitNul(project, ['ls-files', '-z', '--', file]).includes(file);
+  return plan.all && gitNul(repo, ['ls-files', '-z', '--', file]).includes(file);
 }
 
+/** { groups: class → files, evidence: file → the line that made it network, unstage / drop: files for the R1 hint }. */
 function groupByClass(changes, config) {
-  const groups = {};
+  const out = { groups: {}, evidence: new Map(), staged: new Set(), viaCommand: new Set() };
   for (const change of changes) {
-    const cls = classify(change, config);
+    const { cls, line } = classifyDetail(change, config);
     if (cls === 'neutral') continue;
-    (groups[cls] ??= []).push(change.file);
+    (out.groups[cls] ??= []).push(change.file);
+    if (line !== undefined) out.evidence.set(change.file, line);
+    if (change.staged) out.staged.add(change.file);
+    if (change.viaCommand) out.viaCommand.add(change.file);
   }
-  for (const files of Object.values(groups)) files.sort();
-  return groups;
+  for (const files of Object.values(out.groups)) files.sort();
+  return out;
 }
 
+const EMPTY_GROUPED = { groups: {}, evidence: new Map(), staged: new Set(), viaCommand: new Set() };
 const orderedClasses = (groups) => CLASS_ORDER.filter((c) => groups[c]?.length);
-const describeGroups = (groups) => orderedClasses(groups).map((c) => `  ${c}: ${groups[c].join(', ')}`).join('\n');
+const snippet = (line) => {
+  const t = line.trim();
+  return t.length > 160 ? `${t.slice(0, 157)}...` : t;
+};
+const evidenceLines = (files, evidence) => files.filter((f) => evidence.has(f)).map((f) => `    ${f}: ${snippet(evidence.get(f))}`);
+
+function describeGroups({ groups, evidence }) {
+  return orderedClasses(groups)
+    .flatMap((c) => [`  ${c}: ${groups[c].join(', ')}`, ...evidenceLines(groups[c], evidence)])
+    .join('\n');
+}
 
 function largestDanger(groups) {
   const danger = DANGER.filter((c) => groups[c]?.length);
@@ -875,9 +1012,9 @@ function largestDanger(groups) {
 }
 
 function mergeGroups(a, b) {
-  const out = {};
-  for (const g of [a, b]) for (const [cls, files] of Object.entries(g)) out[cls] = [...new Set([...(out[cls] ?? []), ...files])].sort();
-  return out;
+  const groups = {};
+  for (const g of [a.groups, b.groups]) for (const [cls, files] of Object.entries(g)) groups[cls] = [...new Set([...(groups[cls] ?? []), ...files])].sort();
+  return { groups, evidence: new Map([...a.evidence, ...b.evidence]), staged: new Set(), viaCommand: new Set() };
 }
 
 function checkSpec(config, branch, zone, text) {
@@ -891,123 +1028,169 @@ function checkSpec(config, branch, zone, text) {
   );
 }
 
-function prefixBlock(config, zone, branch, files, onDefault) {
+function prefixBlock(config, zone, branch, files, onDefault, evidence) {
   const prefix = config.prefixes[zone];
   const where = onDefault ? `the default branch "${branch}"` : `branch "${branch}", which lacks the "${prefix}" prefix`;
+  const lines = evidenceLines(files, evidence);
   return block(
     'R2',
-    `${zone} changes (${files.join(', ')}) are on ${where}. Danger-zone changes live on a dedicated branch: ` +
+    `${zone} changes (${files.join(', ')}) are on ${where}.${lines.length ? `\n${lines.join('\n')}\n` : ' '}Danger-zone changes live on a dedicated branch: ` +
       `git switch -c ${prefix}${slug(onDefault ? null : branch)}`,
   );
 }
 
-function evaluateCommit(project, config, intents, branch, def) {
-  const plan = commitPlan(project, intents);
-  const groups = groupByClass(stagedChanges(project, config, plan), config);
+function r1Hint(grouped, rest, hasHead) {
+  const unstage = rest.filter((f) => grouped.staged.has(f));
+  const drop = rest.filter((f) => grouped.viaCommand.has(f));
+  const unstageCmd = hasHead ? 'git restore --staged' : 'git rm --cached -q';
+  const lines = [];
+  if (unstage.length) lines.push(`unstage the rest: ${unstageCmd} ${fileList(unstage)}`);
+  if (drop.length) lines.push(`${unstage.length ? 'and ' : ''}these are staged only by this command; drop them from the git add (or the -a / commit pathspec): ${fileList(drop)}`);
+  return lines.join('\n');
+}
+
+function evaluateCommit(ctx, config, intents, branch, def) {
+  const { repo } = ctx;
+  const plan = commitPlan(ctx, intents);
+  const grouped = groupByClass(stagedChanges(repo, config, plan), config);
+  const { groups } = grouped;
   const classes = orderedClasses(groups);
   if (classes.length > 1) {
     const keep = largestDanger(groups);
     const rest = classes.filter((c) => c !== keep).flatMap((c) => groups[c]);
     return {
-      groups,
+      grouped,
       plan,
       result: block(
         'R1',
-        `this commit mixes ${classes.join(' + ')}; a commit may hold one zone (tests, docs and specs may ride along).\n${describeGroups(groups)}\n` +
-          `Keep the ${keep} files and unstage the rest: git restore --staged ${fileList(rest)}\n` +
+        `this commit mixes ${classes.join(' + ')}; a commit may hold one zone (tests, docs and specs may ride along).\n${describeGroups(grouped)}\n` +
+          `Keep the ${keep} files and ${r1Hint(grouped, rest, refExists(repo, 'HEAD'))}\n` +
           `Then commit them separately (${keep} on a ${config.prefixes[keep]}… branch, the rest on its own branch).`,
       ),
     };
   }
   const zone = classes[0];
-  if (!DANGER.includes(zone) || !branch || !def) return { groups, plan, result: null };
+  if (!DANGER.includes(zone) || !branch || !def) return { grouped, plan, result: null };
   if (branch === def || !branch.startsWith(config.prefixes[zone])) {
-    return { groups, plan, result: prefixBlock(config, zone, branch, groups[zone], branch === def) };
+    return { grouped, plan, result: prefixBlock(config, zone, branch, groups[zone], branch === def, grouped.evidence) };
   }
-  return { groups, plan, result: checkSpec(config, branch, zone, commitSpecText(project, config, branch, plan)) };
+  return { grouped, plan, result: checkSpec(config, branch, zone, commitSpecText(repo, config, branch, plan)) };
 }
 
-function commitSpecText(project, config, branch, plan) {
+function commitSpecText(repo, config, branch, plan) {
   const path = specPath(config, branch);
-  if (willStage(project, plan, path)) {
+  if (willStage(repo, plan, path)) {
     try {
-      return readFileSync(join(project, path), 'utf8');
+      return readFileSync(join(repo, path), 'utf8');
     } catch {
       // not in the work tree: fall back to the index
     }
   }
-  return readAtRef(project, null, path);
+  return readAtRef(repo, null, path);
 }
 
-function evaluateBranch(project, config, intents, branch, commit) {
-  // gh pr create targets the default branch unless --base says otherwise; a branch created in this command starts at HEAD.
+/** A merge, cherry-pick or revert is being concluded: its staged set is someone else's already-reviewed commits. */
+function sequencerInProgress(repo) {
+  const paths = gitLines(repo, ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'CHERRY_PICK_HEAD', '--git-path', 'REVERT_HEAD']);
+  return paths.some((p) => existsSync(resolve(repo, p)));
+}
+
+function evaluateBranch(ctx, config, intents, branch, commit, def) {
+  const { repo } = ctx;
+  // gh pr create targets the default branch unless --base says otherwise (nearest of local and origin/).
+  // A branch created in this command starts at HEAD: a commit on it is judged alone, a push carries the pre-switch history.
   let base;
-  if (intents.pr) base = intents.pr.base ?? defaultBranch(project, config);
-  else if (intents.newBranch) base = 'HEAD';
-  else base = branchBase(project, config, null, { allowAtHead: Boolean(commit) && !intents.push });
+  if (intents.pr) base = prBaseRef(repo, intents.pr.base ?? def);
+  else if (intents.newBranch && !intents.push) base = 'HEAD';
+  else base = branchBase(repo, config, null, { allowAtHead: Boolean(commit) && !intents.push, current: branch, def });
   if (!base) return allow('atomicity: no default branch, branch checks skipped');
-  const groups = mergeGroups(groupByClass(branchChanges(project, config, base), config), commit?.groups ?? {});
+  const grouped = mergeGroups(groupByClass(branchChanges(repo, config, base), config), commit?.grouped ?? EMPTY_GROUPED);
+  const { groups } = grouped;
   const classes = orderedClasses(groups);
   if (classes.length > 1) {
     const keep = largestDanger(groups);
+    const parent = intents.pr && !intents.pr.base ? stackedParent(repo, config, branch, def) : null;
+    const stacked = parent ? `\nIf this PR stacks on ${parent}, target it instead: gh pr create --base ${parent}` : '';
     return block(
       'R2',
-      `branch "${branch}" (compared with ${base}) mixes ${classes.join(' + ')}; a branch may hold one zone.\n${describeGroups(groups)}\n` +
+      `branch "${branch}" (compared with ${base}) mixes ${classes.join(' + ')}; a branch may hold one zone.\n${describeGroups(grouped)}\n` +
         `Move the ${keep} changes to their own branch (git switch -c ${config.prefixes[keep]}${slug(branch)} ${base}, then cherry-pick or re-apply them) ` +
-        `and keep "${branch}" to the other zone.`,
+        `and keep "${branch}" to the other zone.${stacked}`,
     );
   }
   const zone = classes[0];
   if (!DANGER.includes(zone)) return allow();
-  if (!branch.startsWith(config.prefixes[zone])) return prefixBlock(config, zone, branch, groups[zone], false);
+  if (!branch.startsWith(config.prefixes[zone])) return prefixBlock(config, zone, branch, groups[zone], false, grouped.evidence);
   // R3 on push / gh pr create: the spec as committed (or as about to be committed, when chained with a commit).
   if (!intents.push && !intents.pr) return allow();
-  const text = commit ? commitSpecText(project, config, branch, commit.plan) : readAtRef(project, 'HEAD', specPath(config, branch));
+  const text = commit ? commitSpecText(repo, config, branch, commit.plan) : readAtRef(repo, 'HEAD', specPath(config, branch));
   return checkSpec(config, branch, zone, text) ?? allow();
 }
 
-function evaluateRules(event, project) {
+/** The nearest danger-prefixed ancestor branch, when it is nearer than the default branch (a stacked PR's parent). */
+function stackedParent(repo, config, branch, def) {
+  const parent = branchBase(repo, config, null, { current: branch, def });
+  return parent && !branchRefs(repo, def).includes(parent) ? parent : null;
+}
+
+function evaluateRules(event, ctx) {
+  const { project, repo } = ctx;
   const config = loadConfig(project);
   if (config.enabled === false) return allow();
   const { tool_name, tool_input = {} } = event ?? {};
 
   if (['Edit', 'MultiEdit', 'Write'].includes(tool_name)) {
-    return (typeof tool_input.file_path === 'string' && guardWrite(project, tool_input.file_path, config)) || allow();
+    return (typeof tool_input.file_path === 'string' && guardWrite(ctx, tool_input.file_path, config)) || allow();
   }
   if (tool_name !== 'Bash' || typeof tool_input.command !== 'string') return allow();
   const command = tool_input.command;
   for (const target of shellWriteTargets(command)) {
-    const hit = guardWrite(project, target, config);
+    const hit = guardWrite(ctx, target, config);
     if (hit) return hit;
   }
 
   const intents = gitIntents(command);
   if (!intents.commit && !intents.push && !intents.pr) return allow();
-  if (!isRepo(project)) return allow('atomicity: not a git repo, skipped');
+  if (!ctx.isRepo) return allow('atomicity: not a git repo, skipped');
 
   if (intents.otherSwitch) {
-    const next = intents.commit ? 'commit' : 'push';
+    const next = intents.commit ? 'commit' : intents.push ? 'push' : 'gh pr create';
     return block('R2', `run the branch switch as its own command, then ${next}.`);
   }
-  const branch = intents.newBranch ?? currentBranch(project);
+  const branch = intents.newBranch ?? currentBranch(repo);
   if (branch && config.exempt.includes(branch)) return allow();
-  const def = defaultBranch(project, config);
+  const def = defaultBranch(repo, config);
   const skipNote = !branch ? 'atomicity: detached HEAD, branch checks skipped' : !def ? 'atomicity: no default branch, branch checks skipped' : null;
 
   let commit = null;
   if (intents.commit) {
-    commit = evaluateCommit(project, config, intents, branch, def);
-    if (commit.result) return commit.result;
+    // Concluding a merge / cherry-pick / revert: skip R1 (and the staged set) and judge the branch's own history only.
+    if (sequencerInProgress(repo)) commit = { grouped: EMPTY_GROUPED, plan: commitPlan(ctx, intents) };
+    else {
+      commit = evaluateCommit(ctx, config, intents, branch, def);
+      if (commit.result) return commit.result;
+    }
   }
   if (skipNote) return allow(skipNote);
   if (branch === def) return allow();
-  return evaluateBranch(project, config, intents, branch, commit);
+  return evaluateBranch(ctx, config, intents, branch, commit, def);
 }
 
+/** Top of the repository the tool runs in (event.cwd, e.g. a worktree), else the project's; else the project dir. */
+function repoRoot(cwd, project) {
+  for (const dir of new Set([cwd, project])) {
+    const top = git(dir, ['rev-parse', '--show-toplevel']);
+    if (top.ok && top.out.trim()) return { repo: top.out.trim(), isRepo: true };
+  }
+  return { repo: project, isRepo: false };
+}
+
+/** Config comes from the project dir; git and R4 paths follow the tool's cwd (worktrees, subdirectories). */
 export function evaluate(event, { projectDir } = {}) {
   try {
     const project = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
-    return evaluateRules(event, project);
+    const cwd = typeof event?.cwd === 'string' && event.cwd ? resolve(project, event.cwd) : project;
+    return evaluateRules(event, { project, cwd, ...repoRoot(cwd, project) });
   } catch (error) {
     return allow(`atomicity: internal error, skipped: ${error?.message ?? error}`);
   }

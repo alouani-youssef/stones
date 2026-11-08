@@ -462,10 +462,10 @@ describe('evaluate', () => {
         assert.ok(r.reason.includes(GEN), r.reason);
       }
     });
-    it('falls back to generic generator text', () => {
+    it('without a generator, says none is configured', () => {
       const r = run(project({}), write('alembic/versions/a1.py'));
       blocked(r, 'R4');
-      assert.match(r.reason, /run your ORM's migration generator/);
+      assert.match(r.reason, /no migration generator is configured/);
     });
     it('allows model files, configured dirs and allowEdits', () => {
       allowed(run(project(), write('prisma/schema.prisma')));
@@ -762,25 +762,76 @@ describe('evaluate', () => {
   });
 
   describe('final review fixes', () => {
-    it('#5 env prefixes, env/command wrappers and absolute git paths are recognised', () => {
-      for (const cmd of ['GIT_AUTHOR_NAME=x git commit -m y', 'HUSKY=0 git commit -m y', 'command git commit -m y', 'env git commit -m y', 'env -u FOO A=1 git commit -m y', '/usr/bin/git commit -m y', 'A=1 B=2 command -p git commit -m y'])
-        assert.deepEqual(gitIntents(cmd).commit, { all: false, paths: [] }, cmd);
-      assert.equal(gitIntents('HUSKY=0 git push').push, true);
-      assert.deepEqual(gitIntents('GH_TOKEN=x gh pr create --base deps/a').pr, { base: 'deps/a' });
-      assert.equal(gitIntents('mygit commit -m x').commit, null);
+    const lockSpec = (p, branch) => put(p, `.claude/danger/${branch.replaceAll('/', '--')}.md`, spec('packages'));
+    // origin/main ahead of a stale local main, carrying a teammate's dependency change.
+    const staleMain = () => {
       const p = project();
+      sh(p, 'switch', '-q', '-c', 'teammate');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      commitAll(p, 'teammate deps');
+      sh(p, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+      sh(p, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+      sh(p, 'switch', '-q', '-c', 'feat/x', 'origin/main');
+      sh(p, 'branch', '-q', '-D', 'teammate');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      commitAll(p, 'code');
+      return p;
+    };
+
+    it('#1 a stale local default branch does not leak teammates files into R2', () => {
+      const p = staleMain();
+      allowed(run(p, bash('git push')));
+      allowed(run(p, bash('gh pr create --fill')));
+      put(p, 'src/index.ts', 'export const a = 3;\n');
+      sh(p, 'add', 'src/index.ts');
+      allowed(run(p, bash('git commit -m x')));
+      assert.equal(branchBase(p, DEFAULTS, null), 'origin/main');
+    });
+    it('#1 origin/HEAD fallback is normalised to the local branch name', () => {
+      const p = repo('trunk');
+      put(p, 'src/index.ts', 'x\n');
+      commitAll(p, 'init');
+      sh(p, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+      sh(p, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+      assert.equal(defaultBranch(p, DEFAULTS), 'trunk');
       stageMigration(p);
-      blocked(run(p, bash('HUSKY=0 git commit -m x')), 'R2');
+      const r = run(p, bash('git commit -m x'));
+      blocked(r, 'R2');
+      assert.match(r.reason, /the default branch "trunk"/);
     });
 
-    it('#7 specPath tolerates trailing slashes on specDir', () => {
-      assert.equal(specPath({ ...DEFAULTS, specDir: '.claude/danger//' }, 'db/x'), '.claude/danger/db--x.md');
-    });
-
-    it('#11 a new package.json without dependency sections is not packages', () => {
-      assert.equal(dependencyChanged('package.json', '', '{"name":"a","scripts":{}}'), false);
-      assert.equal(dependencyChanged('package.json', '', '{"name":"a","dependencies":{}}'), false);
-      assert.equal(dependencyChanged('package.json', '{"name":"a"}', '{"name":"a","devDependencies":{"x":"1"}}'), true);
+    it('#2 finishing a merge, cherry-pick or revert skips R1', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'db/orders');
+      put(p, 'prisma/migrations/1/m.sql', 'CREATE TABLE o (id int);\n');
+      put(p, '.claude/danger/db--orders.md', spec('db'));
+      commitAll(p, 'migration');
+      sh(p, 'switch', '-q', 'main');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      commitAll(p, 'main moves on');
+      sh(p, 'switch', '-q', 'db/orders');
+      sh(p, 'merge', '-q', '--no-commit', '--no-ff', 'main');
+      allowed(run(p, bash('git commit -m merge')));
+      allowed(run(p, bash('git commit --no-edit')));
+      sh(p, 'merge', '--abort');
+      // Without a merge in progress the same staged set is still R1.
+      sh(p, 'checkout', 'main', '--', 'src/a.ts', 'pnpm-lock.yaml');
+      blocked(run(p, bash('git commit -m x')), 'R1');
+      sh(p, 'reset', '-q', '--hard');
+      // Conflicting cherry-pick leaves CHERRY_PICK_HEAD.
+      sh(p, 'switch', '-q', 'main');
+      put(p, 'src/index.ts', 'export const a = 2;\n');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 10\n');
+      commitAll(p, 'pick me');
+      const pick = sh(p, 'rev-parse', 'HEAD').trim();
+      sh(p, 'switch', '-q', '-c', 'feat/pick', 'HEAD~1');
+      put(p, 'src/index.ts', 'export const a = 9;\n');
+      commitAll(p, 'conflict');
+      spawnSync('git', ['-C', p, '-c', 'user.email=t@t', '-c', 'user.name=t', 'cherry-pick', pick], { encoding: 'utf8' });
+      put(p, 'src/index.ts', 'export const a = 2;\n');
+      sh(p, 'add', '-A');
+      allowed(run(p, bash('git commit --no-edit')));
     });
 
     it('#3 namespace/schema hosts, comment lines and package metadata are not network', () => {
@@ -792,7 +843,6 @@ describe('evaluate', () => {
       assert.equal(classify(pkg, DEFAULTS), 'code');
       assert.equal(classify({ file: 'src/c.json', added: ['"url": "https://api.acme.io"'] }, DEFAULTS), 'network');
     });
-
     it('#3 zones.network.allowHosts tunes the URL check', () => {
       assert.deepEqual(DEFAULTS.zones.network.allowHosts, []);
       const c = loadConfig(withConfig({ zones: { network: { allowHosts: ['*.acme.io', 'github.com'] } } }));
@@ -800,11 +850,175 @@ describe('evaluate', () => {
       assert.ok(networkHit(["fetch('https://api.stripe.com')"], c));
       assert.ok(networkHit(["'https://github.com.evil.io'"], c));
     });
+    it('#3 block messages carry the matched line', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'feat/x');
+      put(p, 'src/pay.ts', "export const r = fetch('https://api.stripe.com/v1');\n");
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      sh(p, 'add', '-A');
+      const r1 = run(p, bash('git commit -m x'));
+      blocked(r1, 'R1');
+      assert.ok(r1.reason.includes("src/pay.ts: export const r = fetch('https://api.stripe.com/v1');"), r1.reason);
+      sh(p, 'reset', '-q', 'HEAD', 'src/a.ts');
+      const r2 = run(p, bash('git commit -m x'));
+      blocked(r2, 'R2');
+      assert.ok(r2.reason.includes("src/pay.ts: export const r = fetch('https://api.stripe.com/v1');"), r2.reason);
+    });
 
+    it('#4 judges a worktree commit against event.cwd, R4 paths too', () => {
+      const p = project();
+      const wt = join(mkdtempSync(join(tmpdir(), 'atomicity-wt-')), 'wt');
+      sh(p, 'worktree', 'add', '-q', '-b', 'feat/wt', wt);
+      put(wt, 'prisma/migrations/1/m.sql', 'CREATE TABLE o (id int);\n');
+      sh(wt, 'add', '-A');
+      const r = evaluate({ ...bash('git commit -m x'), cwd: wt }, { projectDir: p });
+      blocked(r, 'R2');
+      assert.match(r.reason, /feat\/wt/);
+      allowed(run(p, bash('git commit -m x')));
+      blocked(evaluate({ ...write(join(wt, 'prisma/migrations/2/m.sql')), cwd: wt }, { projectDir: p }), 'R4');
+      blocked(evaluate({ ...bash('echo x > prisma/migrations/2/m.sql'), cwd: wt }, { projectDir: p }), 'R4');
+      blocked(evaluate({ ...bash('echo x > migrations/2/m.sql'), cwd: join(p, 'prisma') }, { projectDir: p }), 'R4');
+      blocked(evaluate({ ...write(join(wt, '.claude/atomicity.json')), cwd: wt }, { projectDir: p }), 'R4');
+    });
+    it('#4 a subdirectory cwd stages pathspecs relative to it', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'feat/x');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      sh(p, 'add', 'pnpm-lock.yaml');
+      blocked(evaluate({ ...bash('git add a.ts && git commit -m x'), cwd: join(p, 'src') }, { projectDir: p }), 'R1');
+    });
+
+    it('#5 env prefixes, env/command wrappers and absolute git paths are recognised', () => {
+      for (const cmd of ['GIT_AUTHOR_NAME=x git commit -m y', 'HUSKY=0 git commit -m y', 'command git commit -m y', 'env git commit -m y', 'env -u FOO A=1 git commit -m y', '/usr/bin/git commit -m y', 'A=1 B=2 command -p git commit -m y'])
+        assert.deepEqual(gitIntents(cmd).commit, { all: false, paths: [] }, cmd);
+      assert.equal(gitIntents('HUSKY=0 git push').push, true);
+      assert.deepEqual(gitIntents('GH_TOKEN=x gh pr create --base deps/a').pr, { base: 'deps/a' });
+      assert.equal(gitIntents('mygit commit -m x').commit, null);
+      const p = project();
+      stageMigration(p);
+      blocked(run(p, bash('HUSKY=0 git commit -m x')), 'R2');
+    });
+
+    it('#6 one git diff per range, whatever the file count', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'feat/x');
+      for (let i = 0; i < 40; i += 1) put(p, `src/f${i}.ts`, `export const v${i} = ${i};\n`);
+      put(p, 'src/my file.ts', "fetch('https://api.stripe.com')\n");
+      commitAll(p, 'many');
+      for (let i = 0; i < 40; i += 1) put(p, `src/f${i}.ts`, `export const v${i} = ${i + 1};\n`);
+      sh(p, 'add', '-A');
+      const trace = join(mkdtempSync(join(tmpdir(), 'atomicity-trace-')), 'trace');
+      process.env.GIT_TRACE = trace;
+      let r;
+      try {
+        r = run(p, bash('git commit -m x && git push'));
+      } finally {
+        delete process.env.GIT_TRACE;
+      }
+      blocked(r, 'R2');
+      assert.ok(r.reason.includes("src/my file.ts: fetch('https://api.stripe.com')"), r.reason);
+      const diffs = readFileSync(trace, 'utf8').split('\n').filter((l) => /built-in: git .*\bdiff\b.*-U0/.test(l));
+      assert.ok(diffs.length <= 3, `${diffs.length} git diff -U0 calls`);
+    });
+    it('#6 the batched diff maps quoted, spaced, non-ASCII, binary and deleted paths without per-file fallbacks', () => {
+      const p = repo();
+      put(p, 'gone.ts', 'x\n');
+      commitAll(p, 'init');
+      sh(p, 'rm', '-q', 'gone.ts');
+      put(p, 'q"t.ts', 'quoted\n');
+      put(p, 'my file.ts', 'spaced\n');
+      put(p, 'é.ts', 'accent\n');
+      writeFileSync(join(p, 'x.bin'), Buffer.from([0, 1, 2, 0, 255]));
+      sh(p, 'add', '-A');
+      const trace = join(mkdtempSync(join(tmpdir(), 'atomicity-trace-')), 'trace');
+      process.env.GIT_TRACE = trace;
+      let changes;
+      try {
+        changes = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
+      } finally {
+        delete process.env.GIT_TRACE;
+      }
+      const by = Object.fromEntries(changes.map((c) => [c.file, c.added]));
+      assert.deepEqual(by, { 'gone.ts': [], 'q"t.ts': ['quoted'], 'my file.ts': ['spaced'], 'é.ts': ['accent'], 'x.bin': [] });
+      const diffs = readFileSync(trace, 'utf8').split('\n').filter((l) => /built-in: git .*\bdiff\b.*-U0/.test(l));
+      assert.equal(diffs.length, 1);
+    });
     it('#6 the atomicity hook entry declares an explicit timeout', () => {
       const hooks = JSON.parse(readFileSync(join(import.meta.dirname, '../settings/hooks.json'), 'utf8'));
       const entry = hooks.PreToolUse.flatMap((m) => m.hooks).find((h) => h.command.includes('atomicity.mjs'));
       assert.ok(entry.timeout >= 30, JSON.stringify(entry));
+    });
+
+    it('#7 specPath tolerates trailing slashes on specDir', () => {
+      assert.equal(specPath({ ...DEFAULTS, specDir: '.claude/danger//' }, 'db/x'), '.claude/danger/db--x.md');
+    });
+
+    it('#8 git switch -c X && git push is judged on the pre-switch branch history', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'feat/a');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      commitAll(p, 'mixed');
+      blocked(run(p, bash('git switch -c feat/b && git push -u origin feat/b')), 'R2');
+      sh(p, 'switch', '-q', 'main');
+      put(p, 'src/a.ts', 'export const b = 3;\n');
+      sh(p, 'add', 'src/a.ts');
+      allowed(run(p, bash('git switch -c feat/c && git commit -m x && git push -u origin feat/c')));
+    });
+
+    it('#9 R1 hint: drop chained-add files from the git add; unborn HEAD uses git rm --cached', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'deps/x');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      sh(p, 'add', 'pnpm-lock.yaml');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      const r = run(p, bash('git add src/a.ts && git commit -m x'));
+      blocked(r, 'R1');
+      assert.match(r.reason, /drop them from the git add[^\n]*: src\/a\.ts/);
+      assert.doesNotMatch(r.reason, /git restore --staged/);
+      const q = repo();
+      put(q, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      put(q, 'src/a.ts', 'x\n');
+      sh(q, 'add', '-A');
+      const u = run(q, bash('git commit -m x'));
+      blocked(u, 'R1');
+      assert.match(u.reason, /git rm --cached -q src\/a\.ts/);
+    });
+
+    it('#10 the separate-switch block names the actual action', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'feat/x');
+      assert.match(run(p, bash('git switch main && git push')).reason, /then push\.$/);
+      assert.match(run(p, bash('git switch main && gh pr create --fill')).reason, /then gh pr create\.$/);
+      assert.match(run(p, bash('git switch main && git commit -m x')).reason, /then commit\.$/);
+    });
+
+    it('#11 a new package.json without dependency sections is not packages', () => {
+      assert.equal(dependencyChanged('package.json', '', '{"name":"a","scripts":{}}'), false);
+      assert.equal(dependencyChanged('package.json', '', '{"name":"a","dependencies":{}}'), false);
+      assert.equal(dependencyChanged('package.json', '{"name":"a"}', '{"name":"a","devDependencies":{"x":"1"}}'), true);
+    });
+
+    it('#12 R4 without a generator explains the options', () => {
+      const r = run(project({}), write('alembic/versions/a1.py'));
+      blocked(r, 'R4');
+      assert.doesNotMatch(r.reason, /then run: run your ORM/);
+      assert.match(r.reason, /no migration generator is configured — set migrations\.generate, or set migrations\.allowEdits: true for tools whose migrations are hand-written \(golang-migrate, Flyway, dbmate, goose\)/);
+    });
+
+    it('#13 gh pr create without --base on a stacked branch suggests --base <parent>', () => {
+      const p = project();
+      sh(p, 'switch', '-q', '-c', 'deps/lock');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      lockSpec(p, 'deps/lock');
+      commitAll(p, 'deps');
+      sh(p, 'switch', '-q', '-c', 'feat/on-deps');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      commitAll(p, 'code');
+      const r = run(p, bash('gh pr create --fill'));
+      blocked(r, 'R2');
+      assert.match(r.reason, /gh pr create --base deps\/lock/);
     });
 
     it('#14 settings/settings.json registers the atomicity hook', () => {
