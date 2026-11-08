@@ -88,47 +88,56 @@ function isTestOrSpecFile(file) {
 }
 
 const blocked = (reason) => ({ block: true, reason: `Testing guard: ${reason}` });
+const allow = () => ({ block: false });
 
-export function evaluate(event, { projectDir } = {}) {
-  const { tool_name, tool_input = {} } = event ?? {};
-  const project = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
-
-  if (tool_name === 'Bash') {
-    const command = tool_input.command ?? '';
-    if (isTestCommand(command)) {
-      const status = inspectTaskNote(readTaskNote(project));
-      if (!status.valid) return blocked(status.reason);
-    }
-    for (const target of shellWriteTargets(command)) {
-      const file = resolve(project, target);
-      const rel = relative(project, file);
-      if (rel && !rel.startsWith('..') && !isAbsolute(rel) && isTestOrSpecFile(rel)) {
-        const status = inspectTaskNote(readTaskNote(project));
-        if (!status.valid) return blocked(status.reason);
-        if (!status.changed) {
-          return blocked(`do not edit ${rel} to make a failing check pass. Fix the source; if expected behavior is changing, record the change and rationale in ## Contract change in ${TASK_NOTE}.`);
-        }
-      }
-    }
-    return { block: false };
-  }
-
-  if (!['Edit', 'MultiEdit', 'Write'].includes(tool_name) || typeof tool_input.file_path !== 'string') {
-    return { block: false };
-  }
-
-  const file = resolve(project, tool_input.file_path);
+function isInsideProject(project, file) {
   const rel = relative(project, file);
-  if (!rel || rel.startsWith('..') || isAbsolute(rel) || !isTestOrSpecFile(rel)) {
-    return { block: false };
-  }
+  return rel && !rel.startsWith('..') && !isAbsolute(rel);
+}
 
+function guardTestFile(project, rel) {
   const status = inspectTaskNote(readTaskNote(project));
   if (!status.valid) return blocked(status.reason);
   if (!status.changed) {
     return blocked(`do not edit ${rel} to make a failing check pass. Fix the source; if expected behavior is changing, record the change and rationale in ## Contract change in ${TASK_NOTE}.`);
   }
-  return { block: false };
+  return null; // no block
+}
+
+function evaluateBash(command, project) {
+  if (isTestCommand(command)) {
+    const status = inspectTaskNote(readTaskNote(project));
+    if (!status.valid) return blocked(status.reason);
+  }
+  for (const target of shellWriteTargets(command)) {
+    const file = resolve(project, target);
+    const rel = relative(project, file);
+    if (isInsideProject(project, file) && isTestOrSpecFile(rel)) {
+      const block = guardTestFile(project, rel);
+      if (block) return block;
+    }
+  }
+  return allow();
+}
+
+function evaluateFileEdit(filePath, project) {
+  const file = resolve(project, filePath);
+  const rel = relative(project, file);
+  if (!isInsideProject(project, file) || !isTestOrSpecFile(rel)) return allow();
+  return guardTestFile(project, rel) ?? allow();
+}
+
+export function evaluate(event, { projectDir } = {}) {
+  const { tool_name, tool_input = {} } = event ?? {};
+  const project = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+
+  if (tool_name === 'Bash') return evaluateBash(tool_input.command ?? '', project);
+
+  if (['Edit', 'MultiEdit', 'Write'].includes(tool_name) && typeof tool_input.file_path === 'string') {
+    return evaluateFileEdit(tool_input.file_path, project);
+  }
+
+  return allow();
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
