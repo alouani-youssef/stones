@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { inspectSpec } from '../hooks/atomicity.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { hookCatalog } from './catalog.mjs';
+import { docCatalog, hookCatalog } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
 import { createPrompter, createScriptedPrompter } from './prompt.mjs';
@@ -316,5 +317,21 @@ describe('atomicity hook install', () => {
     const doc = read(root, 'AGENT.md');
     assert.match(doc, /Danger zones/);
     assert.match(doc, /pnpm exec prisma migrate dev --name <name>/);
+  });
+
+  it('links the atomicity doc from AGENT.md when hook and doc are installed', async () => {
+    const root = prismaApp();
+    await runInit(root, { 'install.hooks': ['atomicity'], 'install.docs': ['atomicity'] });
+    assert.match(read(root, 'AGENT.md'), /\.claude\/docs\/atomicity\/README\.md/);
+  });
+
+  it('ships the atomicity docs with an unfilled-spec-failing template', () => {
+    const topic = docCatalog().find((t) => t.id === 'atomicity');
+    assert.ok(topic);
+    assert.equal(topic.main, 'atomicity/README.md');
+    assert.equal(topic.files.length, 4);
+    assert.match(topic.lead, /atomic/i);
+    const template = readFileSync(new URL('../docs/atomicity/SPEC_TEMPLATE.md', import.meta.url), 'utf8');
+    assert.equal(inspectSpec(template, 'db').valid, false);
   });
 });
