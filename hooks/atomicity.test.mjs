@@ -93,7 +93,23 @@ describe('networkHit', () => {
   });
 
   it('returns the first matching line', () => {
-    assert.equal(networkHit(['const a = 1', 'import boto3', 'import requests'], DEFAULTS), 'import boto3');
+    assert.equal(networkHit(['const a = 1', 'import boto3', 'import twilio'], DEFAULTS), 'import boto3');
+  });
+
+  it('flags transports and extra SDK families', () => {
+    for (const l of ["net.connect(80, h)", 'conn, _ := net.Dial("tcp", a)', "tls.connect(443)", "import dgram from 'node:dgram'", "const s = dgram.createSocket('udp4')",
+      "import firebase from 'firebase/app'", "import amqp from 'amqplib'", "import { Kafka } from 'kafkajs'", "import * as g from '@grpc/grpc-js'", "import sg from '@sendgrid/mail'", "import x from '@sendgrid/client'",
+      'import pika', 'from confluent_kafka import Producer', 'import grpc', 'import firebase_admin'])
+      assert.ok(hit(l), l);
+  });
+
+  it('does not flag plain HTTP client libraries', () => {
+    for (const l of ["import axios from 'axios'", 'import requests', 'import httpx', "import got from 'got'"]) assert.equal(hit(l), null, l);
+  });
+
+  it('flags http.HandleFunc only when incoming', () => {
+    assert.equal(hit('http.HandleFunc("/x", h)'), null);
+    assert.ok(hit('http.HandleFunc("/x", h)', loadConfig(withConfig({ zones: { network: { incoming: true } } }))));
   });
 
   it('incoming routes are opt-in', () => {
@@ -124,6 +140,13 @@ describe('dependencyChanged', () => {
     assert.equal(dependencyChanged('pyproject.toml', p, p.replace('"1"', '"2"')), true);
   });
 
+  it('counts dotted dependency sub-tables', () => {
+    const a = '[dependencies.serde]\nversion = "1"\n';
+    assert.equal(dependencyChanged('Cargo.toml', a, a.replace('"1"', '"2"')), true);
+    const p = '[tool.poetry.dependencies.x]\nversion = "1"\n';
+    assert.equal(dependencyChanged('pyproject.toml', p, p.replace('"1"', '"2"')), true);
+  });
+
   it('compares Cargo.toml dependency sections', () => {
     const a = '[package]\nversion = "1"\n[dependencies]\nserde = "1"\n';
     assert.equal(dependencyChanged('Cargo.toml', a, a.replace('version = "1"', 'version = "2"')), false);
@@ -151,6 +174,19 @@ describe('classify', () => {
     const c = loadConfig(withConfig({ zones: { network: { ignore: ['src/legacy/**'] } } }));
     assert.equal(classify({ file: 'src/legacy/a.ts', added: stripe }, c), 'code');
     assert.equal(classify({ file: 'src/new/a.ts', added: stripe }, c), 'network');
+  });
+
+  it('network.ignore does not downgrade path-based network files', () => {
+    const c = loadConfig(withConfig({ zones: { network: { ignore: ['**/.mcp.json'] } } }));
+    assert.equal(classify({ file: '.mcp.json', added: [] }, c), 'network');
+  });
+
+  it('incoming route files are network only when incoming is on', () => {
+    const on = loadConfig(withConfig({ zones: { network: { incoming: true } } }));
+    for (const f of ['config/routes.rb', 'src/app/api/x/route.ts', 'pages/api/hello.ts']) {
+      assert.equal(classify({ file: f, added: [] }, on), 'network', f);
+      assert.equal(classify({ file: f, added: [] }, DEFAULTS), 'code', f);
+    }
   });
 
   it('classifies binaries by path without throwing', () => {

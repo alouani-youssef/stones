@@ -64,13 +64,23 @@ export const DEFAULTS = {
       patterns: [
         String.raw`(?:process\.env\.|os\.environ(?:\.get)?\(?\[?["']|os\.Getenv\(")[A-Z0-9_]*_(?:URL|HOST|ENDPOINT|API_KEY)\b`,
         String.raw`\bnew\s+(?:WebSocket|XMLHttpRequest|EventSource)\b`,
-        String.raw`\b(?:import|from|require)\b.*['"](?:stripe|axios|node-fetch|got|undici|ws|socket\.io-client|openai|@anthropic-ai/sdk|twilio|nodemailer|@sendgrid/mail|@aws-sdk/[^'"]+|@slack/[^'"]+)['"]`,
-        String.raw`^\s*(?:import|from)\s+(?:boto3|requests|httpx|aiohttp|urllib3|stripe|openai|anthropic|twilio|smtplib|websockets?)\b`,
+        String.raw`\b(?:import|from|require)\b.*['"](?:stripe|ws|socket\.io-client|openai|@anthropic-ai/sdk|twilio|nodemailer|firebase(?:/[^'"]*)?|amqplib|kafkajs|@grpc/[^'"]+|@sendgrid/[^'"]+|@aws-sdk/[^'"]+|@slack/[^'"]+)['"]`,
+        String.raw`^\s*(?:import|from)\s+(?:boto3|stripe|openai|anthropic|twilio|smtplib|websockets?|pika|confluent_kafka|grpc|firebase_admin)\b`,
+        String.raw`\b(?:net\.(?:connect|createConnection|Dial)|tls\.connect|dgram\.createSocket|net\.Dial)\(|\brequire\(['"](?:node:)?dgram['"]\)|\bfrom\s+['"](?:node:)?dgram['"]`,
       ],
       incomingPatterns: [
         String.raw`\b(?:app|router|server|fastify)\.(?:get|post|put|patch|delete|all)\(\s*['"\`]/`,
         String.raw`^\s*@(?:app|router|bp|blueprint)\.(?:route|get|post|put|patch|delete)\(`,
         String.raw`^\s*@(?:Get|Post|Put|Patch|Delete|Controller)\(`,
+        String.raw`\bhttp\.HandleFunc\(`,
+      ],
+      incomingPaths: [
+        'config/routes.rb',
+        '**/app/**/route.ts',
+        '**/app/**/route.js',
+        '**/app/**/route.tsx',
+        '**/app/**/route.jsx',
+        '**/pages/api/**',
       ],
       extraPatterns: [],
       ignore: [],
@@ -214,8 +224,8 @@ function projectDependencyLines(lines) {
   return out;
 }
 
-const PYPROJECT_SECTION = /^(?:project\.optional-dependencies|dependency-groups|tool\.poetry\.(?:.+\.)?(?:dev-)?dependencies)$/;
-const CARGO_SECTION = /^(?:workspace\.dependencies|(?:target\..+\.)?(?:dev-|build-)?dependencies)$/;
+const PYPROJECT_SECTION = /^(?:project\.optional-dependencies|dependency-groups|tool\.poetry\.(?:.+\.)?(?:dev-)?dependencies(?:\..+)?)$/;
+const CARGO_SECTION = /^(?:workspace\.dependencies|(?:target\..+\.)?(?:dev-|build-)?dependencies)(?:\..+)?$/;
 
 function dependencyText(file, text) {
   const sections = tomlSections(text);
@@ -270,9 +280,14 @@ export function classify(change, config) {
     if (dependencyChanged(rel, change.before, change.after)) return 'packages';
     return contentClass(change, config, ignored);
   }
-  if (base === 'network') return ignored ? 'code' : 'network';
-  if (base === 'code') return contentClass(change, config, ignored);
+  if (base === 'network') return 'network';
+  if (base === 'code') return incomingPath(rel, config) ? 'network' : contentClass(change, config, ignored);
   return base;
+}
+
+function incomingPath(rel, config) {
+  const net = config.zones?.network ?? {};
+  return Boolean(net.incoming) && matchesAny(net.incomingPaths ?? DEFAULTS.zones.network.incomingPaths, rel);
 }
 
 function contentClass(change, config, ignored) {
