@@ -46,7 +46,8 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/atomicity.mjs\""
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/atomicity.mjs\"",
+          "timeout": 60
         }
       ]
     },

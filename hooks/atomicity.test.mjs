@@ -800,6 +800,17 @@ describe('evaluate', () => {
       assert.ok(networkHit(["fetch('https://api.stripe.com')"], c));
       assert.ok(networkHit(["'https://github.com.evil.io'"], c));
     });
+
+    it('#6 the atomicity hook entry declares an explicit timeout', () => {
+      const hooks = JSON.parse(readFileSync(join(import.meta.dirname, '../settings/hooks.json'), 'utf8'));
+      const entry = hooks.PreToolUse.flatMap((m) => m.hooks).find((h) => h.command.includes('atomicity.mjs'));
+      assert.ok(entry.timeout >= 30, JSON.stringify(entry));
+    });
+
+    it('#14 settings/settings.json registers the atomicity hook', () => {
+      const s = readFileSync(join(import.meta.dirname, '../settings/settings.json'), 'utf8');
+      assert.match(s, /atomicity\.mjs/);
+    });
   });
 
   describe('CLI', () => {
