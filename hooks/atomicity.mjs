@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 export const DEFAULTS = {
@@ -702,4 +703,237 @@ export function inspectSpec(text, zone) {
   const declared = specSection(text, 'Zone').toLowerCase();
   if (declared !== zone) return { valid: false, reason: `spec section "## Zone" is "${declared}" but this branch is in zone "${zone}"` };
   return { valid: true };
+}
+
+// ---------------------------------------------------------------------------
+// Rules
+// ---------------------------------------------------------------------------
+
+const DANGER = ['db', 'packages', 'network'];
+const CLASS_ORDER = ['db', 'packages', 'network', 'code'];
+const MIGRATION_DIRS = ['**/migrations/**', '**/db/migrate/**', '**/alembic/versions/**', '**/drizzle/**'];
+const CONFIG_FILE = '.claude/atomicity.json';
+const GENERATE_FALLBACK = "run your ORM's migration generator";
+
+const allow = (note) => (note ? { block: false, note } : { block: false });
+const block = (rule, text) => ({ block: true, reason: `Atomicity guard (${rule}): ${text}` });
+const quote = (f) => (/^[\w./@%+=:,-]+$/.test(f) ? f : `'${f.replaceAll("'", `'\\''`)}'`);
+const fileList = (files) => files.map(quote).join(' ');
+const slug = (branch) => (branch ?? 'change').replace(/^[^/]*\//, '').replace(/[^\w.-]+/g, '-') || 'change';
+
+function projectRel(project, file) {
+  const rel = relative(project, resolve(project, file)).replaceAll('\\', '/');
+  return !rel || rel.startsWith('..') || isAbsolute(rel) ? null : rel;
+}
+
+function inMigrationDir(rel, config) {
+  const dirs = (config.migrations?.dirs ?? []).map((d) => normalize(d).replace(/\/+$/, '')).filter(Boolean);
+  const globs = dirs.length ? dirs.flatMap((d) => [d, `${d}/**`]) : MIGRATION_DIRS;
+  return matchesAny(globs, rel);
+}
+
+function guardWrite(project, file, config) {
+  const rel = projectRel(project, file);
+  if (!rel) return null;
+  if (rel === CONFIG_FILE) {
+    return block('R4', `${CONFIG_FILE} configures this hook; only a human edits this file. Ask the user to make the change themselves.`);
+  }
+  if (inMigrationDir(rel, config) && !config.migrations?.allowEdits) {
+    const generate = config.migrations?.generate || GENERATE_FALLBACK;
+    return block(
+      'R4',
+      `${rel} is inside a migration directory; migrations are generated, not hand-written. ` +
+        `Edit the schema/model source instead, then run: ${generate}. ` +
+        `(A human can allow hand edits with "migrations": { "allowEdits": true } in ${CONFIG_FILE}.)`,
+    );
+  }
+  return null;
+}
+
+/** Expand `git add` / commit pathspecs to the concrete files they would stage. */
+function expandPaths(project, paths) {
+  if (!paths.length) return [];
+  const files = gitNul(project, ['ls-files', '-z', '--modified', '--others', '--exclude-standard', '--', ...paths]);
+  return [...new Set(files)];
+}
+
+function commitPlan(project, intents) {
+  const { adds, commit } = intents;
+  const raw = [...(Array.isArray(adds) ? adds : []), ...(commit.paths ?? [])];
+  const paths = adds === 'all' ? 'all' : expandPaths(project, raw);
+  return { all: commit.all, paths };
+}
+
+function willStage(project, plan, file) {
+  if (plan.paths === 'all') return true;
+  if (plan.paths.includes(file)) return true;
+  return plan.all && gitNul(project, ['ls-files', '-z', '--', file]).includes(file);
+}
+
+function groupByClass(changes, config) {
+  const groups = {};
+  for (const change of changes) {
+    const cls = classify(change, config);
+    if (cls === 'neutral') continue;
+    (groups[cls] ??= []).push(change.file);
+  }
+  for (const files of Object.values(groups)) files.sort();
+  return groups;
+}
+
+const orderedClasses = (groups) => CLASS_ORDER.filter((c) => groups[c]?.length);
+const describeGroups = (groups) => orderedClasses(groups).map((c) => `  ${c}: ${groups[c].join(', ')}`).join('\n');
+
+function largestDanger(groups) {
+  const danger = DANGER.filter((c) => groups[c]?.length);
+  return danger.reduce((best, c) => (groups[c].length > groups[best].length ? c : best), danger[0]);
+}
+
+function mergeGroups(a, b) {
+  const out = {};
+  for (const g of [a, b]) for (const [cls, files] of Object.entries(g)) out[cls] = [...new Set([...(out[cls] ?? []), ...files])].sort();
+  return out;
+}
+
+function checkSpec(config, branch, zone, text) {
+  const path = specPath(config, branch);
+  const result = inspectSpec(text, zone);
+  if (result.valid) return null;
+  return block(
+    'R3',
+    `${path}: ${result.reason}. A ${zone} branch must carry a spec with non-empty "## Zone" (${zone}), "## What changes", "## Why", ` +
+      `"## Blast radius", "## Rollback" and "## Verification" sections. Write ${path}, then: git add ${quote(path)}`,
+  );
+}
+
+function prefixBlock(config, zone, branch, files, onDefault) {
+  const prefix = config.prefixes[zone];
+  const where = onDefault ? `the default branch "${branch}"` : `branch "${branch}", which lacks the "${prefix}" prefix`;
+  return block(
+    'R2',
+    `${zone} changes (${files.join(', ')}) are on ${where}. Danger-zone changes live on a dedicated branch: ` +
+      `git switch -c ${prefix}${slug(onDefault ? null : branch)}`,
+  );
+}
+
+function evaluateCommit(project, config, intents, branch, def) {
+  const plan = commitPlan(project, intents);
+  const groups = groupByClass(stagedChanges(project, config, plan), config);
+  const classes = orderedClasses(groups);
+  if (classes.length > 1) {
+    const keep = largestDanger(groups);
+    const rest = classes.filter((c) => c !== keep).flatMap((c) => groups[c]);
+    return {
+      groups,
+      plan,
+      result: block(
+        'R1',
+        `this commit mixes ${classes.join(' + ')}; a commit may hold one zone (tests, docs and specs may ride along).\n${describeGroups(groups)}\n` +
+          `Keep the ${keep} files and unstage the rest: git restore --staged ${fileList(rest)}\n` +
+          `Then commit them separately (${keep} on a ${config.prefixes[keep]}… branch, the rest on its own branch).`,
+      ),
+    };
+  }
+  const zone = classes[0];
+  if (!DANGER.includes(zone) || !branch || !def) return { groups, plan, result: null };
+  if (branch === def || !branch.startsWith(config.prefixes[zone])) {
+    return { groups, plan, result: prefixBlock(config, zone, branch, groups[zone], branch === def) };
+  }
+  return { groups, plan, result: checkSpec(config, branch, zone, commitSpecText(project, config, branch, plan)) };
+}
+
+function commitSpecText(project, config, branch, plan) {
+  const path = specPath(config, branch);
+  if (willStage(project, plan, path)) {
+    try {
+      return readFileSync(join(project, path), 'utf8');
+    } catch {
+      // not in the work tree: fall back to the index
+    }
+  }
+  return readAtRef(project, null, path);
+}
+
+function evaluateBranch(project, config, intents, branch, commit) {
+  const base = branchBase(project, config, intents.pr?.base ?? null);
+  if (!base) return allow('atomicity: no default branch, branch checks skipped');
+  const groups = mergeGroups(groupByClass(branchChanges(project, config, base), config), commit?.groups ?? {});
+  const classes = orderedClasses(groups);
+  if (classes.length > 1) {
+    const keep = largestDanger(groups);
+    return block(
+      'R2',
+      `branch "${branch}" (compared with ${base}) mixes ${classes.join(' + ')}; a branch may hold one zone.\n${describeGroups(groups)}\n` +
+        `Move the ${keep} changes to their own branch (git switch -c ${config.prefixes[keep]}${slug(branch)} ${base}, then cherry-pick or re-apply them) ` +
+        `and keep "${branch}" to the other zone.`,
+    );
+  }
+  const zone = classes[0];
+  if (!DANGER.includes(zone)) return allow();
+  if (!branch.startsWith(config.prefixes[zone])) return prefixBlock(config, zone, branch, groups[zone], false);
+  // R3 on push / gh pr create: the spec as committed (or as about to be committed, when chained with a commit).
+  if (!intents.push && !intents.pr) return allow();
+  const text = commit ? commitSpecText(project, config, branch, commit.plan) : readAtRef(project, 'HEAD', specPath(config, branch));
+  return checkSpec(config, branch, zone, text) ?? allow();
+}
+
+function evaluateRules(event, project) {
+  const config = loadConfig(project);
+  if (config.enabled === false) return allow();
+  const { tool_name, tool_input = {} } = event ?? {};
+
+  if (['Edit', 'MultiEdit', 'Write'].includes(tool_name)) {
+    return (typeof tool_input.file_path === 'string' && guardWrite(project, tool_input.file_path, config)) || allow();
+  }
+  if (tool_name !== 'Bash' || typeof tool_input.command !== 'string') return allow();
+  const command = tool_input.command;
+  for (const target of shellWriteTargets(command)) {
+    const hit = guardWrite(project, target, config);
+    if (hit) return hit;
+  }
+
+  const intents = gitIntents(command);
+  if (!intents.commit && !intents.push && !intents.pr) return allow();
+  if (!isRepo(project)) return allow('atomicity: not a git repo, skipped');
+
+  const branch = currentBranch(project);
+  if (branch && config.exempt.includes(branch)) return allow();
+  const def = defaultBranch(project, config);
+  const skipNote = !branch ? 'atomicity: detached HEAD, branch checks skipped' : !def ? 'atomicity: no default branch, branch checks skipped' : null;
+
+  let commit = null;
+  if (intents.commit) {
+    commit = evaluateCommit(project, config, intents, branch, def);
+    if (commit.result) return commit.result;
+  }
+  if (skipNote) return allow(skipNote);
+  if (branch === def) return allow();
+  return evaluateBranch(project, config, intents, branch, commit);
+}
+
+export function evaluate(event, { projectDir } = {}) {
+  try {
+    const project = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+    return evaluateRules(event, project);
+  } catch (error) {
+    return allow(`atomicity: internal error, skipped: ${error?.message ?? error}`);
+  }
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  let input = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) input += chunk;
+  let event;
+  try {
+    event = JSON.parse(input);
+  } catch {
+    process.exit(0);
+  }
+  const result = evaluate(event ?? {});
+  if (result.block) {
+    console.error(result.reason);
+    process.exit(2);
+  }
+  if (result.note) console.log(result.note);
 }
