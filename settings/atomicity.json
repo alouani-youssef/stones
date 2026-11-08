@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "exempt": [],
+  "defaultBranch": "main",
+  "specDir": ".claude/danger",
+  "zones": {
+    "network": { "extraPatterns": [], "ignore": [], "incoming": false }
+  },
+  "migrations": { "dirs": [], "generate": "", "allowEdits": false }
+}

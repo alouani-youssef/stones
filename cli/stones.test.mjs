@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { renderAgentDoc } from './agent-doc.mjs';
+import { hookCatalog } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
 import { createPrompter, createScriptedPrompter } from './prompt.mjs';
@@ -281,5 +282,39 @@ describe('roadmap', () => {
     assert.match(prompt, /Focus for this session: create the first roadmap/);
     assert.match(roadmapPrompt(project({ 'ROADMAP.md': '# Roadmap' }), ''), /review progress/);
     assert.match(roadmapPrompt(project(), 'plan Q3'), /Focus for this session: plan Q3/);
+  });
+});
+
+describe('atomicity hook install', () => {
+  const prismaApp = () => project({
+    'package.json': { name: 'api', devDependencies: { prisma: '5' } },
+    'pnpm-lock.yaml': '',
+  });
+
+  it('is in the hook catalog', () => {
+    const hook = hookCatalog().find((h) => h.id === 'atomicity');
+    assert.deepEqual(hook?.events, ['PreToolUse:Bash|Edit|MultiEdit|Write']);
+  });
+
+  it('ships the hook, a detected seed config and the danger dir', async () => {
+    const root = prismaApp();
+    const { ops, stack } = await runInit(root, { 'install.hooks': ['atomicity'] });
+    const paths = actions(ops);
+    assert.equal(paths['.claude/hooks/atomicity.mjs'], 'create');
+    assert.equal(paths['.claude/atomicity.json'], 'create');
+    assert.equal(paths['.claude/danger/.gitkeep'], 'create');
+    const config = JSON.parse(read(root, '.claude/atomicity.json'));
+    assert.equal(config.migrations.generate, 'pnpm exec prisma migrate dev --name <name>');
+    assert.deepEqual(config.migrations.dirs, ['prisma/migrations']);
+    assert.equal(config.defaultBranch, stack.defaultBranch);
+    assert.equal(config.enabled, true);
+  });
+
+  it('mentions danger zones in AGENT.md with the detected generator', async () => {
+    const root = prismaApp();
+    await runInit(root, { 'install.hooks': ['atomicity'] });
+    const doc = read(root, 'AGENT.md');
+    assert.match(doc, /Danger zones/);
+    assert.match(doc, /pnpm exec prisma migrate dev --name <name>/);
   });
 });
