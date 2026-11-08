@@ -636,12 +636,85 @@ describe('evaluate', () => {
       commitAll(p, 'deps');
       blocked(run(p, bash('git push')), 'R2');
     });
-    it('a branch stacked on a danger branch is judged on its own commits', () => {
+    it('a branch stacked on a danger branch is judged on its own commits (once it has one)', () => {
       const p = dbBranch();
       sh(p, 'reset', '-q', 'HEAD', 'src/a.ts');
       sh(p, 'switch', '-c', 'feat/after-orders');
       sh(p, 'add', 'src/a.ts');
+      // Tip of db/orders == HEAD: indistinguishable from a decoy branch, so judged against main.
+      blocked(run(p, bash('git commit -m x')), 'R2');
+      sh(p, 'reset', '-q', 'HEAD', 'src/a.ts');
+      put(p, 'docs/notes.md', 'stacked\n');
+      sh(p, 'add', 'docs/notes.md');
+      sh(p, 'commit', '-q', '-m', 'docs');
+      sh(p, 'add', 'src/a.ts');
       allowed(run(p, bash('git commit -m x')));
+      allowed(run(p, bash('git push')));
+    });
+    it('a decoy danger branch at HEAD does not hide the branch history', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'feat/x');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      commitAll(p, 'deps');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      commitAll(p, 'code');
+      sh(p, 'branch', 'deps/tmp');
+      blocked(run(p, bash('git push')), 'R2');
+      blocked(run(p, bash('gh pr create --fill')), 'R2');
+    });
+    it('gh pr create without --base is judged against the default branch', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'deps/lock');
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      put(p, '.claude/danger/deps--lock.md', spec('packages'));
+      commitAll(p, 'deps');
+      sh(p, 'switch', '-c', 'feat/on-deps');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      commitAll(p, 'code');
+      const r = run(p, bash('gh pr create --fill'));
+      blocked(r, 'R2');
+      assert.match(r.reason, /compared with main/);
+      allowed(run(p, bash('gh pr create --base deps/lock --fill')));
+    });
+  });
+
+  describe('git add -u and chained branch switches', () => {
+    it('git add -u stages tracked changes (also -Av / -vA clusters)', () => {
+      const p = project();
+      put(p, 'prisma/migrations/1/m.sql', 'CREATE TABLE o (id int);\n');
+      commitAll(p, 'seed migration');
+      sh(p, 'switch', '-c', 'feat/x');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      put(p, 'prisma/migrations/1/m.sql', 'CREATE TABLE o (id bigint);\n');
+      for (const cmd of ['git add -u && git commit -m x', 'git add --update && git commit -m x', 'git add -Av && git commit -m x', 'git add -vA && git commit -m x', 'git add -uv && git commit -m x'])
+        blocked(run(p, bash(cmd)), 'R1');
+      assert.equal(gitIntents('git add -u').addsTracked, true);
+      assert.equal(gitIntents('git add -vA').adds, 'all');
+    });
+    it('git switch -c before the commit evaluates the commit on the new branch', () => {
+      const p = project();
+      put(p, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+      const r = run(p, bash('git switch -c deps/x && git add -A && git commit -m x'));
+      blocked(r, 'R3');
+      assert.ok(r.reason.includes('.claude/danger/deps--x.md'), r.reason);
+      blocked(run(p, bash('git checkout -b deps/x && git add -A && git commit -m x')), 'R3');
+      put(p, '.claude/danger/deps--x.md', spec('packages'));
+      allowed(run(p, bash('git switch -c deps/x && git add -A && git commit -m x')));
+      allowed(run(p, bash('git checkout -B deps/x && git add -A && git commit -m x')));
+      blocked(run(p, bash('git switch -c feat/x && git add -A && git commit -m x')), 'R2');
+    });
+    it('any other branch switch before a commit is blocked', () => {
+      const p = project();
+      sh(p, 'switch', '-c', 'feat/x');
+      put(p, 'src/a.ts', 'export const b = 2;\n');
+      sh(p, 'add', 'src/a.ts');
+      for (const cmd of ['git switch main && git commit -m x', 'git checkout main && git commit -m x', 'git switch -c db/y main && git commit -m x']) {
+        const r = run(p, bash(cmd));
+        blocked(r, 'R2');
+        assert.equal(r.reason, 'Atomicity guard (R2): run the branch switch as its own command, then commit.');
+      }
+      allowed(run(p, bash('git checkout -- src/index.ts && git commit -m x')));
+      allowed(run(p, bash('git commit -m x && git switch main')));
     });
   });
 

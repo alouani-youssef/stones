@@ -463,18 +463,43 @@ function parseCommit(args) {
 function parseAdd(args) {
   const paths = [];
   let all = false;
+  let tracked = false;
   let afterDashes = false;
   for (const a of args) {
-    if (afterDashes || !a.startsWith('-')) {
+    if (afterDashes || !a.startsWith('-') || a === '-') {
       if (a === '.') all = true;
       else paths.push(a);
     } else if (a === '--') {
       afterDashes = true;
-    } else if (a === '-A' || a === '--all') {
-      all = true;
+    } else if (a.startsWith('--')) {
+      if (a === '--all') all = true;
+      else if (a === '--update') tracked = true;
+    } else {
+      if (a.includes('A')) all = true;
+      if (a.includes('u')) tracked = true;
     }
   }
-  return { all, paths };
+  return { all, tracked, paths };
+}
+
+const SWITCH_CREATE = new Set(['-c', '-C', '--create', '--force-create']);
+const CHECKOUT_CREATE = new Set(['-b', '-B']);
+
+/** `git switch -c X` / `git checkout -b X` with no start point → { create: X }; anything else → { other: true }. */
+function parseSwitch(name, args) {
+  if (name === 'checkout' && args.includes('--')) return null; // file restore, not a branch switch
+  const creates = name === 'switch' ? SWITCH_CREATE : CHECKOUT_CREATE;
+  const rest = [];
+  let create = null;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (creates.has(a)) {
+      create = args[i + 1] ?? null;
+      i += 1;
+    } else if (/^--(?:create|force-create)=/.test(a)) create = a.slice(a.indexOf('=') + 1);
+    else if (!a.startsWith('-')) rest.push(a);
+  }
+  return create && !rest.length ? { create } : { other: true };
 }
 
 function ghPrBase(args) {
@@ -485,8 +510,14 @@ function ghPrBase(args) {
   return null;
 }
 
+/**
+ * adds: paths from `git add`, or 'all' for `-A`/`.`; addsTracked: `git add -u` (all tracked files, like `commit -a`).
+ * newBranch: `git switch -c X` / `git checkout -b X` run before the commit/push/pr in the same command.
+ * otherSwitch: any other `git switch` / `git checkout <branch>` run before the commit/push/pr.
+ */
 export function gitIntents(command) {
-  const out = { adds: null, commit: null, push: false, pr: null };
+  const out = { adds: null, addsTracked: false, commit: null, push: false, pr: null, newBranch: null, otherSwitch: false };
+  const beforeGit = () => !out.commit && !out.push && !out.pr;
   for (const words of tokenize(command)) {
     if (words[0] === 'gh' && words[1] === 'pr' && words[2] === 'create') {
       out.pr = { base: ghPrBase(words.slice(3)) };
@@ -495,9 +526,14 @@ export function gitIntents(command) {
     const sub = gitSubcommand(words);
     if (!sub) continue;
     if (sub.name === 'add') {
-      const { all, paths } = parseAdd(sub.args);
+      const { all, tracked, paths } = parseAdd(sub.args);
+      if (tracked) out.addsTracked = true;
       if (all || out.adds === 'all') out.adds = 'all';
       else out.adds = [...(out.adds ?? []), ...paths];
+    } else if ((sub.name === 'switch' || sub.name === 'checkout') && beforeGit()) {
+      const sw = parseSwitch(sub.name, sub.args);
+      if (sw?.create) out.newBranch = sw.create;
+      else if (sw?.other) out.otherSwitch = true;
     } else if (sub.name === 'commit') {
       out.commit = parseCommit(sub.args);
     } else if (sub.name === 'push') {
@@ -648,9 +684,12 @@ export function branchBase(project, config, prBase) {
   }
   let best = null;
   let bestCount = Infinity;
+  const head = git(project, ['rev-parse', 'HEAD']).out.trim();
   for (const cand of candidates) {
     const mb = git(project, ['merge-base', cand, 'HEAD']);
     if (!mb.ok) continue;
+    // A non-default branch whose tip is at or ahead of HEAD would hide this branch's own commits.
+    if (cand !== def && mb.out.trim() === head) continue;
     const count = Number(git(project, ['rev-list', '--count', `${mb.out.trim()}..HEAD`]).out.trim());
     if (Number.isFinite(count) && count < bestCount) {
       best = cand;
@@ -761,7 +800,7 @@ function commitPlan(project, intents) {
   const { adds, commit } = intents;
   const raw = [...(Array.isArray(adds) ? adds : []), ...(commit.paths ?? [])];
   const paths = adds === 'all' ? 'all' : expandPaths(project, raw);
-  return { all: commit.all, paths };
+  return { all: commit.all || intents.addsTracked, paths };
 }
 
 function willStage(project, plan, file) {
@@ -855,7 +894,11 @@ function commitSpecText(project, config, branch, plan) {
 }
 
 function evaluateBranch(project, config, intents, branch, commit) {
-  const base = branchBase(project, config, intents.pr?.base ?? null);
+  // gh pr create targets the default branch unless --base says otherwise; a branch created in this command starts at HEAD.
+  let base;
+  if (intents.pr) base = intents.pr.base ?? defaultBranch(project, config);
+  else if (intents.newBranch) base = 'HEAD';
+  else base = branchBase(project, config, null);
   if (!base) return allow('atomicity: no default branch, branch checks skipped');
   const groups = mergeGroups(groupByClass(branchChanges(project, config, base), config), commit?.groups ?? {});
   const classes = orderedClasses(groups);
@@ -896,7 +939,11 @@ function evaluateRules(event, project) {
   if (!intents.commit && !intents.push && !intents.pr) return allow();
   if (!isRepo(project)) return allow('atomicity: not a git repo, skipped');
 
-  const branch = currentBranch(project);
+  if (intents.otherSwitch) {
+    const next = intents.commit ? 'commit' : 'push';
+    return block('R2', `run the branch switch as its own command, then ${next}.`);
+  }
+  const branch = intents.newBranch ?? currentBranch(project);
   if (branch && config.exempt.includes(branch)) return allow();
   const def = defaultBranch(project, config);
   const skipNote = !branch ? 'atomicity: detached HEAD, branch checks skipped' : !def ? 'atomicity: no default branch, branch checks skipped' : null;
