@@ -379,4 +379,15 @@ describe('git layer', () => {
     commitAll(q);
     assert.equal(defaultBranch(q, DEFAULTS), null);
   });
+
+  it('keeps added lines starting with ++ and treats [] in paths literally', () => {
+    const p = repo();
+    put(p, 'src/i.ts', 'old\n');
+    commitAll(p);
+    put(p, 'src/[id].ts', '++x\nmine\n');
+    sh(p, 'add', '-A');
+    const changes = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
+    assert.deepEqual(changes.map((c) => c.file), ['src/[id].ts']);
+    assert.deepEqual(changes[0].added, ['++x', 'mine']);
+  });
 });

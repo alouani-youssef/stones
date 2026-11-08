@@ -584,10 +584,13 @@ function nameStatus(project, args) {
 }
 
 function addedLines(project, args, file) {
-  const out = git(project, ['diff', '--no-color', '--no-ext-diff', '--no-renames', '-U0', ...args, '--', file]).out;
-  return out
-    .split('\n')
-    .filter((l) => l.startsWith('+') && !l.startsWith('+++'))
+  const out = git(project, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-renames', '-U0', ...args, '--', file]).out;
+  const lines = out.split('\n');
+  const first = lines.findIndex((l) => l.startsWith('@@'));
+  if (first === -1) return [];
+  return lines
+    .slice(first)
+    .filter((l) => l.startsWith('+'))
     .map((l) => l.slice(1));
 }
 
