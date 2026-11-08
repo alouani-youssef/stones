@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -758,6 +758,29 @@ describe('evaluate', () => {
       const r = run(p, bash('git commit -m x'));
       allowed(r);
       assert.match(r.note, /^atomicity: internal error, skipped: /);
+    });
+  });
+
+  describe('final review fixes', () => {
+    it('#5 env prefixes, env/command wrappers and absolute git paths are recognised', () => {
+      for (const cmd of ['GIT_AUTHOR_NAME=x git commit -m y', 'HUSKY=0 git commit -m y', 'command git commit -m y', 'env git commit -m y', 'env -u FOO A=1 git commit -m y', '/usr/bin/git commit -m y', 'A=1 B=2 command -p git commit -m y'])
+        assert.deepEqual(gitIntents(cmd).commit, { all: false, paths: [] }, cmd);
+      assert.equal(gitIntents('HUSKY=0 git push').push, true);
+      assert.deepEqual(gitIntents('GH_TOKEN=x gh pr create --base deps/a').pr, { base: 'deps/a' });
+      assert.equal(gitIntents('mygit commit -m x').commit, null);
+      const p = project();
+      stageMigration(p);
+      blocked(run(p, bash('HUSKY=0 git commit -m x')), 'R2');
+    });
+
+    it('#7 specPath tolerates trailing slashes on specDir', () => {
+      assert.equal(specPath({ ...DEFAULTS, specDir: '.claude/danger//' }, 'db/x'), '.claude/danger/db--x.md');
+    });
+
+    it('#11 a new package.json without dependency sections is not packages', () => {
+      assert.equal(dependencyChanged('package.json', '', '{"name":"a","scripts":{}}'), false);
+      assert.equal(dependencyChanged('package.json', '', '{"name":"a","dependencies":{}}'), false);
+      assert.equal(dependencyChanged('package.json', '{"name":"a"}', '{"name":"a","devDependencies":{"x":"1"}}'), true);
     });
   });
 

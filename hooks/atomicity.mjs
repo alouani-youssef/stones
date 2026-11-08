@@ -241,10 +241,12 @@ function dependencyText(file, text) {
   return keep.join('\n');
 }
 
+/** Dependency sections only; a missing section and an empty one compare equal. */
 function packageDeps(text) {
   if (!text.trim()) return {};
   const json = JSON.parse(text);
-  return Object.fromEntries(DEP_KEYS.map((k) => [k, json?.[k] ?? null]));
+  const isEmpty = (v) => v === undefined || v === null || (isObject(v) && !Object.keys(v).length);
+  return Object.fromEntries(DEP_KEYS.filter((k) => !isEmpty(json?.[k])).map((k) => [k, json[k]]));
 }
 
 export function dependencyChanged(file, before, after) {
@@ -425,8 +427,29 @@ const COMMIT_VALUE_FLAGS = new Set([
 ]);
 const COMMIT_SHORT_VALUE = new Set(['m', 'F', 'C', 'c', 't']);
 
+const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string']);
+
+/** Drop leading `NAME=value` assignments and `env` / `command` wrappers: `HUSKY=0 env -u X command git …` → `git …`. */
+export function stripWrappers(words) {
+  let i = 0;
+  while (i < words.length) {
+    if (ENV_ASSIGN.test(words[i])) i += 1;
+    else if (words[i] === 'env') {
+      i += 1;
+      while (i < words.length && (words[i].startsWith('-') || ENV_ASSIGN.test(words[i]))) i += ENV_VALUE_FLAGS.has(words[i]) ? 2 : 1;
+    } else if (words[i] === 'command') {
+      i += 1;
+      while (i < words.length && /^-[pvV]+$/.test(words[i])) i += 1;
+    } else break;
+  }
+  return words.slice(i);
+}
+
+const isProgram = (word, name) => word === name || (word ?? '').endsWith(`/${name}`);
+
 function gitSubcommand(words) {
-  let i = words[0] === 'git' ? 1 : -1;
+  let i = isProgram(words[0], 'git') ? 1 : -1;
   if (i < 0) return null;
   while (i < words.length && words[i].startsWith('-')) {
     i += GIT_GLOBAL_WITH_VALUE.has(words[i]) ? 2 : 1;
@@ -518,8 +541,9 @@ function ghPrBase(args) {
 export function gitIntents(command) {
   const out = { adds: null, addsTracked: false, commit: null, push: false, pr: null, newBranch: null, otherSwitch: false };
   const beforeGit = () => !out.commit && !out.push && !out.pr;
-  for (const words of tokenize(command)) {
-    if (words[0] === 'gh' && words[1] === 'pr' && words[2] === 'create') {
+  for (const raw of tokenize(command)) {
+    const words = stripWrappers(raw);
+    if (isProgram(words[0], 'gh') && words[1] === 'pr' && words[2] === 'create') {
       out.pr = { base: ghPrBase(words.slice(3)) };
       continue;
     }
@@ -735,7 +759,7 @@ const specSection = (text, heading) => {
 const isSpecPlaceholder = (text) =>
   /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
 
-export const specPath = (config, branch) => `${config.specDir}/${branch.replaceAll('/', '--')}.md`;
+export const specPath = (config, branch) => `${(config.specDir ?? DEFAULTS.specDir).replace(/\/+$/, '')}/${branch.replaceAll('/', '--')}.md`;
 
 export function inspectSpec(text, zone) {
   if (text === null || text === undefined) return { valid: false, reason: 'spec file is missing' };
