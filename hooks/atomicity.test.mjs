@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets } from './atomicity.mjs';
+import { DEFAULTS, classify, dependencyChanged, globToRegExp, loadConfig, networkHit, pathClass, tokenize, gitIntents, shellWriteTargets, git, isRepo, currentBranch, defaultBranch, stagedChanges, branchBase, branchChanges, readAtRef } from './atomicity.mjs';
 
 const withConfig = (json) => {
   const root = mkdtempSync(join(tmpdir(), 'atomicity-'));
@@ -247,5 +248,135 @@ describe('bash parsing', () => {
     assert.ok(shellWriteTargets('cp a.sql db/migrate/1.rb').includes('db/migrate/1.rb'));
     assert.deepEqual(shellWriteTargets('mv -f a b && echo hi | tee -a c >> d 2>&1'), ['b', 'd', 'c']);
     assert.deepEqual(shellWriteTargets('touch x y'), ['x', 'y']);
+  });
+});
+
+const sh = (dir, ...args) => {
+  const r = spawnSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout;
+};
+const repo = (branch = 'main') => {
+  const dir = mkdtempSync(join(tmpdir(), 'atomicity-git-'));
+  sh(dir, 'init', '-b', branch);
+  return dir;
+};
+const put = (dir, file, content) => {
+  mkdirSync(join(dir, file, '..'), { recursive: true });
+  writeFileSync(join(dir, file), content);
+};
+const commitAll = (dir, msg = 'c') => {
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-m', msg);
+};
+
+describe('git layer', () => {
+  it('basic helpers', () => {
+    const p = repo();
+    assert.equal(isRepo(p), true);
+    assert.equal(isRepo(mkdtempSync(join(tmpdir(), 'plain-'))), false);
+    assert.equal(git(p, ['nope-cmd']).ok, false);
+    put(p, 'a.txt', 'x');
+    commitAll(p);
+    assert.equal(currentBranch(p), 'main');
+    assert.equal(readAtRef(p, 'HEAD', 'a.txt'), 'x');
+    assert.equal(readAtRef(p, 'HEAD', 'missing'), null);
+  });
+
+  it('first commit with a space in the path (no HEAD)', () => {
+    const p = repo();
+    put(p, 'src/my file.ts', 'const a = 1;\n');
+    put(p, 'package.json', '{"dependencies":{"a":"1"}}');
+    sh(p, 'add', '-A');
+    const changes = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
+    const f = changes.find((c) => c.file === 'src/my file.ts');
+    assert.deepEqual(f.added, ['const a = 1;']);
+    const m = changes.find((c) => c.file === 'package.json');
+    assert.equal(m.before, '');
+    assert.equal(m.after, '{"dependencies":{"a":"1"}}');
+    assert.equal(classify(m, DEFAULTS), 'packages');
+  });
+
+  it('rename classifies the new path', () => {
+    const p = repo();
+    put(p, 'a.ts', 'one\ntwo\nthree\nfour\n');
+    commitAll(p);
+    sh(p, 'mv', 'a.ts', 'b.ts');
+    const changes = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
+    assert.deepEqual(changes.map((c) => c.file), ['b.ts']);
+  });
+
+  it('manifest before/after filled; deletions have empty after', () => {
+    const p = repo();
+    put(p, 'package.json', '{"dependencies":{}}');
+    put(p, '.env.example', 'A=1');
+    commitAll(p);
+    put(p, 'package.json', '{"dependencies":{"z":"1"}}');
+    sh(p, 'rm', '-q', '.env.example');
+    sh(p, 'add', '-A');
+    const changes = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
+    const pk = changes.find((c) => c.file === 'package.json');
+    assert.equal(pk.before, '{"dependencies":{}}');
+    assert.equal(pk.after, '{"dependencies":{"z":"1"}}');
+    const env = changes.find((c) => c.file === '.env.example');
+    assert.equal(env.before, 'A=1');
+    assert.equal(env.after, '');
+  });
+
+  it('extra.all and extra.paths include unstaged work', () => {
+    const p = repo();
+    put(p, 'm.ts', 'a\n');
+    put(p, 'package.json', '{}');
+    commitAll(p);
+    put(p, 'm.ts', 'a\nb\n');
+    put(p, 'package.json', '{"dependencies":{"q":"1"}}');
+    put(p, 'new.ts', 'fresh\n');
+    const all = stagedChanges(p, DEFAULTS, { all: true, paths: [] });
+    assert.deepEqual(all.find((c) => c.file === 'm.ts').added, ['b']);
+    assert.equal(all.find((c) => c.file === 'package.json').after, '{"dependencies":{"q":"1"}}');
+    assert.ok(!all.some((c) => c.file === 'new.ts'));
+    const paths = stagedChanges(p, DEFAULTS, { all: false, paths: ['new.ts'] });
+    assert.deepEqual(paths.find((c) => c.file === 'new.ts').added, ['fresh']);
+    const every = stagedChanges(p, DEFAULTS, { all: false, paths: 'all' });
+    assert.ok(every.some((c) => c.file === 'new.ts') && every.some((c) => c.file === 'm.ts'));
+  });
+
+  it('binary files have no added lines', () => {
+    const p = repo();
+    writeFileSync(join(p, 'x.bin'), Buffer.from([0, 1, 2, 0, 255]));
+    sh(p, 'add', '-A');
+    const [c] = stagedChanges(p, DEFAULTS, { all: false, paths: [] });
+    assert.deepEqual(c.added, []);
+  });
+
+  it('stacked branches: base is nearest dangerous branch', () => {
+    const p = repo();
+    put(p, 'README.md', 'r');
+    commitAll(p);
+    sh(p, 'checkout', '-b', 'deps/zod');
+    put(p, 'package.json', '{"dependencies":{"zod":"1"}}');
+    commitAll(p);
+    sh(p, 'checkout', '-b', 'feat/use-zod');
+    put(p, 'src/use.ts', 'import z from "zod";\n');
+    commitAll(p);
+    assert.equal(branchBase(p, DEFAULTS, null), 'deps/zod');
+    assert.equal(branchBase(p, DEFAULTS, 'main'), 'main');
+    const changes = branchChanges(p, DEFAULTS, 'deps/zod');
+    assert.deepEqual(changes.map((c) => c.file), ['src/use.ts']);
+    const all = branchChanges(p, DEFAULTS, 'main');
+    const pk = all.find((c) => c.file === 'package.json');
+    assert.equal(pk.before, '');
+    assert.equal(pk.after, '{"dependencies":{"zod":"1"}}');
+  });
+
+  it('defaultBranch', () => {
+    const p = repo('master');
+    put(p, 'a', 'a');
+    commitAll(p);
+    assert.equal(defaultBranch(p, DEFAULTS), 'master');
+    const q = repo('trunk');
+    put(q, 'a', 'a');
+    commitAll(q);
+    assert.equal(defaultBranch(q, DEFAULTS), null);
   });
 });
