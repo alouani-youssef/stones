@@ -782,6 +782,24 @@ describe('evaluate', () => {
       assert.equal(dependencyChanged('package.json', '', '{"name":"a","dependencies":{}}'), false);
       assert.equal(dependencyChanged('package.json', '{"name":"a"}', '{"name":"a","devDependencies":{"x":"1"}}'), true);
     });
+
+    it('#3 namespace/schema hosts, comment lines and package metadata are not network', () => {
+      for (const l of ['<svg xmlns="http://www.w3.org/2000/svg">', '  "$schema": "https://json-schema.org/draft-07/schema#",', '"$schema": "https://json.schemastore.org/tsconfig"',
+        '// see https://github.com/acme/x/issues/1', '# docs: https://docs.python.org/3/', '/* https://api.stripe.com */', ' * @see https://developer.mozilla.org/x', '<!-- https://cdn.acme.io -->'])
+        assert.equal(networkHit([l], DEFAULTS), null, l);
+      assert.ok(networkHit(["fetch('https://api.stripe.com') // https://github.com"], DEFAULTS));
+      const pkg = { file: 'package.json', added: ['  "homepage": "https://github.com/acme/x#readme",', '    "url": "git+https://github.com/acme/x.git"'], before: '{}', after: '{}' };
+      assert.equal(classify(pkg, DEFAULTS), 'code');
+      assert.equal(classify({ file: 'src/c.json', added: ['"url": "https://api.acme.io"'] }, DEFAULTS), 'network');
+    });
+
+    it('#3 zones.network.allowHosts tunes the URL check', () => {
+      assert.deepEqual(DEFAULTS.zones.network.allowHosts, []);
+      const c = loadConfig(withConfig({ zones: { network: { allowHosts: ['*.acme.io', 'github.com'] } } }));
+      assert.equal(networkHit(["fetch('https://api.acme.io/x')", "'https://github.com/a'"], c), null);
+      assert.ok(networkHit(["fetch('https://api.stripe.com')"], c));
+      assert.ok(networkHit(["'https://github.com.evil.io'"], c));
+    });
   });
 
   describe('CLI', () => {
