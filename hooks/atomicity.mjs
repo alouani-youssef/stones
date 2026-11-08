@@ -85,6 +85,7 @@ export const DEFAULTS = {
         '**/pages/api/**',
       ],
       extraPatterns: [],
+      allowHosts: [],
       ignore: [],
       incoming: false,
     },
@@ -165,11 +166,22 @@ export function pathClass(file, config) {
   return 'code';
 }
 
-const SKIPPED_HOST = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|.+\.local|example\.com|.+\.example\.com)$/i;
-const URL_RE = /\b(?:https?|wss?):\/\/([^/'"\s:]+)/g;
+// Local hosts, documentation hosts, and XML-namespace / JSON-schema hosts (identifiers, not traffic).
+const SKIPPED_HOST = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|.+\.local|(?:.+\.)?example\.(?:com|org|net)|(?:.+\.)?w3\.org|(?:.+\.)?json-schema\.org|(?:.+\.)?schemastore\.org)$/i;
+const URL_RE = /\b(?:https?|wss?):\/\/([^/'"\s:?#`)>]+)/g;
+// A line that is only a comment: //, #, /* … */, * (block-comment body) or <!-- … -->.
+const COMMENT_LINE = /^\s*(?:\/\/|#(?=\s|!|$)|\/\*|\*|<!--)/;
+// JSON keys whose URL values identify a schema or describe the package; they are never called.
+const SCHEMA_KEY = /^\s*"\$(?:schema|id)"\s*:/;
+const PACKAGE_META_KEY = /^\s*"(?:homepage|repository|bugs|url|funding|author|contributors|license|email|web)"\s*:/;
 
-function hasExternalUrl(line) {
-  for (const m of line.matchAll(URL_RE)) if (!SKIPPED_HOST.test(m[1])) return true;
+const hostGlob = (glob) => new RegExp(`^${String(glob).toLowerCase().split('*').map((p) => p.replace(/[.+^${}()|[\]\\?]/g, '\\$&')).join('.*')}$`);
+
+function hasExternalUrl(line, allowHosts) {
+  for (const m of line.matchAll(URL_RE)) {
+    const host = m[1].toLowerCase();
+    if (!SKIPPED_HOST.test(host) && !allowHosts.some((re) => re.test(host))) return true;
+  }
   return false;
 }
 
@@ -185,12 +197,17 @@ function compilePatterns(sources) {
   return out;
 }
 
-export function networkHit(addedLines, config) {
+/** The first added line that talks to another host, or null. `file` (optional) enables package.json metadata skipping. */
+export function networkHit(addedLines, config, file = '') {
   const net = config.zones?.network ?? {};
   const sources = [...(net.patterns ?? []), ...(net.extraPatterns ?? []), ...(net.incoming ? (net.incomingPatterns ?? DEFAULTS.zones.network.incomingPatterns) : [])];
   const patterns = compilePatterns(sources);
+  const allowHosts = (Array.isArray(net.allowHosts) ? net.allowHosts : []).map(hostGlob);
+  const isPackageJson = baseName(normalize(file)) === 'package.json';
   for (const line of addedLines ?? []) {
-    if (hasExternalUrl(line) || patterns.some((re) => re.test(line))) return line;
+    if (COMMENT_LINE.test(line)) continue;
+    const urlChecked = !SCHEMA_KEY.test(line) && !(isPackageJson && PACKAGE_META_KEY.test(line));
+    if ((urlChecked && hasExternalUrl(line, allowHosts)) || patterns.some((re) => re.test(line))) return line;
   }
   return null;
 }
@@ -295,7 +312,7 @@ function incomingPath(rel, config) {
 }
 
 function contentClass(change, config, ignored) {
-  return !ignored && networkHit(change.added ?? [], config) ? 'network' : 'code';
+  return !ignored && networkHit(change.added ?? [], config, change.file) ? 'network' : 'code';
 }
 
 // ---------------------------------------------------------------------------
