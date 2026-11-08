@@ -30,6 +30,10 @@ Other classes:
 Network details:
 
 - Your own API is not network. Relative URLs (`fetch('/api/x')`), `localhost`, `127.0.0.1`, `*.local`, `example.com`, and client calls with a variable argument are not flagged.
+- Identifiers that look like URLs are not network: XML namespaces and JSON schemas (`w3.org`, `json-schema.org`, `schemastore.org`, any `"$schema"` / `"$id"` key), and `package.json` metadata (`homepage`, `repository`, `bugs`, `url`, `funding`, `author`...).
+- Comment-only lines (starting with `//`, `#`, `/*`, `*` or `<!--`) are not checked, so `// see https://github.com/...` stays code. A URL after code on the same line still counts.
+- Hosts you trust (your own services, a docs site) go in `zones.network.allowHosts` as host globs, e.g. `["*.acme.io", "github.com"]`.
+- When a file is network because of its content, the block message prints `<file>: <line>` so you can see exactly what triggered it.
 - Defining incoming routes is not network unless `network.incoming` is `true`.
 - The content check only looks at added lines of non-neutral files, so a test that adds `fetch(` stays neutral.
 
@@ -39,17 +43,22 @@ Every block starts with `Atomicity guard (R<n>):`, names the files, and gives th
 
 | Rule | Blocks | What the message tells you to do |
 |---|---|---|
-| R1 | A commit whose staged files (plus `-a` / pathspecs / chained `git add`) mix two zones, or a danger zone with `code`. | Lists files per zone. Run `git restore --staged <files>` for everything except the zone you keep, then commit the rest separately. |
+| R1 | A commit whose staged files (plus `-a` / pathspecs / chained `git add`) mix two zones, or a danger zone with `code`. | Lists files per zone. Unstage everything except the zone you keep (`git restore --staged <files>`, or `git rm --cached <files>` before the first commit); files only the command's own `git add` / `-a` would stage are listed separately: drop them from the `git add`. Then commit the rest separately. |
 | R2 | A danger-zone commit on the default branch or a branch without the matching prefix; a branch (vs its base) that mixes zones. | Run `git switch -c db/<name>` (or `deps/`, `net/`), or move the stray changes to their own branch (`git switch -c <prefix><name> <base>`, then cherry-pick). |
 | R3 | A danger branch whose `.claude/danger/<branch with / as -->.md` is missing, has a missing or empty section, a wrong `## Zone`, or placeholder text. | Names the file and the failing section. Write the spec (see [SPEC_TEMPLATE.md](SPEC_TEMPLATE.md)), then `git add` it. |
-| R4 | Writes (Edit, Write, redirects, `tee`, `cp`, `mv`) into a migration directory; any agent write to `.claude/atomicity.json`. | For migrations: edit the schema/model source, then run the generator it prints. For the config: ask the user. |
+| R4 | Writes (Edit, Write, redirects, `tee`, `cp`, `mv`) into a migration directory; any agent write to `.claude/atomicity.json`. | For migrations: edit the schema/model source, then run the generator it prints. If no migration generator is configured — set `migrations.generate`, or set `migrations.allowEdits: true` for tools whose migrations are hand-written (golang-migrate, Flyway, dbmate, goose). For the config: ask the user. |
 
 Notes on how the hook reads your command:
 
 - `git add -u` / `-A` / `.` chained with `git commit` is evaluated as already staged.
+- Env prefixes and wrappers are seen through: `HUSKY=0 git commit`, `env git commit`, `command git commit`, `/usr/bin/git commit`.
 - `git switch -c X` / `git checkout -b X` chained before a commit is evaluated as branch `X`. Any other branch switch in the same command as a commit, push or PR is blocked with "run the branch switch as its own command". Run it separately.
-- `gh pr create` without `--base` is judged against the default branch. For a stacked PR pass `--base <parent-branch>`.
+- `gh pr create` without `--base` is judged against the default branch. For a stacked PR pass `--base <parent-branch>`; the block message suggests it when a danger-prefixed parent is nearer.
 - `git push` is judged against the nearest ancestor branch that is the default branch or has a danger prefix. The first commit on a freshly stacked branch may use the parent at `HEAD`.
+- The default branch counts as its local copy, `origin/<default>` and its upstream, whichever is nearest, so a stale local `main` does not drag teammates' merged changes into your branch. `gh pr create --base X` likewise uses the nearer of `X` and `origin/X`.
+- `git switch -c X && git push` pushes the current branch's history under a new name, so it is judged like a push of the current branch.
+- Concluding a merge, cherry-pick or revert (`MERGE_HEAD`, `CHERRY_PICK_HEAD` or `REVERT_HEAD` exists) skips R1: the staged set is other commits being brought in. The branch's own history is still checked.
+- Git runs in the tool call's working directory (`cwd`), so a commit in a worktree or subdirectory is judged on that checkout and branch, and R4 resolves relative paths from there. Configuration is always read from the project's `.claude/atomicity.json`.
 - The spec is checked on the danger commit itself (it may be in the same commit) and again on push and PR.
 
 Migrations:
@@ -66,15 +75,16 @@ Migrations:
 |---|---|
 | `enabled` | `false` turns the hook off. |
 | `exempt` | Branch names that skip R1-R3 (for branches already mixed when the hook was installed). Human-only. |
-| `defaultBranch` | Branch treated as the base for judging (default: detected). |
+| `defaultBranch` | Branch treated as the base for judging (default `main` if present, else detected from `origin/HEAD`, then `master`). |
 | `specDir` | Where specs live (default `.claude/danger`). |
 | `prefixes` | Branch prefix per zone (`db/`, `deps/`, `net/`). |
 | `zones.<zone>.paths` / `extraPaths` | `paths` replaces the built-in path list; `extraPaths` adds to it. |
 | `zones.network.patterns` / `extraPatterns` | Content patterns, replace or add. |
 | `zones.network.ignore` | Globs the network content check skips. It skips content checks only; a path-classified file (such as `.mcp.json`) stays network. |
+| `zones.network.allowHosts` | Host globs the URL check trusts (default `[]`), e.g. `["*.acme.io"]`. |
 | `zones.network.incoming` | `true` makes new incoming routes count as network (default `false`). |
 | `migrations.dirs` | Directories treated as generated migrations. |
-| `migrations.generate` | Generator command shown in block messages. |
+| `migrations.generate` | Generator command shown in block messages. Leave it empty only with `allowEdits: true` for hand-written migration tools. |
 | `migrations.allowEdits` | `true` allows hand edits in migration dirs (default `false`). |
 
 ## When the hook cannot decide
