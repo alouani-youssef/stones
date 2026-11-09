@@ -35,6 +35,18 @@ export function loadManifest(target) {
   }
 }
 
+// The template merged with what detection found, so the hook starts configured.
+function atomicitySeed(template, stack) {
+  const config = JSON.parse(template);
+  config.defaultBranch = stack.defaultBranch ?? config.defaultBranch;
+  const migrations = stack.migrations;
+  if (migrations) {
+    config.migrations = { ...config.migrations, dirs: migrations.dirs, generate: migrations.generate };
+    config.zones = { ...config.zones, db: { ...config.zones.db, extraPaths: migrations.models } };
+  }
+  return config;
+}
+
 // Desired content for every file this run manages.
 function desiredFiles({ answers, stack, root }) {
   const files = [];
@@ -49,6 +61,10 @@ function desiredFiles({ answers, stack, root }) {
   }
   if (answers.install.hooks.includes('testing')) {
     files.push({ path: 'context/tasks/active.md', content: pkg('context/tasks/active.md'), kind: 'managed' });
+  }
+  if (answers.install.hooks.includes('atomicity')) {
+    files.push({ path: '.claude/atomicity.json', content: json(atomicitySeed(pkg('settings/atomicity.json'), stack)), kind: 'seed' });
+    files.push({ path: '.claude/danger/.gitkeep', content: '', kind: 'seed' });
   }
   const docIds = new Set([...answers.install.docs, ...answers.patterns]);
   for (const doc of docCatalog(root).filter((d) => docIds.has(d.id))) {

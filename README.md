@@ -35,6 +35,8 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 ├── hooks/                only the selected hooks
 ├── docs/                 only the selected guides and patterns
 ├── graph/                code graph (with the graph hook)
+├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
+├── danger/               specs for db, packages and network branches (atomicity hook)
 ├── commands/roadmap.md   the /roadmap command
 └── stones.json           your answers and installed-file hashes
 ```
@@ -65,6 +67,7 @@ or changing your answers:
 | `.claude/settings.json`, `.mcp.json`   | Merged: your keys and rules are kept               |
 | `CLAUDE.md`, `.gitignore`              | Lines appended only if missing                     |
 | `.claude/graph/project.json`           | Created once, then owned by the graph hook         |
+| `.claude/atomicity.json`               | Created once, then owned by you                    |
 
 Use `--dry-run` to see the plan without writing anything.
 

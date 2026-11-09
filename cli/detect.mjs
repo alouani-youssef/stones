@@ -157,6 +157,51 @@ function otherStacks(root, stack) {
   if (has(root, 'openspec')) stack.tools.push('OpenSpec');
 }
 
+const NODE_EXEC = { pnpm: 'pnpm exec', yarn: 'yarn', bun: 'bunx' };
+
+const NODE_MIGRATORS = [
+  ['prisma', 'Prisma', 'prisma migrate dev --name <name>', 'prisma/migrations', ['prisma/schema.prisma']],
+  ['drizzle-kit', 'Drizzle', 'drizzle-kit generate', 'drizzle', ['**/schema.ts', '**/schema/**']],
+  ['typeorm', 'TypeORM', 'typeorm migration:generate', 'src/migrations', ['**/*.entity.ts']],
+  ['sequelize-cli', 'Sequelize', 'sequelize-cli migration:generate', 'migrations', ['models/**']],
+  ['knex', 'Knex', 'knex migrate:make <name>', 'migrations', []],
+];
+
+function migrationStack(root, stack) {
+  stack.migrations = null;
+  const pkg = readJson(root, 'package.json');
+  const deps = pkg ? { ...pkg.dependencies, ...pkg.devDependencies } : {};
+  const pm = stack.packageManagers.find((p) => ['pnpm', 'yarn', 'bun', 'npm'].includes(p)) ?? 'npm';
+  const exec = NODE_EXEC[pm] ?? 'npx';
+  const make = (tool, dirs, models, generate) => ({ tool, dirs, models, generate });
+
+  if (deps.prisma || has(root, 'prisma/schema.prisma')) {
+    return void (stack.migrations = make('Prisma', ['prisma/migrations'], ['prisma/schema.prisma'], `${exec} prisma migrate dev --name <name>`));
+  }
+  for (const [dep, tool, cmd, dir, models] of NODE_MIGRATORS.slice(1)) {
+    if (!deps[dep]) continue;
+    let out = dir;
+    if (dep === 'drizzle-kit') {
+      const cfg = readdirSync(root).find((f) => /^drizzle\.config\./.test(f));
+      const m = cfg && /\bout\s*:\s*(["'`])([^"'`$\n]+)\1/.exec(read(root, cfg));
+      if (m) out = m[2].replace(/^\.\//, '').replace(/\/+$/, '') || dir;
+    }
+    return void (stack.migrations = make(tool, [out], models, `${exec} ${cmd}`));
+  }
+  if (has(root, 'alembic.ini')) {
+    const loc = /^\s*script_location\s*=\s*(\S+)/m.exec(read(root, 'alembic.ini'))?.[1];
+    const base = loc ? loc.replace(/^\.\//, '').replace(/\/+$/, '') : 'alembic';
+    return void (stack.migrations = make('Alembic', [`${base}/versions`], [], 'alembic revision --autogenerate -m "<msg>"'));
+  }
+  const py = `${read(root, 'requirements.txt')}\n${read(root, 'pyproject.toml')}\n${read(root, 'Pipfile')}`.toLowerCase();
+  if (has(root, 'manage.py') && /django/.test(py)) {
+    return void (stack.migrations = make('Django', ['**/migrations'], ['**/models.py', '**/models/**'], 'python manage.py makemigrations'));
+  }
+  if (/\brails\b/.test(read(root, 'Gemfile'))) {
+    stack.migrations = make('Rails', ['db/migrate'], ['app/models/**'], 'bin/rails generate migration <Name>');
+  }
+}
+
 const CONVENTIONAL = /^(feat|fix|docs|chore|refactor|test|style|perf|build|ci|revert)(\([^)]*\))?!?:\s/;
 
 function gitFacts(root, stack) {
@@ -176,11 +221,12 @@ export function detect(root) {
     name: '', description: '', languages: [], frameworks: [], packageManagers: [],
     ecosystems: [], formatters: [], linters: [], tools: [], commands: {},
     monorepo: null, git: false, conventionalCommits: null, defaultBranch: 'main',
-    directories: [], tooling: {},
+    directories: [], tooling: {}, migrations: null,
   };
   nodeStack(root, stack);
   pythonStack(root, stack);
   otherStacks(root, stack);
+  migrationStack(root, stack);
   gitFacts(root, stack);
   stack.name ||= basename(root);
   try {
