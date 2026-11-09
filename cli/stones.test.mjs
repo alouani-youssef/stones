@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { inspectSpec } from '../hooks/atomicity.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
+import { docCatalog, hookCatalog } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
 import { createPrompter, createScriptedPrompter } from './prompt.mjs';
@@ -50,6 +52,29 @@ const read = (root, path) => readFileSync(join(root, path), 'utf8');
 const actions = (ops) => Object.fromEntries(ops.map((o) => [o.path, o.action]));
 
 describe('detect', () => {
+  it('detects the migration tool, dirs and generator', () => {
+    const prisma = detect(project({ 'package.json': { devDependencies: { prisma: '5' } }, 'pnpm-lock.yaml': '' }));
+    assert.equal(prisma.migrations.tool, 'Prisma');
+    assert.deepEqual(prisma.migrations.dirs, ['prisma/migrations']);
+    assert.equal(prisma.migrations.generate, 'pnpm exec prisma migrate dev --name <name>');
+    const django = detect(project({ 'manage.py': '', 'requirements.txt': 'Django==5\n' }));
+    assert.equal(django.migrations.tool, 'Django');
+    assert.equal(django.migrations.generate, 'python manage.py makemigrations');
+    assert.deepEqual(django.migrations.dirs, ['**/migrations']);
+    assert.deepEqual(django.migrations.models, ['**/models.py', '**/models/**']);
+    const drizzle = detect(project({
+      'package.json': { devDependencies: { 'drizzle-kit': '1' } },
+      'drizzle.config.ts': "export default { out: './db/migrations' }",
+    }));
+    assert.deepEqual(drizzle.migrations.dirs, ['db/migrations']);
+    assert.equal(drizzle.migrations.generate, 'npx drizzle-kit generate');
+    const alembic = detect(project({ 'alembic.ini': '[alembic]\nscript_location = db/alembic\n' }));
+    assert.deepEqual(alembic.migrations.dirs, ['db/alembic/versions']);
+    const rails = detect(project({ Gemfile: "gem 'rails'\n" }));
+    assert.equal(rails.migrations.generate, 'bin/rails generate migration <Name>');
+    assert.equal(detect(project()).migrations, null);
+  });
+
   it('reads a Next.js + pnpm project', () => {
     const s = detect(nextApp());
     assert.equal(s.name, 'shop');
@@ -258,5 +283,55 @@ describe('roadmap', () => {
     assert.match(prompt, /Focus for this session: create the first roadmap/);
     assert.match(roadmapPrompt(project({ 'ROADMAP.md': '# Roadmap' }), ''), /review progress/);
     assert.match(roadmapPrompt(project(), 'plan Q3'), /Focus for this session: plan Q3/);
+  });
+});
+
+describe('atomicity hook install', () => {
+  const prismaApp = () => project({
+    'package.json': { name: 'api', devDependencies: { prisma: '5' } },
+    'pnpm-lock.yaml': '',
+  });
+
+  it('is in the hook catalog', () => {
+    const hook = hookCatalog().find((h) => h.id === 'atomicity');
+    assert.deepEqual(hook?.events, ['PreToolUse:Bash|Edit|MultiEdit|Write']);
+  });
+
+  it('ships the hook, a detected seed config and the danger dir', async () => {
+    const root = prismaApp();
+    const { ops, stack } = await runInit(root, { 'install.hooks': ['atomicity'] });
+    const paths = actions(ops);
+    assert.equal(paths['.claude/hooks/atomicity.mjs'], 'create');
+    assert.equal(paths['.claude/atomicity.json'], 'create');
+    assert.equal(paths['.claude/danger/.gitkeep'], 'create');
+    const config = JSON.parse(read(root, '.claude/atomicity.json'));
+    assert.equal(config.migrations.generate, 'pnpm exec prisma migrate dev --name <name>');
+    assert.deepEqual(config.migrations.dirs, ['prisma/migrations']);
+    assert.equal(config.defaultBranch, stack.defaultBranch);
+    assert.equal(config.enabled, true);
+  });
+
+  it('mentions danger zones in AGENT.md with the detected generator', async () => {
+    const root = prismaApp();
+    await runInit(root, { 'install.hooks': ['atomicity'] });
+    const doc = read(root, 'AGENT.md');
+    assert.match(doc, /Danger zones/);
+    assert.match(doc, /pnpm exec prisma migrate dev --name <name>/);
+  });
+
+  it('links the atomicity doc from AGENT.md when hook and doc are installed', async () => {
+    const root = prismaApp();
+    await runInit(root, { 'install.hooks': ['atomicity'], 'install.docs': ['atomicity'] });
+    assert.match(read(root, 'AGENT.md'), /\.claude\/docs\/atomicity\/README\.md/);
+  });
+
+  it('ships the atomicity docs with an unfilled-spec-failing template', () => {
+    const topic = docCatalog().find((t) => t.id === 'atomicity');
+    assert.ok(topic);
+    assert.equal(topic.main, 'atomicity/README.md');
+    assert.equal(topic.files.length, 4);
+    assert.match(topic.lead, /atomic/i);
+    const template = readFileSync(new URL('../docs/atomicity/SPEC_TEMPLATE.md', import.meta.url), 'utf8');
+    assert.equal(inspectSpec(template, 'db').valid, false);
   });
 });
