@@ -21,7 +21,7 @@ Requires Node.js 22.13+ (the history hook uses the built-in `node:sqlite`).
 2. **Asks about what it cannot detect**, with detected values as defaults:
    what the project is, what each top-level folder holds, architecture,
    design patterns, secrets and auth, conventions, branching, TDD, and which
-   hooks, skills and MCP servers to install.
+   hooks, skills, plugins and MCP servers to install.
 3. **Writes the setup**:
 
 ```
@@ -31,7 +31,8 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 .gitignore                + generated graph and local settings
 .claude/
 ├── settings.json         selected hooks, permissions for your commands,
-│                         sandbox limited to your package registries
+│                         sandbox limited to your package registries,
+│                         enabled plugins from the official marketplace
 ├── hooks/                only the selected hooks
 ├── skills/               only the selected skills and pattern skills
 ├── graph/                code graph (with the graph hook)
@@ -52,6 +53,12 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
   (`pnpm run test`, `uv run pytest`, `go test`); sandbox domains from your
   ecosystems; nx rules only in nx repos; the format hook only when a formatter
   exists; the jq status line and `block-rm` hook only when jq is installed.
+- **Open-source plugins by default.** `superpowers`, `code-review`,
+  `claude-md-management`, `security-guidance` and `context7` are enabled in
+  every project; the language server, frontend and database plugins
+  (`prisma`, `supabase`, `mongodb`, `neon`, `firebase`, `redis-development`)
+  only when the stack uses them. They live in `enabledPlugins`, so Claude Code
+  offers to install them when someone trusts the repo.
 - **Pattern skills match the stack.** Repository for ORMs, dependency
   injection for NestJS/Angular/JVM, summary-details for API frameworks.
 - **Fast re-runs.** Previous answers become the defaults, so updating the
@@ -140,6 +147,7 @@ npx claude-stones sync --check   # CI: fail if it is out of date
 | `graph/`      | code graph seed and documentation                               |
 | `commands/`   | slash commands installed into `.claude/commands/`               |
 | `mcps/`       | MCP servers offered for `.mcp.json`                             |
+| `settings/plugins.json` | plugins offered: `default: true` for every project, `when` to match detected languages/frameworks |
 | `devcontainer/` | one dev container per stack (`node-pnpm`, `python`, `go`); `npm run build:devcontainers` regenerates their `devcontainer.json` |
 
 Adding a hook, skill, command or MCP server to these folders is enough for

@@ -97,6 +97,7 @@ function desiredFiles({ answers, stack, root, target }) {
 
   const settings = composeSettings({
     hooks: answers.install.hooks,
+    plugins: answers.install.plugins ?? [],
     ecosystems: stack.ecosystems,
     packageManagers: stack.packageManagers,
     monorepo: stack.monorepo,
@@ -124,6 +125,66 @@ function desiredFiles({ answers, stack, root, target }) {
   return files;
 }
 
+function recordPendingLine(pending, file, current) {
+  const base = pending.get(file.path) ?? current ?? '';
+  if (base.split('\n').some((l) => l.trim() === file.line)) return;
+  const separator = base && !base.endsWith('\n') ? '\n' : '';
+  pending.set(file.path, `${base}${separator}${file.line}\n`);
+}
+
+function planGenerated(file, current) {
+  if (file.error) {
+    return { ...file, action: 'conflict', reason: file.error };
+  }
+  if (current === undefined) {
+    return { ...file, action: 'create' };
+  }
+  return { ...file, action: current === file.content ? 'same' : 'update' };
+}
+
+function planJson(file, current) {
+  let existing;
+  try {
+    existing = JSON.parse(current);
+  } catch {
+    return { ...file, action: 'conflict', reason: 'existing file is not valid JSON' };
+  }
+  const merged = json(mergeSettings(existing, file.value));
+  return { ...file, content: merged, action: merged === current ? 'same' : 'merge' };
+}
+
+function planFileOp(file, current, manifest, force) {
+  if (file.kind === 'generated') {
+    return planGenerated(file, current);
+  }
+  if (current === undefined) {
+    return { ...file, action: 'create' };
+  }
+  if (current === file.content) {
+    return { ...file, action: 'same' };
+  }
+  if (file.kind === 'seed') {
+    return { ...file, action: 'keep' };
+  }
+  const pristine = manifest.files?.[file.path] === sha(current);
+  if (force || pristine) {
+    return { ...file, action: 'update' };
+  }
+  if (file.kind === 'json') {
+    return planJson(file, current);
+  }
+  return { ...file, action: 'conflict', reason: 'edited since it was installed' };
+}
+
+function planPendingLines(target, pending) {
+  return Array.from(pending, ([path, content]) => ({
+    path,
+    content,
+    kind: 'line',
+    action: existsSync(join(target, path)) ? 'append' : 'create',
+  }));
+}
+
 // Decides, per file, what to do: create, update, merge, append, skip or conflict.
 export function plan({ target, answers, stack, force = false, root = PACKAGE_ROOT }) {
   const manifest = loadManifest(target);
@@ -134,53 +195,22 @@ export function plan({ target, answers, stack, force = false, root = PACKAGE_ROO
   const foreignDevcontainer = existsSync(join(target, '.devcontainer')) && !manifest.files?.[DC_DOCKERFILE];
 
   for (const file of desiredFiles({ answers, stack, root, target })) {
-    const abs = join(target, file.path);
-    const current = readText(abs);
-    const installed = manifest.files?.[file.path];
-    const pristine = current !== undefined && installed === sha(current);
-
-    if (file.path.startsWith('.devcontainer/') && foreignDevcontainer && !force) {
+    if (!force && foreignDevcontainer && file.path.startsWith('.devcontainer/')) {
       ops.push({ ...file, action: 'conflict', reason: 'existing .devcontainer not installed by stones' });
       continue;
     }
-    if (file.kind === 'generated') {
-      if (file.error) ops.push({ ...file, action: 'conflict', reason: file.error });
-      else ops.push({ ...file, action: current === undefined ? 'create' : current === file.content ? 'same' : 'update' });
+
+    const current = readText(join(target, file.path));
+
+    if (file.kind === 'line') {
+      recordPendingLine(pending, file, current);
       continue;
     }
 
-    if (file.kind === 'line') {
-      const base = pending.get(file.path) ?? current ?? '';
-      if (base.split('\n').some((l) => l.trim() === file.line)) continue;
-      const next = `${base}${base && !base.endsWith('\n') ? '\n' : ''}${file.line}\n`;
-      pending.set(file.path, next);
-      continue;
-    }
-    if (current === undefined) {
-      ops.push({ ...file, action: 'create' });
-    } else if (current === file.content) {
-      ops.push({ ...file, action: 'same' });
-    } else if (file.kind === 'seed') {
-      ops.push({ ...file, action: 'keep' });
-    } else if (force || pristine) {
-      ops.push({ ...file, action: 'update' });
-    } else if (file.kind === 'json') {
-      let existing;
-      try {
-        existing = JSON.parse(current);
-      } catch {
-        ops.push({ ...file, action: 'conflict', reason: 'existing file is not valid JSON' });
-        continue;
-      }
-      const merged = json(mergeSettings(existing, file.value));
-      ops.push({ ...file, content: merged, action: merged === current ? 'same' : 'merge' });
-    } else {
-      ops.push({ ...file, action: 'conflict', reason: 'edited since it was installed' });
-    }
+    ops.push(planFileOp(file, current, manifest, force));
   }
-  for (const [path, content] of pending) {
-    ops.push({ path, content, kind: 'line', action: existsSync(join(target, path)) ? 'append' : 'create' });
-  }
+
+  ops.push(...planPendingLines(target, pending));
   return ops;
 }
 

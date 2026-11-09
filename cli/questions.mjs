@@ -1,6 +1,6 @@
 // The setup interview. Defaults come from the previous run's answers first,
 // then from stack detection, so re-running `init` is mostly pressing Enter.
-import { currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, skillCatalog } from './catalog.mjs';
+import { currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, pluginCatalog, skillCatalog, suggestedPlugins } from './catalog.mjs';
 import { devcontainerStack } from './devcontainer.mjs';
 
 const ARCHITECTURES = [
@@ -55,6 +55,7 @@ export async function interview(ask, stack, previous = {}) {
   const hooks = hookCatalog();
   const skills = skillCatalog();
   const mcps = mcpCatalog();
+  const plugins = pluginCatalog();
 
   ask.note('\n— Project');
   const name = await ask.text('project.name', 'Project name', p('project.name', stack.name));
@@ -128,6 +129,14 @@ export async function interview(ask, stack, previous = {}) {
     guideSkills.map((s) => ({ value: s.id, label: s.title, hint: s.lead })),
     previousSkills(previous, guideSkills),
   );
+  const selectedPlugins = plugins.length
+    ? await ask.multi(
+      'install.plugins',
+      'Claude Code plugins to enable (official marketplace, installed on first trust)',
+      plugins.map((pl) => ({ value: pl.id, label: pl.id, hint: pl.hint })),
+      p('install.plugins', suggestedPlugins(stack)),
+    )
+    : [];
   const selectedMcps = mcps.length
     ? await ask.multi(
       'install.mcp',
@@ -155,7 +164,7 @@ export async function interview(ask, stack, previous = {}) {
     conventions: { commits, notes: conventionNotes },
     workflow: { branching, commands, tdd },
     guardrails: { notes: guardrailNotes },
-    install: { hooks: selectedHooks, skills: selectedSkills, mcp: selectedMcps, sandbox, devcontainer },
+    install: { hooks: selectedHooks, skills: selectedSkills, plugins: selectedPlugins, mcp: selectedMcps, sandbox, devcontainer },
   };
 }
 
