@@ -1,7 +1,7 @@
 // Composes `.claude/settings.json` from the modular sources in settings/,
 // keeping only what the project uses: the selected hooks, permissions for
 // the project's own commands, and sandbox domains for its ecosystems.
-import { hookCatalog, PACKAGE_ROOT, settingsSource } from './catalog.mjs';
+import { hookCatalog, PACKAGE_ROOT, pluginCatalog, settingsSource } from './catalog.mjs';
 
 const unique = (items) => [...new Set(items)];
 
@@ -16,6 +16,7 @@ export function commandRule(command) {
 
 export function composeSettings({
   hooks = [],
+  plugins = [],
   ecosystems = [],
   packageManagers = [],
   monorepo = null,
@@ -60,6 +61,12 @@ export function composeSettings({
   if (!jq && /\bjq\b/.test(settings.statusLine?.command ?? '')) delete settings.statusLine;
   settings.permissions = { ...permissions, allow };
   if (Object.keys(hookConfig).length) settings.hooks = hookConfig;
+  const enabled = pluginCatalog(root).filter((p) => plugins.includes(p.id));
+  if (enabled.length) {
+    settings.enabledPlugins = Object.fromEntries(enabled.map((p) => [p.key, true]));
+    const markets = enabled.filter((p) => p.marketplaceSource).map((p) => [p.marketplace, { source: p.marketplaceSource }]);
+    if (markets.length) settings.extraKnownMarketplaces = Object.fromEntries(markets);
+  }
   if (sandbox) {
     settings.sandbox = {
       ...sandboxSource,

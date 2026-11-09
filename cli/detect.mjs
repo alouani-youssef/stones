@@ -46,11 +46,15 @@ const NODE_FRAMEWORKS = {
   astro: 'Astro', electron: 'Electron', 'react-native': 'React Native',
   prisma: 'Prisma', 'drizzle-orm': 'Drizzle', vitest: 'Vitest', jest: 'Jest',
   '@playwright/test': 'Playwright', cypress: 'Cypress', tailwindcss: 'Tailwind CSS',
+  '@supabase/supabase-js': 'Supabase', mongodb: 'MongoDB', mongoose: 'MongoDB',
+  '@neondatabase/serverless': 'Neon', firebase: 'Firebase', 'firebase-admin': 'Firebase',
+  redis: 'Redis', ioredis: 'Redis',
 };
 
 const PY_FRAMEWORKS = {
   django: 'Django', fastapi: 'FastAPI', flask: 'Flask', sqlalchemy: 'SQLAlchemy',
   pydantic: 'Pydantic', pytest: 'pytest', celery: 'Celery',
+  supabase: 'Supabase', pymongo: 'MongoDB', motor: 'MongoDB', 'firebase-admin': 'Firebase', redis: 'Redis',
 };
 
 function nodeStack(root, stack) {

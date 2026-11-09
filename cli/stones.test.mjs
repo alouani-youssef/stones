@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import { inspectSpec } from '../hooks/atomicity.mjs';
 import { parseDockerfile, renderDevcontainer } from '../hooks/devcontainer.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { hookCatalog, LEGACY_SKILL_IDS, PACKAGE_ROOT, skillCatalog, skillFrontmatter } from './catalog.mjs';
+import { hookCatalog, LEGACY_SKILL_IDS, PACKAGE_ROOT, pluginCatalog, skillCatalog, skillFrontmatter, suggestedPlugins } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { DEVCONTAINER_STACKS, devcontainerStack } from './devcontainer.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
@@ -112,6 +112,34 @@ describe('settings', () => {
     assert.ok(s.permissions.allow.includes('Bash(pytest:*)'));
     assert.ok(!s.permissions.allow.some((p) => p.includes('nx')));
     assert.deepEqual(s.sandbox.network.allowedDomains, ['pypi.org', 'files.pythonhosted.org']);
+  });
+
+  it('enables selected plugins and declares their marketplace', () => {
+    const s = composeSettings({ plugins: ['superpowers', 'prisma', 'not-a-plugin'] });
+    assert.deepEqual(s.enabledPlugins, {
+      'superpowers@claude-plugins-official': true,
+      'prisma@claude-plugins-official': true,
+    });
+    assert.deepEqual(s.extraKnownMarketplaces, {
+      'claude-plugins-official': { source: { source: 'github', repo: 'anthropics/claude-plugins-official' } },
+    });
+    const none = composeSettings({});
+    assert.equal(none.enabledPlugins, undefined);
+    assert.equal(none.extraKnownMarketplaces, undefined);
+  });
+
+  it('suggests core plugins everywhere and stack plugins only where they fit', () => {
+    const core = pluginCatalog().filter((p) => p.default).map((p) => p.id);
+    assert.ok(core.includes('superpowers'));
+    const node = suggestedPlugins(detect(project({
+      'package.json': { dependencies: { next: '15', '@supabase/supabase-js': '2', mongoose: '8' }, devDependencies: { prisma: '5' } },
+      'tsconfig.json': '{}',
+    })));
+    for (const id of [...core, 'typescript-lsp', 'frontend-design', 'prisma', 'supabase', 'mongodb']) assert.ok(node.includes(id), id);
+    assert.ok(!node.includes('pyright-lsp'));
+    const py = suggestedPlugins(detect(project({ 'requirements.txt': 'fastapi\nredis\n' })));
+    for (const id of ['pyright-lsp', 'redis-development']) assert.ok(py.includes(id), id);
+    assert.ok(!py.includes('typescript-lsp') && !py.includes('prisma'));
   });
 
   it('adds nx permissions only in nx monorepos and drops the jq status line without jq', () => {
@@ -237,6 +265,9 @@ describe('init', () => {
 
     const settings = JSON.parse(read(root, '.claude/settings.json'));
     assert.ok(settings.permissions.allow.includes('Bash(pnpm run test:*)'));
+    assert.equal(settings.enabledPlugins['superpowers@claude-plugins-official'], true);
+    assert.equal(settings.enabledPlugins['typescript-lsp@claude-plugins-official'], true);
+    assert.ok(settings.extraKnownMarketplaces['claude-plugins-official']);
     assert.match(JSON.stringify(settings.hooks), /format\.mjs/); // prettier detected
     assert.equal(read(root, 'CLAUDE.md'), '@AGENT.md\n');
     assert.match(read(root, 'AGENT.md'), /^## Workflow$/m);

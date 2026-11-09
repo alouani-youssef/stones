@@ -1,0 +1,37 @@
+{
+  "marketplaces": {
+    "claude-plugins-official": {
+      "source": { "source": "github", "repo": "anthropics/claude-plugins-official" }
+    }
+  },
+  "plugins": [
+    { "id": "superpowers", "default": true, "hint": "brainstorming, plans, subagent-driven development, systematic debugging, TDD" },
+    { "id": "code-review", "default": true, "hint": "multi-agent pull request review" },
+    { "id": "claude-md-management", "default": true, "hint": "audits and updates CLAUDE.md with session learnings" },
+    { "id": "security-guidance", "default": true, "hint": "warns about insecure patterns in edits" },
+    { "id": "context7", "default": true, "hint": "up-to-date library documentation lookup" },
+    { "id": "code-simplifier", "hint": "agent that simplifies recently changed code" },
+    { "id": "commit-commands", "hint": "/commit, /commit-push-pr and branch cleanup" },
+    { "id": "pr-review-toolkit", "hint": "specialized PR review agents (tests, errors, types, comments)" },
+    { "id": "feature-dev", "hint": "guided feature development with explorer and architect agents" },
+
+    { "id": "frontend-design", "when": { "frameworks": ["React", "Next.js", "Vue", "Nuxt", "Svelte", "SvelteKit", "Angular", "Remix", "Astro"] }, "hint": "distinctive, production-grade UI" },
+    { "id": "playwright", "when": { "frameworks": ["Playwright"] }, "hint": "browser automation and e2e testing" },
+
+    { "id": "typescript-lsp", "when": { "languages": ["TypeScript", "JavaScript"] }, "hint": "TypeScript/JavaScript language server" },
+    { "id": "pyright-lsp", "when": { "languages": ["Python"] }, "hint": "Python type checking and code intelligence" },
+    { "id": "gopls-lsp", "when": { "languages": ["Go"] }, "hint": "Go language server" },
+    { "id": "rust-analyzer-lsp", "when": { "languages": ["Rust"] }, "hint": "Rust language server" },
+    { "id": "jdtls-lsp", "when": { "languages": ["Java"] }, "hint": "Java language server" },
+    { "id": "kotlin-lsp", "when": { "languages": ["Kotlin"] }, "hint": "Kotlin language server" },
+    { "id": "ruby-lsp", "when": { "languages": ["Ruby"] }, "hint": "Ruby language server" },
+    { "id": "php-lsp", "when": { "languages": ["PHP"] }, "hint": "PHP language server" },
+
+    { "id": "prisma", "when": { "frameworks": ["Prisma"] }, "hint": "Prisma schema, migrations and Postgres management" },
+    { "id": "supabase", "when": { "frameworks": ["Supabase"] }, "hint": "Supabase database, auth and storage" },
+    { "id": "mongodb", "when": { "frameworks": ["MongoDB"] }, "hint": "MongoDB MCP server and skills" },
+    { "id": "neon", "when": { "frameworks": ["Neon"] }, "hint": "Neon serverless Postgres" },
+    { "id": "firebase", "when": { "frameworks": ["Firebase"] }, "hint": "Firestore, auth and Firebase services" },
+    { "id": "redis-development", "when": { "frameworks": ["Redis"] }, "hint": "Redis data structures and best practices" }
+  ]
+}

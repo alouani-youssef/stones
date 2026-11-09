@@ -150,6 +150,33 @@ export function mcpCatalog(root = PACKAGE_ROOT) {
   }));
 }
 
+// Claude Code plugins from settings/plugins.json, enabled through the
+// project's settings.json so everyone who trusts the repo gets them.
+// `default: true` plugins are always suggested; `when` matches the detected
+// stack (any listed language or framework).
+export function pluginCatalog(root = PACKAGE_ROOT) {
+  const source = readJson(join(root, 'settings', 'plugins.json'), {});
+  const marketplaces = source.marketplaces ?? {};
+  const fallback = Object.keys(marketplaces)[0];
+  return (source.plugins ?? []).map((p) => {
+    const marketplace = p.marketplace ?? fallback;
+    return {
+      id: p.id,
+      key: `${p.id}@${marketplace}`,
+      marketplace,
+      marketplaceSource: marketplaces[marketplace]?.source,
+      hint: p.hint ?? '',
+      default: Boolean(p.default),
+      when: p.when ?? null,
+    };
+  });
+}
+
+export function suggestedPlugins(stack, root = PACKAGE_ROOT) {
+  const matches = (when) => Object.entries(when).some(([key, values]) => values.some((v) => (stack[key] ?? []).includes(v)));
+  return pluginCatalog(root).filter((p) => p.default || (p.when && matches(p.when))).map((p) => p.id);
+}
+
 export function commandCatalog(root = PACKAGE_ROOT) {
   const dir = join(root, 'commands');
   if (!existsSync(dir)) return [];
