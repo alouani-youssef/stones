@@ -2,6 +2,9 @@
   "marketplaces": {
     "claude-plugins-official": {
       "source": { "source": "github", "repo": "anthropics/claude-plugins-official" }
+    },
+    "stones": {
+      "source": { "source": "github", "repo": "alouani-youssef/stones" }
     }
   },
   "plugins": [
@@ -16,6 +19,9 @@
     { "id": "feature-dev", "hint": "guided feature development with explorer and architect agents" },
 
     { "id": "frontend-design", "when": { "frameworks": ["React", "Next.js", "Vue", "Nuxt", "Svelte", "SvelteKit", "Angular", "Remix", "Astro"] }, "hint": "distinctive, production-grade UI" },
+    { "id": "nestjs-best-practices", "marketplace": "stones", "when": { "frameworks": ["NestJS"] }, "hint": "NestJS best-practice skill (community, pinned)" },
+    { "id": "gin-best-practices", "marketplace": "stones", "when": { "frameworks": ["Gin"] }, "hint": "Go Gin best-practice skill (community, pinned)" },
+    { "id": "flask-best-practices", "marketplace": "stones", "when": { "frameworks": ["Flask"] }, "hint": "Flask best-practice skill (community, pinned)" },
     { "id": "playwright", "when": { "frameworks": ["Playwright"] }, "hint": "browser automation and e2e testing" },
 
     { "id": "typescript-lsp", "when": { "languages": ["TypeScript", "JavaScript"] }, "hint": "TypeScript/JavaScript language server" },

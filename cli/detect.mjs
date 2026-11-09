@@ -57,6 +57,12 @@ const PY_FRAMEWORKS = {
   supabase: 'Supabase', pymongo: 'MongoDB', motor: 'MongoDB', 'firebase-admin': 'Firebase', redis: 'Redis',
 };
 
+// Go modules required in go.mod, matched by module path.
+const GO_FRAMEWORKS = {
+  'github.com/gin-gonic/gin': 'Gin', 'github.com/labstack/echo': 'Echo',
+  'github.com/gofiber/fiber': 'Fiber', 'github.com/go-chi/chi': 'Chi',
+};
+
 function nodeStack(root, stack) {
   const pkg = readJson(root, 'package.json');
   if (!pkg) return;
@@ -114,7 +120,11 @@ function otherStacks(root, stack) {
     stack.ecosystems.push('go');
     stack.packageManagers.push('go modules');
     stack.formatters.push('gofmt');
-    stack.name ||= basename(/^module\s+(\S+)/m.exec(read(root, 'go.mod'))?.[1] ?? '');
+    const goMod = read(root, 'go.mod');
+    stack.name ||= basename(/^module\s+(\S+)/m.exec(goMod)?.[1] ?? '');
+    for (const [mod, label] of Object.entries(GO_FRAMEWORKS)) {
+      if (new RegExp(`^\\s*(?:require\\s+)?${mod.replace(/\./g, '\\.')}(?:/v\\d+)?\\s`, 'm').test(goMod)) stack.frameworks.push(label);
+    }
     stack.commands.test ??= 'go test ./...';
     stack.commands.lint ??= 'go vet ./...';
     stack.commands.build ??= 'go build ./...';

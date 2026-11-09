@@ -23,6 +23,7 @@ export function composeSettings({
   commands = {},
   sandbox = true,
   jq = true,
+  extraAllow = [],
   root = PACKAGE_ROOT,
 } = {}) {
   const global = settingsSource('global', root);
@@ -38,6 +39,7 @@ export function composeSettings({
     ...(permissions.allow ?? []),
     ...fromStacks('permissions'),
     ...Object.values(commands).filter(Boolean).map(commandRule).filter(Boolean),
+    ...extraAllow,
   ]);
 
   const selected = new Set(hooks);

@@ -23,7 +23,7 @@ const list = (items) => items.join(', ');
 
 const ORMS = ['Prisma', 'Drizzle', 'SQLAlchemy', 'Django', 'Rails'];
 const DI_FRAMEWORKS = ['NestJS', 'Angular'];
-const API_FRAMEWORKS = ['Next.js', 'Express', 'Fastify', 'Hono', 'NestJS', 'FastAPI', 'Django', 'Flask', 'Rails', 'Remix'];
+const API_FRAMEWORKS = ['Next.js', 'Express', 'Fastify', 'Hono', 'NestJS', 'FastAPI', 'Django', 'Flask', 'Rails', 'Remix', 'Gin', 'Echo', 'Fiber', 'Chi'];
 
 // Pattern guides worth linking for this stack; the rest stay one keypress away.
 export function suggestedPatterns(stack) {

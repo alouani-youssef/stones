@@ -1,8 +1,13 @@
 import { readFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const TASK_NOTE = 'context/tasks/active.md';
+// The task in progress: context/tasks/state/current.md links to its file in
+// context/tasks/list/. Projects set up before the task board keep using the
+// single note at context/tasks/active.md.
+export const CURRENT = 'context/tasks/state/current.md';
+const LEGACY_NOTE = 'context/tasks/active.md';
+const START_HINT = 'start one with `node .claude/tools/tasks.mjs start <id>`';
 const isPlaceholder = (text) =>
   /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
 const TEST_COMMANDS = [
@@ -14,7 +19,7 @@ const TEST_COMMANDS = [
   /(?:^|\s)(?:jest|vitest|mocha|playwright|cypress)\b/i,
 ];
 
-const section = (text, heading) => {
+export const section = (text, heading) => {
   const lines = text.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
   if (start < 0) return '';
@@ -25,16 +30,26 @@ const section = (text, heading) => {
     .trim();
 };
 
-function readTaskNote(project) {
-  const file = resolve(project, TASK_NOTE);
+const readText = (file) => {
   try {
     return readFileSync(file, 'utf8');
   } catch {
     return undefined;
   }
+};
+
+// { path, text } of the current task note; text is undefined when missing.
+export function currentTask(project) {
+  const board = readText(resolve(project, CURRENT));
+  if (board === undefined) return { path: LEGACY_NOTE, text: readText(resolve(project, LEGACY_NOTE)) };
+  const link = /\]\(([^)\s]+\.md)\)/.exec(board)?.[1];
+  if (!link) return { path: CURRENT, text: undefined, idle: true };
+  const path = relative(project, resolve(project, dirname(CURRENT), link)).split(sep).join('/');
+  return { path, text: readText(resolve(project, path)) };
 }
 
-function inspectTaskNote(text) {
+export function inspectTaskNote(text, TASK_NOTE = LEGACY_NOTE, { idle = false } = {}) {
+  if (idle) return { valid: false, reason: `No task is in progress in ${CURRENT}: ${START_HINT}.` };
   if (typeof text !== 'string') return { valid: false, reason: `Create ${TASK_NOTE} before running tests or editing test/spec files.` };
 
   const behavior = section(text, 'Expected behavior');
@@ -74,7 +89,7 @@ function shellWriteTargets(command) {
   return targets;
 }
 
-function isTestOrSpecFile(file) {
+export function isTestOrSpecFile(file) {
   const normalized = file.split(sep).join('/');
   const parts = normalized.split('/');
   const basename = parts.at(-1) ?? '';
@@ -95,18 +110,23 @@ function isInsideProject(project, file) {
   return rel && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
+function inspectCurrent(project) {
+  const task = currentTask(project);
+  return { ...inspectTaskNote(task.text, task.path, task), path: task.path };
+}
+
 function guardTestFile(project, rel) {
-  const status = inspectTaskNote(readTaskNote(project));
+  const status = inspectCurrent(project);
   if (!status.valid) return blocked(status.reason);
   if (!status.changed) {
-    return blocked(`do not edit ${rel} to make a failing check pass. Fix the source; if expected behavior is changing, record the change and rationale in ## Contract change in ${TASK_NOTE}.`);
+    return blocked(`do not edit ${rel} to make a failing check pass. Fix the source; if expected behavior is changing, record the change and rationale in ## Contract change in ${status.path}.`);
   }
   return null; // no block
 }
 
 function evaluateBash(command, project) {
   if (isTestCommand(command)) {
-    const status = inspectTaskNote(readTaskNote(project));
+    const status = inspectCurrent(project);
     if (!status.valid) return blocked(status.reason);
   }
   for (const target of shellWriteTargets(command)) {
