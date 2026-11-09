@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "allowUnsandboxedCommands": false,
   "network": {
     "allowedDomains": []
   }

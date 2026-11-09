@@ -1,3 +1,12 @@
+---
+name: repository-pattern
+description: Use when code loads or saves domain objects through an ORM, SQL or a document store, when business logic imports a database client directly, or when deciding whether a repository layer is worth adding.
+metadata:
+  title: Repository Pattern
+  kind: pattern
+  summary: A collection-like persistence boundary expressed in domain language, keeping storage details out of use cases.
+---
+
 # Repository Pattern
 
 The repository pattern gives application or domain logic a collection-like interface for loading and saving domain objects. A repository hides the details of persistence—SQL, a document store, or an in-memory collection—behind operations expressed in the language of the application.

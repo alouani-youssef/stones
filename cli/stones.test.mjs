@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 
 import { inspectSpec } from '../hooks/atomicity.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { docCatalog, hookCatalog } from './catalog.mjs';
+import { hookCatalog, LEGACY_SKILL_IDS, skillCatalog, skillFrontmatter } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
 import { createPrompter, createScriptedPrompter } from './prompt.mjs';
@@ -134,9 +134,71 @@ describe('settings', () => {
 describe('pattern defaults', () => {
   it('suggests patterns that fit the stack', () => {
     const base = { frameworks: [], ecosystems: [] };
-    assert.deepEqual(suggestedPatterns(base), ['patterns/modularity', 'patterns/reusability', 'patterns/complexity']);
+    assert.deepEqual(suggestedPatterns(base), ['modular-design', 'reusing-code', 'managing-complexity']);
     const nest = suggestedPatterns({ frameworks: ['NestJS', 'Prisma'], ecosystems: ['node'] });
-    for (const p of ['patterns/repository', 'patterns/dependency-injection', 'patterns/summary-details']) assert.ok(nest.includes(p), p);
+    for (const p of ['repository-pattern', 'dependency-injection', 'summary-details-responses']) assert.ok(nest.includes(p), p);
+    const patternIds = skillCatalog().filter((s) => s.pattern).map((s) => s.id);
+    for (const p of nest) assert.ok(patternIds.includes(p), `${p} is a pattern skill`);
+  });
+});
+
+describe('skills', () => {
+  const skills = skillCatalog();
+
+  it('ships every guide and pattern as a skill', () => {
+    for (const id of [...Object.values(LEGACY_SKILL_IDS), 'creating-branches', 'opening-pull-requests', 'four-d-engineering']) {
+      assert.ok(skills.some((s) => s.id === id), id);
+    }
+  });
+
+  it('gives every skill valid frontmatter that says when to use it', () => {
+    for (const skill of skills) {
+      const text = readFileSync(new URL(`../skills/${skill.main}`, import.meta.url), 'utf8');
+      const fm = skillFrontmatter(text);
+      assert.equal(fm.name, skill.id, `${skill.id}: name matches folder`);
+      assert.match(fm.name, /^[a-z0-9-]+$/, `${skill.id}: name`);
+      assert.match(fm.description, /^Use when /, `${skill.id}: description starts with "Use when"`);
+      assert.ok(/^---\n([\s\S]*?)\n---/.exec(text)[1].length <= 1024, `${skill.id}: frontmatter under 1024 chars`);
+      assert.ok(fm.metadata.title && fm.metadata.summary, `${skill.id}: title and summary`);
+    }
+  });
+
+  it('links only to files that exist in the same skill', () => {
+    for (const skill of skills) {
+      for (const rel of skill.files.filter((f) => f.endsWith('.md'))) {
+        const text = readFileSync(new URL(`../skills/${rel}`, import.meta.url), 'utf8');
+        for (const [, target] of text.matchAll(/\]\(([^)#\s]+\.md)\)/g)) {
+          const resolved = join(dirname(rel), target);
+          assert.ok(skill.files.includes(resolved), `${rel} -> ${target}`);
+        }
+      }
+    }
+  });
+
+  it('installs selected skills into .claude/skills with their reference files', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.skills': ['writing-tests'], patterns: ['repository-pattern'] });
+    assert.ok(existsSync(join(root, '.claude/skills/writing-tests/SKILL.md')));
+    assert.ok(existsSync(join(root, '.claude/skills/writing-tests/unit.md')));
+    assert.ok(existsSync(join(root, '.claude/skills/repository-pattern/SKILL.md')));
+    assert.ok(!existsSync(join(root, '.claude/skills/atomic-changes')));
+    assert.ok(!existsSync(join(root, '.claude/docs')));
+  });
+
+  it('maps guide ids saved before guides became skills', async () => {
+    const root = nextApp();
+    await runInit(root);
+    const manifest = loadManifest(root);
+    delete manifest.answers.install.skills;
+    manifest.answers.install.docs = ['tdd', 'naming'];
+    manifest.answers.patterns = ['patterns/repository'];
+    writeFileSync(join(root, '.claude/stones.json'), JSON.stringify(manifest));
+    const { answers } = await runInit(root);
+    assert.ok(answers.install.skills.includes('test-first-development'));
+    assert.ok(answers.install.skills.includes('naming-files'));
+    assert.ok(answers.install.skills.includes('four-d-engineering'), 'skills added since are offered');
+    assert.ok(!answers.install.skills.includes('writing-tests'), 'deselected guides stay deselected');
+    assert.deepEqual(answers.patterns, ['repository-pattern']);
   });
 });
 
@@ -147,7 +209,7 @@ describe('AGENT.md', () => {
     const answers = await interview(createScriptedPrompter({
       'architecture.notes': 'Next.js app router + Postgres',
       'stack.layout.src': 'application code',
-      patterns: ['patterns/repository'],
+      patterns: ['repository-pattern'],
     }), stack);
     const doc = renderAgentDoc(answers, stack);
     for (const heading of ['PROJECT', 'What This Is', 'Stack And Layout', 'Architecture', 'Design Pattern',
@@ -157,7 +219,7 @@ describe('AGENT.md', () => {
     assert.doesNotMatch(doc, /_TODO_/);
     assert.match(doc, /\*\*shop\*\*/);
     assert.match(doc, /`src\/` — application code/);
-    assert.match(doc, /\[Repository Pattern\]\(\.claude\/docs\/patterns\/repository\/README\.md\)/);
+    assert.match(doc, /\[Repository Pattern\]\(\.claude\/skills\/repository-pattern\/SKILL\.md\)/);
     assert.match(doc, /- test: `pnpm run test`/);
     assert.match(doc, /Conventional Commits/);
     assert.match(doc, /prettier/);
@@ -319,19 +381,19 @@ describe('atomicity hook install', () => {
     assert.match(doc, /pnpm exec prisma migrate dev --name <name>/);
   });
 
-  it('links the atomicity doc from AGENT.md when hook and doc are installed', async () => {
+  it('links the atomicity skill from AGENT.md when hook and skill are installed', async () => {
     const root = prismaApp();
-    await runInit(root, { 'install.hooks': ['atomicity'], 'install.docs': ['atomicity'] });
-    assert.match(read(root, 'AGENT.md'), /\.claude\/docs\/atomicity\/README\.md/);
+    await runInit(root, { 'install.hooks': ['atomicity'], 'install.skills': ['atomic-changes'] });
+    assert.match(read(root, 'AGENT.md'), /\.claude\/skills\/atomic-changes\/SKILL\.md/);
   });
 
-  it('ships the atomicity docs with an unfilled-spec-failing template', () => {
-    const topic = docCatalog().find((t) => t.id === 'atomicity');
-    assert.ok(topic);
-    assert.equal(topic.main, 'atomicity/README.md');
-    assert.equal(topic.files.length, 4);
-    assert.match(topic.lead, /atomic/i);
-    const template = readFileSync(new URL('../docs/atomicity/SPEC_TEMPLATE.md', import.meta.url), 'utf8');
+  it('ships the atomicity skill with an unfilled-spec-failing template', () => {
+    const skill = skillCatalog().find((s) => s.id === 'atomic-changes');
+    assert.ok(skill);
+    assert.equal(skill.main, 'atomic-changes/SKILL.md');
+    assert.deepEqual(skill.files, ['atomic-changes/SKILL.md', 'atomic-changes/hook-reference.md', 'atomic-changes/spec-template.md']);
+    assert.match(skill.lead, /atomic/i);
+    const template = readFileSync(new URL('../skills/atomic-changes/spec-template.md', import.meta.url), 'utf8');
     assert.equal(inspectSpec(template, 'db').valid, false);
   });
 });

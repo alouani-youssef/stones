@@ -1,3 +1,12 @@
+---
+name: managing-complexity
+description: Use when code is deeply nested or hard to follow, when the complexity hook flags cognitive complexity, when choosing an algorithm or data structure for growing inputs, or before optimizing performance.
+metadata:
+  title: Reasoning About Complexity
+  kind: pattern
+  summary: Cognitive complexity, Big O time and space, unknown unknowns and change cost — and measuring before optimizing.
+---
+
 # Reasoning About Complexity
 
 Complexity describes how the work or resources required by an algorithm change as its input grows. It helps compare approaches and anticipate bottlenecks; it does not replace measurements of the real application.

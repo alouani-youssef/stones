@@ -69,47 +69,76 @@ export function hookCatalog(root = PACKAGE_ROOT) {
   return [...hooks.values()];
 }
 
-function docTitle(file) {
-  const text = readFileSync(file, 'utf8');
-  return /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
-}
-
-// First sentence after the title: used as the doc's one-line summary.
-export function docLead(file) {
-  const text = readFileSync(file, 'utf8').replace(/^#.*$/m, '');
-  const para = text.split(/\n\s*\n/).map((p) => p.trim()).find((p) => p && !p.startsWith('#'));
-  return para ? /^[^.!?]*[.!?]/.exec(para.replace(/\s+/g, ' '))?.[0] ?? para : '';
-}
-
-// Every Markdown file under docs/, grouped by topic folder. Pattern docs are
-// one topic each (`patterns/repository`); internal planning folders are left out.
-export function docCatalog(root = PACKAGE_ROOT) {
-  const docsRoot = join(root, 'docs');
-  const topics = [];
-  const visit = (rel) => {
-    const abs = join(docsRoot, rel);
-    const entries = readdirSync(abs, { withFileTypes: true });
-    const files = entries.filter((e) => e.isFile() && e.name.endsWith('.md') && nonEmpty(join(abs, e.name)));
-    const dirs = entries.filter((e) => e.isDirectory());
-    if (files.length) {
-      const main = files.find((f) => /^(README|REAMDE)\.md$/i.test(f.name)) ?? files[0];
-      topics.push({
-        id: rel,
-        title: docTitle(join(abs, main.name)) ?? rel,
-        lead: docLead(join(abs, main.name)),
-        main: `${rel}/${main.name}`,
-        files: files.map((f) => `${rel}/${f.name}`),
-        pattern: rel.startsWith('patterns/'),
-      });
+// SKILL.md frontmatter: top-level `key: value` pairs and one nested
+// `metadata:` map (title, summary, kind), which is all the skills here use.
+export function skillFrontmatter(text) {
+  const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1];
+  const out = { metadata: {} };
+  if (!block) return out;
+  let inMetadata = false;
+  for (const line of block.split(/\r?\n/)) {
+    const m = /^(\s*)([\w-]+):\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const [, indent, key, raw] = m;
+    const value = raw.trim().replace(/^(['"])(.*)\1$/, '$2');
+    if (!indent) {
+      inMetadata = key === 'metadata' && !value;
+      if (!inMetadata) out[key] = value;
+    } else if (inMetadata) {
+      out.metadata[key] = value;
     }
-    for (const d of dirs) visit(rel ? `${rel}/${d.name}` : d.name);
-  };
-  if (!existsSync(docsRoot)) return topics;
-  for (const d of readdirSync(docsRoot, { withFileTypes: true })) {
-    if (d.isDirectory() && d.name !== 'superpowers') visit(d.name);
   }
-  return topics.sort((a, b) => a.id.localeCompare(b.id));
+  return out;
 }
+
+const filesUnder = (dir, rel = '') => readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((e) => {
+  const path = rel ? `${rel}/${e.name}` : e.name;
+  if (e.isDirectory()) return filesUnder(dir, path);
+  return e.isFile() && nonEmpty(join(dir, path)) ? [path] : [];
+});
+
+// Every `skills/<name>/SKILL.md`, installed as a Claude Code project skill in
+// `.claude/skills/<name>/`. Folders without a SKILL.md are drafts and skipped.
+// `metadata.kind: pattern` marks design-pattern skills, offered per stack.
+export function skillCatalog(root = PACKAGE_ROOT) {
+  const skillsRoot = join(root, 'skills');
+  if (!existsSync(skillsRoot)) return [];
+  const skills = [];
+  for (const d of readdirSync(skillsRoot, { withFileTypes: true })) {
+    const main = join(skillsRoot, d.name, 'SKILL.md');
+    if (!d.isDirectory() || !nonEmpty(main)) continue;
+    const fm = skillFrontmatter(readFileSync(main, 'utf8'));
+    skills.push({
+      id: d.name,
+      title: fm.metadata.title || fm.name || d.name,
+      lead: fm.metadata.summary || fm.description || '',
+      description: fm.description || '',
+      main: `${d.name}/SKILL.md`,
+      files: filesUnder(join(skillsRoot, d.name)).sort().map((f) => `${d.name}/${f}`),
+      pattern: fm.metadata.kind === 'pattern',
+    });
+  }
+  return skills.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+// Guide ids from before guides became skills, so saved answers keep working.
+export const LEGACY_SKILL_IDS = {
+  atomicity: 'atomic-changes',
+  creation: 'creating-files-and-modules',
+  naming: 'naming-files',
+  tdd: 'test-first-development',
+  testings: 'writing-tests',
+  types: 'defining-types',
+  'patterns/complexity': 'managing-complexity',
+  'patterns/dependency-injection': 'dependency-injection',
+  'patterns/modularity': 'modular-design',
+  'patterns/repository': 'repository-pattern',
+  'patterns/reusability': 'reusing-code',
+  'patterns/summary-details': 'summary-details-responses',
+};
+
+export const currentSkillIds = (ids) =>
+  Array.isArray(ids) ? [...new Set(ids.map((id) => LEGACY_SKILL_IDS[id] ?? id))] : ids;
 
 export function mcpCatalog(root = PACKAGE_ROOT) {
   const servers = readJson(join(root, 'mcps', 'mcp.json'), {}).mcpServers ?? {};
