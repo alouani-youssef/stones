@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // claude-stones: generate a tailored `.claude/` setup, AGENT.md and ROADMAP.md.
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+
+import { syncDevcontainer } from '../hooks/devcontainer.mjs';
 
 import { PACKAGE_ROOT } from '../cli/catalog.mjs';
 import { detect } from '../cli/detect.mjs';
@@ -16,6 +18,7 @@ Usage
   npx claude-stones init [dir]      Answer questions, generate AGENT.md and .claude/
   npx claude-stones roadmap [dir]   Start a Claude session that writes ROADMAP.md
   npx claude-stones detect [dir]    Print the detected stack as JSON
+  npx claude-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
 
 Options
   -y, --yes          Accept detected defaults and previous answers, no questions
@@ -24,12 +27,13 @@ Options
   --no-roadmap       Do not offer a roadmap session after init
   --focus <text>     Roadmap focus, e.g. "plan the next milestone"
   --print-prompt     Print the roadmap prompt instead of starting Claude
+  --check            With sync: fail if devcontainer.json is out of date, write nothing
   -h, --help         Show this help
   -v, --version      Show the version
 `;
 
 function parseArgs(argv) {
-  const args = { _: [], yes: false, dryRun: false, force: false, roadmap: true, focus: '', printPrompt: false };
+  const args = { _: [], yes: false, dryRun: false, force: false, roadmap: true, focus: '', printPrompt: false, check: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-y' || a === '--yes') args.yes = true;
@@ -37,6 +41,7 @@ function parseArgs(argv) {
     else if (a === '--force') args.force = true;
     else if (a === '--no-roadmap') args.roadmap = false;
     else if (a === '--print-prompt') args.printPrompt = true;
+    else if (a === '--check') args.check = true;
     else if (a === '--focus') args.focus = argv[++i] ?? '';
     else if (a === '-h' || a === '--help') args.help = true;
     else if (a === '-v' || a === '--version') args.version = true;
@@ -116,6 +121,15 @@ async function main() {
   if (command === 'init') return init(target, args);
   if (command === 'detect') {
     console.log(JSON.stringify(detect(target), null, 2));
+    return;
+  }
+  if (command === 'sync') {
+    const { status } = syncDevcontainer(join(target, '.devcontainer'), { check: args.check, name: basename(target) });
+    if (status === 'missing') console.log('no .devcontainer/Dockerfile, nothing to sync');
+    else if (status === 'drift') {
+      console.error('devcontainer.json is out of date: run `npx claude-stones sync`');
+      process.exitCode = 1;
+    } else console.log(`devcontainer.json ${status}`);
     return;
   }
   if (command === 'roadmap') {

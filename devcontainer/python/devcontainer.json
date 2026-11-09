@@ -1,0 +1,27 @@
+// Generated from Dockerfile by stones — edit the Dockerfile, not this file.
+{
+  "name": "python",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "dev",
+  "containerEnv": {
+    "VIRTUAL_ENV": "/home/dev/.venv",
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "forwardPorts": [
+    8000
+  ],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "anthropic.claude-code"
+      ]
+    }
+  }
+}

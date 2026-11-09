@@ -1,6 +1,7 @@
 // The setup interview. Defaults come from the previous run's answers first,
 // then from stack detection, so re-running `init` is mostly pressing Enter.
 import { currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, skillCatalog } from './catalog.mjs';
+import { devcontainerStack } from './devcontainer.mjs';
 
 const ARCHITECTURES = [
   { value: 'monolith', label: 'Monolith', hint: 'one deployable application' },
@@ -136,6 +137,13 @@ export async function interview(ask, stack, previous = {}) {
     )
     : [];
   const sandbox = await ask.confirm('install.sandbox', 'Enable the sandbox (network limited to your package registries)?', p('install.sandbox', true));
+  // Stored as the stack id, or null when declined or unsupported; a previous
+  // "no" (null) stays "no".
+  const dcStack = devcontainerStack(stack);
+  const dcBefore = previous?.install && 'devcontainer' in previous.install ? Boolean(previous.install.devcontainer) : true;
+  const devcontainer = dcStack && await ask.confirm('install.devcontainer', 'Add a dev container (the default dev sandbox)?', dcBefore)
+    ? dcStack
+    : null;
   const guardrailNotes = await ask.text('guardrails.notes', 'Extra guardrails for Claude (Enter to skip)', p('guardrails.notes', ''));
 
   return {
@@ -147,7 +155,7 @@ export async function interview(ask, stack, previous = {}) {
     conventions: { commits, notes: conventionNotes },
     workflow: { branching, commands, tdd },
     guardrails: { notes: guardrailNotes },
-    install: { hooks: selectedHooks, skills: selectedSkills, mcp: selectedMcps, sandbox },
+    install: { hooks: selectedHooks, skills: selectedSkills, mcp: selectedMcps, sandbox, devcontainer },
   };
 }
 

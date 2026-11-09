@@ -1,0 +1,26 @@
+// Generated from Dockerfile by stones — edit the Dockerfile, not this file.
+{
+  "name": "go",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "dev",
+  "containerEnv": {
+    "GOPATH": "/go",
+    "GOTOOLCHAIN": "local"
+  },
+  "forwardPorts": [
+    8080
+  ],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "anthropic.claude-code"
+      ]
+    }
+  }
+}

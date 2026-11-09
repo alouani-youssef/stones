@@ -98,6 +98,15 @@
           "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/graph.mjs\" update"
         }
       ]
+    },
+    {
+      "matcher": "Edit|MultiEdit|Write",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/devcontainer.mjs\""
+        }
+      ]
     }
   ],
   "Stop": [
