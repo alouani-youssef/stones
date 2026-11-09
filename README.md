@@ -64,13 +64,13 @@ context/tasks/            task board (with the tracking-tasks skill)
   only when the stack uses them. They live in `enabledPlugins`, so Claude Code
   offers to install them when someone trusts the repo.
 - **Framework best-practice plugins.** This repository is also the `stones`
-  marketplace (`.claude-plugin/marketplace.json`). It points at community
-  skills pinned to a commit: `nestjs-best-practices`
-  ([Kadajett/agent-nestjs-skills](https://github.com/Kadajett/agent-nestjs-skills)),
+  marketplace (`.claude-plugin/marketplace.json`), with Claude Code plugins in
+  `plugins/`: `nestjs-best-practices`
+  (from [Kadajett/agent-nestjs-skills](https://github.com/Kadajett/agent-nestjs-skills)),
   `gin-best-practices` and `flask-best-practices`
-  ([TerminalSkills/skills](https://github.com/TerminalSkills/skills)). Each is
-  enabled only when NestJS, Gin or Flask is detected. To move to a newer
-  upstream version, review the diff and bump the entry's `sha`.
+  (from [TerminalSkills/skills](https://github.com/TerminalSkills/skills)). Each
+  vendors a community skill unchanged from a pinned commit, recorded in its
+  `UPSTREAM.md`, and is enabled only when NestJS, Gin or Flask is detected.
 - **Pattern skills match the stack.** Repository for ORMs, dependency
   injection for NestJS/Angular/JVM, summary-details for API frameworks.
 - **Fast re-runs.** Previous answers become the defaults, so updating the

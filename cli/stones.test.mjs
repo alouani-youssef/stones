@@ -165,7 +165,12 @@ describe('settings', () => {
     const ours = pluginCatalog().filter((p) => p.marketplace === 'stones').map((p) => p.id);
     assert.ok(ours.length);
     assert.deepEqual([...ours].sort(), [...listed].sort());
-    for (const p of market.plugins) assert.match(p.source.sha ?? '', /^[0-9a-f]{40}$/, `${p.name} is pinned`);
+    for (const p of market.plugins) {
+      const dir = join(PACKAGE_ROOT, p.source);
+      const manifest = JSON.parse(readFileSync(join(dir, '.claude-plugin', 'plugin.json'), 'utf8'));
+      assert.equal(manifest.name, p.name, `${p.name} manifest name matches its entry`);
+      assert.match(readFileSync(join(dir, 'UPSTREAM.md'), 'utf8'), /[0-9a-f]{40}/, `${p.name} records its upstream commit`);
+    }
   });
 
   it('adds nx permissions only in nx monorepos and drops the jq status line without jq', () => {

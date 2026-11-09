@@ -1,49 +1,27 @@
 {
   "name": "stones",
-  "description": "Community framework best-practice skills, pinned to reviewed commits and suggested by stones when the stack is detected",
-  "owner": { "name": "ALOUANI YOUSSEF" },
+  "description": "Framework best-practice plugins (community skills vendored from pinned commits), suggested by stones when the stack is detected",
+  "owner": {
+    "name": "ALOUANI YOUSSEF"
+  },
   "plugins": [
     {
       "name": "nestjs-best-practices",
-      "description": "NestJS best practices: 40 rules on modules, DI, security, performance, testing and APIs (Kadajett/agent-nestjs-skills)",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/Kadajett/agent-nestjs-skills.git",
-        "path": "skills/nestjs-best-practices",
-        "sha": "3986e0cede33958e000f959031cbee0cd83c2941"
-      },
-      "homepage": "https://github.com/Kadajett/agent-nestjs-skills",
-      "license": "MIT",
-      "category": "development",
-      "keywords": ["nestjs", "typescript", "node", "backend"]
+      "description": "NestJS best practices: 40 rules on modules, DI, security, performance, testing and APIs",
+      "source": "./plugins/nestjs-best-practices",
+      "category": "development"
     },
     {
       "name": "gin-best-practices",
-      "description": "Go Gin: routing, route groups, middleware, binding/validation, JSON responses and graceful shutdown (TerminalSkills/skills)",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/TerminalSkills/skills.git",
-        "path": "skills/gin",
-        "sha": "42289059901710441bfa8081c08c3a9f36b93f9c"
-      },
-      "homepage": "https://github.com/TerminalSkills/skills",
-      "license": "Apache-2.0",
-      "category": "development",
-      "keywords": ["go", "gin", "backend"]
+      "description": "Go Gin: routing, route groups, middleware, binding/validation, JSON responses and graceful shutdown",
+      "source": "./plugins/gin-best-practices",
+      "category": "development"
     },
     {
       "name": "flask-best-practices",
-      "description": "Flask: application factory, blueprints, Flask-SQLAlchemy/Migrate/Login, pytest and gunicorn (TerminalSkills/skills)",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/TerminalSkills/skills.git",
-        "path": "skills/flask",
-        "sha": "42289059901710441bfa8081c08c3a9f36b93f9c"
-      },
-      "homepage": "https://github.com/TerminalSkills/skills",
-      "license": "Apache-2.0",
-      "category": "development",
-      "keywords": ["python", "flask", "backend"]
+      "description": "Flask: application factory, blueprints, Flask-SQLAlchemy/Migrate/Login, pytest and gunicorn",
+      "source": "./plugins/flask-best-practices",
+      "category": "development"
     }
   ]
 }
