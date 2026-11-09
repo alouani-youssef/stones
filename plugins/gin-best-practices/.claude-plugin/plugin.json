@@ -1,0 +1,10 @@
+{
+  "name": "gin-best-practices",
+  "description": "Go Gin: routing, route groups, middleware, binding/validation, JSON responses and graceful shutdown",
+  "version": "1.0.0",
+  "author": { "name": "ALOUANI YOUSSEF" },
+  "homepage": "https://github.com/TerminalSkills/skills",
+  "repository": "https://github.com/alouani-youssef/stones",
+  "license": "Apache-2.0",
+  "keywords": ["go", "gin", "backend"]
+}

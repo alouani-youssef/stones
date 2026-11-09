@@ -1,0 +1,10 @@
+{
+  "name": "nestjs-best-practices",
+  "description": "NestJS best practices: 40 rules on modules, DI, security, performance, testing and APIs",
+  "version": "1.0.0",
+  "author": { "name": "ALOUANI YOUSSEF" },
+  "homepage": "https://github.com/Kadajett/agent-nestjs-skills",
+  "repository": "https://github.com/alouani-youssef/stones",
+  "license": "MIT",
+  "keywords": ["nestjs", "typescript", "node", "backend"]
+}
