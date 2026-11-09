@@ -24,7 +24,7 @@ const nonEmpty = (file) => {
 
 // Short descriptions for hooks whose files do not open with a comment.
 const HOOK_HINTS = {
-  guard: 'blocks reading secrets (.env*, private/) and git push',
+  access_guard: 'blocks paths outside the project root, secrets (.env*, private/) and git push',
   'block-rm': 'blocks rm commands',
   naming: 'enforces the project naming convention on new files',
   graph: 'gives Claude file summaries from OpenSpec and keeps the code graph',

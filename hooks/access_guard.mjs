@@ -1,4 +1,6 @@
 import { pathToFileURL } from 'node:url';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 const segments = (p) => p.split('/');
 const isSecret = (s) =>
@@ -17,6 +19,7 @@ const bashHit = (t) =>
   segments(t).some((s) => s.startsWith('.env') && /[*?[{]/.test(s));
 
 const PATH_KEYS = ['file_path', 'notebook_path'];
+const ROOT_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Grep', 'Glob']);
 const CHECKS = {
   Grep: [
     [['path'], pathHit],
@@ -32,6 +35,49 @@ const blockPath = (p) => ({
   block: true,
   reason: `Blocked: ${p} is a secret or private file (see CLAUDE.md).`,
 });
+
+function realpathWithMissingTail(path) {
+  let current = resolve(path);
+  const tail = [];
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) break;
+    tail.unshift(current.slice(parent.length + 1));
+    current = parent;
+  }
+  try {
+    return resolve(realpathSync(current), ...tail);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function outsideRoot(path, root, cwd) {
+  if (!root || typeof path !== 'string' || !path) return false;
+  const target = realpathWithMissingTail(isAbsolute(path) ? path : resolve(cwd, path));
+  const realRoot = realpathWithMissingTail(root);
+  const rel = relative(realRoot, target);
+  return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
+const blockOutside = (path) => ({
+  block: true,
+  reason: `Blocked: ${path} is outside the project root.`,
+});
+
+const pathLike = (token) => isAbsolute(token) || /^(?:\.\.?)(?:\/|$)|^~\//.test(token);
+
+function findOutsideToken(command, root, cwd) {
+  const { segments } = parse(command);
+  for (const tokens of segments) {
+    const start = commandIndex(tokens);
+    for (const token of tokens.slice(start + 1)) {
+      if (pathLike(token) && outsideRoot(token.startsWith('~/') ? resolve(process.env.HOME ?? '', token.slice(2)) : token, root, cwd)) {
+        return token;
+      }
+    }
+  }
+}
 
 function skipComment(command, i) {
   let next = i;
@@ -249,9 +295,13 @@ function findBlockedToken(command) {
   }
 }
 
-export function evaluate({ tool_name, tool_input = {} }) {
+export function evaluate({ tool_name, tool_input = {}, cwd }, { projectDir } = {}) {
+  const root = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? cwd ?? process.cwd());
+  const workingDirectory = resolve(root, cwd ?? '.');
   if (tool_name === 'Bash') {
     const command = tool_input.command ?? '';
+    const outside = findOutsideToken(command, root, workingDirectory);
+    if (outside) return blockOutside(outside);
     if (isGitPush(command)) {
       return {
         block: true,
@@ -262,6 +312,17 @@ export function evaluate({ tool_name, tool_input = {} }) {
     const hit = findBlockedToken(command);
     if (hit) return blockPath(hit);
     return { block: false };
+  }
+
+  if (ROOT_TOOLS.has(tool_name)) {
+    for (const key of PATH_KEYS) {
+      const value = tool_input[key];
+      if (typeof value === 'string' && outsideRoot(value, root, workingDirectory)) return blockOutside(value);
+    }
+    for (const key of ['path', ...(tool_name === 'Glob' ? ['pattern'] : [])]) {
+      const value = tool_input[key];
+      if (typeof value === 'string' && outsideRoot(value, root, workingDirectory)) return blockOutside(value);
+    }
   }
 
   const checks = [...(CHECKS[tool_name] ?? []), [PATH_KEYS, pathHit]];
