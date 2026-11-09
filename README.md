@@ -39,7 +39,9 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 ├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
 ├── danger/               specs for db, packages and network branches (atomicity hook)
 ├── commands/roadmap.md   the /roadmap command
-├── tools/                tasks.mjs + review.mjs (with the tracking-tasks skill)
+├── tools/                list-packages, git-comments, worktree-history,
+│                         quality-check, create-pr, roadmap, sync-docs;
+│                         tasks.mjs + review.mjs (with the tracking-tasks skill)
 └── stones.json           your answers and installed-file hashes
 context/tasks/            task board (with the tracking-tasks skill)
 ├── list/                 one file per task
@@ -139,6 +141,69 @@ node .claude/tools/tasks.mjs review 1 --run-tests
 
 Without the skill, the testing hook keeps reading `context/tasks/active.md`.
 
+## Listing packages
+
+Every project gets `.claude/tools/list-packages.mjs`, and AGENT.md tells Claude
+to run it before adding a dependency. It reads the manifests already in the
+repository (`package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`,
+`Cargo.toml`, in every package of a monorepo) without installing anything.
+
+```sh
+node .claude/tools/list-packages.mjs              # every manifest, grouped
+node .claude/tools/list-packages.mjs --prod       # runtime dependencies only
+node .claude/tools/list-packages.mjs --grep redis # is there already a client?
+node .claude/tools/list-packages.mjs --json
+```
+
+## Git comments and worktree history
+
+Two more tools in every project help a session pick work back up.
+`git-comments.mjs` keeps comments on commits as git notes under
+`refs/notes/comments`, so the commits themselves never change.
+`worktree-history.mjs` shows what happened in a worktree: its branch, the
+commit it started from, the commits since then (with their comments),
+uncommitted changes and recent HEAD moves.
+
+```sh
+node .claude/tools/git-comments.mjs set HEAD "Verified with npm test; docs left"
+node .claude/tools/git-comments.mjs append HEAD~1 "Reverted in a later commit"
+node .claude/tools/git-comments.mjs get HEAD
+node .claude/tools/git-comments.mjs list main..HEAD
+node .claude/tools/worktree-history.mjs list            # every worktree
+node .claude/tools/worktree-history.mjs show feature/x  # by branch or path; default: this one
+```
+
+Notes stay local until you share them:
+`git push origin refs/notes/comments`, and
+`git fetch origin refs/notes/comments:refs/notes/comments` on the other side.
+
+## Quality, pull requests, roadmap and docs
+
+Four more tools in every project, all plain Node with no dependencies:
+
+```sh
+node .claude/tools/quality-check.mjs                  # lint, typecheck, test, build from your init answers
+node .claude/tools/quality-check.mjs --only test --cmd test="pytest -q"
+node .claude/tools/create-pr.mjs draft > .claude/pr.md  # Summary/Zone/Spec/Risk/Rollback/Verification
+node .claude/tools/create-pr.mjs create --body-file .claude/pr.md [--base deps/x] [--draft]
+node .claude/tools/roadmap.mjs show                   # outcome, the Now milestone, Next
+node .claude/tools/roadmap.mjs check                  # one Now milestone, 2-4 Next, revised recently
+node .claude/tools/roadmap.mjs decide "Use git notes" "Commits stay unchanged"
+node .claude/tools/sync-docs.mjs [--fix]              # broken links, missing scripts, stale AGENT.md
+```
+
+- `quality-check` skips the format step unless asked (`--only format`),
+  because formatters rewrite files. It saves the run to
+  `.claude/quality/last.json` with the commit it ran on.
+- `create-pr` fills the sections the `opening-pull-requests` skill requires:
+  commits and their git comments, the zone from the `db/`, `deps/` or `net/`
+  prefix, the danger spec, and the last quality run (flagged if it ran on an
+  older commit). `create` refuses a body with TODOs and never pushes: push
+  the branch first. It is the one tool not pre-approved in settings, so
+  Claude asks before opening a PR.
+- `sync-docs --fix` only restores the `@AGENT.md` import in CLAUDE.md.
+  Broken links and drifted commands are reported for a person to fix.
+
 ## Dev containers
 
 For Node + pnpm, Python and Go projects, `init` adds a dev container (the
@@ -185,7 +250,7 @@ npx claude-stones sync --check   # CI: fail if it is out of date
 | `skills/`     | skills offered during setup: `<name>/SKILL.md` plus reference files; `metadata.kind: pattern` marks pattern skills |
 | `graph/`      | code graph seed and documentation                               |
 | `commands/`   | slash commands installed into `.claude/commands/`               |
-| `tools/`      | task board tools installed into `.claude/tools/`                |
+| `tools/`      | project tools (packages, git comments, worktree history, quality, PRs, roadmap, docs) and task board tools installed into `.claude/tools/` |
 | `mcps/`       | MCP servers offered for `.mcp.json`                             |
 | `settings/plugins.json` | plugins offered: `default: true` for every project, `when` to match detected languages/frameworks |
 | `devcontainer/` | one dev container per stack (`node-pnpm`, `python`, `go`); `npm run build:devcontainers` regenerates their `devcontainer.json` |

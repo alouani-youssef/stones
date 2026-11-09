@@ -17,10 +17,17 @@ import { composeSettings, mergeSettings } from './settings.mjs';
 import { LIST_DIR, STATE_DIR, STATE_HEADERS, STATES } from '../tools/tasks.mjs';
 
 export const MANIFEST = '.claude/stones.json';
-const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json'];
+const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json', '.claude/quality/', '.claude/pr.md'];
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const TASKS_GITIGNORE = ['.claude/reviews/'];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
+// Installed in every project. All but create-pr are allowed in settings.json;
+// create-pr opens a pull request on GitHub, so Claude asks before running it.
+export const PROJECT_TOOLS = [
+  'list-packages.mjs', 'git-comments.mjs', 'worktree-history.mjs',
+  'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs', 'create-pr.mjs',
+];
+const ASK_FIRST_TOOLS = new Set(['create-pr.mjs']);
 // The single task note for projects without the task board.
 const LEGACY_TASK_NOTE = `# Active task
 
@@ -101,6 +108,7 @@ function desiredFiles({ answers, stack, root, target }) {
     files.push({ path: '.claude/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
     files.push({ path: '.claude/graph/project.json', content: pkg('graph/project.json'), kind: 'seed' });
   }
+  for (const tool of PROJECT_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
   // The task board replaces the single active.md note the testing hook used to read.
   if (usesTaskBoard(answers)) {
     for (const tool of TASK_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
@@ -130,7 +138,7 @@ function desiredFiles({ answers, stack, root, target }) {
     commands: answers.workflow.commands,
     sandbox: answers.install.sandbox,
     jq: stack.tooling.jq,
-    extraAllow: usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : [],
+    extraAllow: [...PROJECT_TOOLS.filter((tool) => !ASK_FIRST_TOOLS.has(tool)).map((tool) => `Bash(node .claude/tools/${tool}:*)`), ...(usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : [])],
     root,
   });
   files.push({ path: '.claude/settings.json', content: json(settings), kind: 'json', value: settings });

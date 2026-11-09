@@ -324,6 +324,8 @@ describe('init', () => {
     assert.ok(read(withBoard, '.claude/skills/tracking-tasks/SKILL.md').length > 0);
     assert.ok(settings.permissions.allow.includes('Bash(node .claude/tools/tasks.mjs:*)'));
     assert.match(read(withBoard, '.gitignore'), /^\.claude\/reviews\/$/m);
+    assert.match(read(withBoard, '.gitignore'), /^\.claude\/quality\/$/m);
+    assert.match(read(withBoard, '.gitignore'), /^\.claude\/pr\.md$/m);
     assert.equal(existsSync(join(withBoard, 'context/tasks/active.md')), false);
 
     // The installed tool runs from .claude/tools and reaches the installed hooks.
@@ -335,6 +337,20 @@ describe('init', () => {
     assert.match(read(legacy, 'context/tasks/active.md'), /^## Expected behavior$/m);
     assert.ok(loadManifest(legacy).files['context/tasks/active.md']);
     assert.equal(existsSync(join(legacy, '.claude/tools/tasks.mjs')), false);
+
+    // The package lister is installed everywhere, allowed, and runs in place.
+    assert.ok(JSON.parse(read(legacy, '.claude/settings.json')).permissions.allow.includes('Bash(node .claude/tools/list-packages.mjs:*)'));
+    assert.match(read(legacy, 'AGENT.md'), /list-packages\.mjs/);
+    const listed = JSON.parse(execFileSync('node', ['.claude/tools/list-packages.mjs', '--json'], { cwd: legacy, encoding: 'utf8' }));
+    assert.ok(listed.some((m) => m.file === 'package.json' && m.packages.length), 'lists the app packages');
+    assert.ok(read(legacy, '.claude/tools/create-pr.mjs').length > 0);
+    assert.ok(!JSON.parse(read(legacy, '.claude/settings.json')).permissions.allow.some((p) => p.includes('create-pr')), 'opening a PR is not pre-approved');
+    for (const tool of ['git-comments.mjs', 'worktree-history.mjs', 'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs']) {
+      assert.ok(JSON.parse(read(legacy, '.claude/settings.json')).permissions.allow.includes(`Bash(node .claude/tools/${tool}:*)`), tool);
+    }
+    // worktree-history imports git-comments from next to it in .claude/tools.
+    execFileSync('git', ['init', '-q'], { cwd: legacy });
+    assert.match(execFileSync('node', ['.claude/tools/worktree-history.mjs', 'list'], { cwd: legacy, encoding: 'utf8' }), /^\./);
 
     const withoutTesting = nextApp();
     await runInit(withoutTesting, { 'install.hooks': ['access_guard'], 'install.skills': ['writing-tests'] });
