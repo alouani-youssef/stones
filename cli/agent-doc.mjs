@@ -81,6 +81,13 @@ function renderWorkflow(answers, stack, { doc }) {
     doc('opening-pull-requests') && `Pull requests: ${docLink(doc('opening-pull-requests'))}.`,
     doc('four-d-engineering') && `Scope, brief, verify and report non-trivial work with ${docLink(doc('four-d-engineering'))}.`,
     commands.some(([t]) => t === 'test') && 'Run the tests before saying a change is done, and report failures as they are.',
+    commands.length && 'Run every quality gate with `node .claude/tools/quality-check.mjs` (`--only test`, `--fail-fast`); it records the result for the PR.',
+    'Open pull requests with `node .claude/tools/create-pr.mjs draft > .claude/pr.md`, fill in its TODOs, then `create-pr.mjs create --body-file .claude/pr.md` once the branch is pushed.',
+    'When a change touches documented behavior, run `node .claude/tools/sync-docs.mjs` and fix what it reports in the same change.',
+    'Check what matters now with `node .claude/tools/roadmap.mjs show`; record decisions with `roadmap.mjs decide "<decision>" "<why>"`.',
+    'Before adding a dependency, check what the project already declares with `node .claude/tools/list-packages.mjs` (`--grep <name>`, `--prod`, `--json`) and reuse a package that does the job.',
+    'When resuming work in a branch or worktree, read its history first with `node .claude/tools/worktree-history.mjs show` (`list` for every worktree).',
+    'Leave context on commits with `node .claude/tools/git-comments.mjs set|append <rev> <text>` (why it exists, what was verified, what is left); read it with `get` or `list`. Comments are git notes and never change the commit.',
   ]);
 
   return [commandLines, workflowBullets].filter(Boolean).join('\n\n');
