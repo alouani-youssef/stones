@@ -13,6 +13,8 @@
     "!cli/*.test.mjs",
     "hooks/*.mjs",
     "hooks/*.sh",
+    "tools/*.mjs",
+    "!tools/*.test.mjs",
     "!hooks/*.test.mjs",
     "settings/*.json",
     "!settings/settings.json",
@@ -21,12 +23,11 @@
     "graph/",
     "commands/",
     "mcps/",
-    "context/tasks/active.md",
     "AGENT.md",
     "setup.bash"
   ],
   "scripts": {
-    "test": "node --test hooks/ cli/",
+    "test": "node --test hooks/ cli/ tools/",
     "test:hooks": "node --test hooks/",
     "build:settings": "node settings/build-settings.mjs",
     "build:devcontainers": "node cli/devcontainer.mjs"

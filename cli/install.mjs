@@ -14,10 +14,31 @@ import { renderAgentDoc } from './agent-doc.mjs';
 import { commandCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT, skillCatalog } from './catalog.mjs';
 import { shippedDockerfile } from './devcontainer.mjs';
 import { composeSettings, mergeSettings } from './settings.mjs';
+import { LIST_DIR, STATE_DIR, STATE_HEADERS, STATES } from '../tools/tasks.mjs';
 
 export const MANIFEST = '.claude/stones.json';
 const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json'];
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
+const TASKS_GITIGNORE = ['.claude/reviews/'];
+export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
+// The single task note for projects without the task board.
+const LEGACY_TASK_NOTE = `# Active task
+
+Fill this note before running tests. Keep it scoped to the current task.
+
+## Expected behavior
+
+TODO: Describe the behavior the source should provide.
+
+## Scenarios
+
+- Scenario: TODO: describe an input or condition. Expected: TODO: describe the observable result.
+
+## Contract change
+
+none
+`;
+const usesTaskBoard = (answers) => answers.install.skills.includes('tracking-tasks');
 
 const sha = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16);
 const readText = (file) => {
@@ -80,8 +101,13 @@ function desiredFiles({ answers, stack, root, target }) {
     files.push({ path: '.claude/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
     files.push({ path: '.claude/graph/project.json', content: pkg('graph/project.json'), kind: 'seed' });
   }
-  if (answers.install.hooks.includes('testing')) {
-    files.push({ path: 'context/tasks/active.md', content: pkg('context/tasks/active.md'), kind: 'managed' });
+  // The task board replaces the single active.md note the testing hook used to read.
+  if (usesTaskBoard(answers)) {
+    for (const tool of TASK_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
+    for (const state of STATES) files.push({ path: `${STATE_DIR}/${state}.md`, content: `${STATE_HEADERS[state]}\n`, kind: 'seed' });
+    files.push({ path: `${LIST_DIR}/.gitkeep`, content: '', kind: 'seed' });
+  } else if (answers.install.hooks.includes('testing')) {
+    files.push({ path: 'context/tasks/active.md', content: LEGACY_TASK_NOTE, kind: 'managed' });
   }
   if (answers.install.hooks.includes('atomicity')) {
     files.push({ path: '.claude/atomicity.json', content: json(atomicitySeed(pkg('settings/atomicity.json'), stack)), kind: 'seed' });
@@ -104,6 +130,7 @@ function desiredFiles({ answers, stack, root, target }) {
     commands: answers.workflow.commands,
     sandbox: answers.install.sandbox,
     jq: stack.tooling.jq,
+    extraAllow: usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : [],
     root,
   });
   files.push({ path: '.claude/settings.json', content: json(settings), kind: 'json', value: settings });
@@ -119,7 +146,11 @@ function desiredFiles({ answers, stack, root, target }) {
   files.push({ path: 'AGENT.md', content: renderAgentDoc(answers, stack, root), kind: 'managed' });
   files.push({ path: 'CLAUDE.md', line: '@AGENT.md', content: '@AGENT.md\n', kind: 'line' });
   if (stack.git) {
-    const ignored = [...GITIGNORE_LINES, ...(answers.install.hooks.includes('history') ? HISTORY_GITIGNORE : [])];
+    const ignored = [
+      ...GITIGNORE_LINES,
+      ...(answers.install.hooks.includes('history') ? HISTORY_GITIGNORE : []),
+      ...(usesTaskBoard(answers) ? TASKS_GITIGNORE : []),
+    ];
     for (const line of ignored) files.push({ path: '.gitignore', line, content: `${line}\n`, kind: 'line' });
   }
   return files;

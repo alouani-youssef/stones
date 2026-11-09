@@ -32,14 +32,18 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 .claude/
 ├── settings.json         selected hooks, permissions for your commands,
 │                         sandbox limited to your package registries,
-│                         enabled plugins from the official marketplace
+│                         enabled plugins (official + stones marketplaces)
 ├── hooks/                only the selected hooks
 ├── skills/               only the selected skills and pattern skills
 ├── graph/                code graph (with the graph hook)
 ├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
 ├── danger/               specs for db, packages and network branches (atomicity hook)
 ├── commands/roadmap.md   the /roadmap command
+├── tools/                tasks.mjs + review.mjs (with the tracking-tasks skill)
 └── stones.json           your answers and installed-file hashes
+context/tasks/            task board (with the tracking-tasks skill)
+├── list/                 one file per task
+└── state/                current.md, next.md, blocked.md, done.md
 ```
 
 ## Why it is efficient
@@ -59,6 +63,14 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
   (`prisma`, `supabase`, `mongodb`, `neon`, `firebase`, `redis-development`)
   only when the stack uses them. They live in `enabledPlugins`, so Claude Code
   offers to install them when someone trusts the repo.
+- **Framework best-practice plugins.** This repository is also the `stones`
+  marketplace (`.claude-plugin/marketplace.json`). It points at community
+  skills pinned to a commit: `nestjs-best-practices`
+  ([Kadajett/agent-nestjs-skills](https://github.com/Kadajett/agent-nestjs-skills)),
+  `gin-best-practices` and `flask-best-practices`
+  ([TerminalSkills/skills](https://github.com/TerminalSkills/skills)). Each is
+  enabled only when NestJS, Gin or Flask is detected. To move to a newer
+  upstream version, review the diff and bump the entry's `sha`.
 - **Pattern skills match the stack.** Repository for ORMs, dependency
   injection for NestJS/Angular/JVM, summary-details for API frameworks.
 - **Fast re-runs.** Previous answers become the defaults, so updating the
@@ -99,6 +111,33 @@ npx claude-stones roadmap --print-prompt   # just print the prompt
 ```
 
 Inside Claude Code the same session is `/roadmap [focus]`.
+
+## Task board
+
+With the `tracking-tasks` skill, `init` installs a task board and two tools.
+Each task is a file in `context/tasks/list/` (expected behavior, scenarios,
+contract change, and a `Scope` of globs it may touch). The files in
+`context/tasks/state/` list which tasks are current, next, blocked and done.
+
+```sh
+node .claude/tools/tasks.mjs add "Rate limit logins" --scope "src/auth/**,tests/auth/**"
+node .claude/tools/tasks.mjs start 1        # records the branch and base commit
+node .claude/tools/tasks.mjs done 1         # runs the tests; moves to done.md only if they pass
+node .claude/tools/tasks.mjs review 1 --run-tests
+```
+
+- **One current task.** The testing hook reads the task linked from
+  `state/current.md` and blocks test runs until its scenarios are filled in.
+- **Done means tested.** `done` runs the project's test command and records
+  the commit range and result in `state/done.md`; a failing run records nothing.
+- **Review against the promise.** `review` writes `.claude/reviews/<id>.md`
+  (git-ignored) and exits 1 when the task is not ready. The file holds the
+  verdict, each scenario and whether a changed test covers it, commits, files
+  and the diff. It flags failing or stale test runs, missing tests, changes
+  outside the scope, db/packages/network changes mixed with others (atomicity
+  hook), and functions the complexity hook rejects.
+
+Without the skill, the testing hook keeps reading `context/tasks/active.md`.
 
 ## Dev containers
 
@@ -146,6 +185,7 @@ npx claude-stones sync --check   # CI: fail if it is out of date
 | `skills/`     | skills offered during setup: `<name>/SKILL.md` plus reference files; `metadata.kind: pattern` marks pattern skills |
 | `graph/`      | code graph seed and documentation                               |
 | `commands/`   | slash commands installed into `.claude/commands/`               |
+| `tools/`      | task board tools installed into `.claude/tools/`                |
 | `mcps/`       | MCP servers offered for `.mcp.json`                             |
 | `settings/plugins.json` | plugins offered: `default: true` for every project, `when` to match detected languages/frameworks |
 | `devcontainer/` | one dev container per stack (`node-pnpm`, `python`, `go`); `npm run build:devcontainers` regenerates their `devcontainer.json` |

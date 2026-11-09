@@ -262,9 +262,9 @@ export function regressions(current, baseline, threshold) {
     .sort((a, b) => b.complexity - a.complexity);
 }
 
-function headVersion(project, rel) {
+function headVersion(project, rel, ref = 'HEAD') {
   try {
-    return execFileSync('git', ['show', `HEAD:${rel.split(sep).join('/')}`], {
+    return execFileSync('git', ['show', `${ref}:${rel.split(sep).join('/')}`], {
       cwd: project, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024,
     });
   } catch {
@@ -334,7 +334,9 @@ function loadConfig(project) {
 
 // Returns { block, reason } for regressions, { missing } when the language's
 // analyzer is not installed, or {} when there is nothing to say.
-export async function evaluate(event, { projectDir } = {}) {
+// `baseRef` compares against another commit than HEAD (a task review uses
+// the commit the task started from).
+export async function evaluate(event, { projectDir, baseRef = 'HEAD' } = {}) {
   const given = event?.tool_input?.file_path;
   if (typeof given !== 'string' || given === '') return {};
   const project = resolve(projectDir ?? process.env.CLAUDE_PROJECT_DIR ?? event.cwd ?? process.cwd());
@@ -356,7 +358,7 @@ export async function evaluate(event, { projectDir } = {}) {
   if (current === null) return { missing: language };
   if (!current.some((f) => f.complexity > threshold)) return {};
 
-  const head = headVersion(project, rel);
+  const head = headVersion(project, rel, baseRef);
   const baseline = head === null ? [] : await analyze(head);
   const found = regressions(current, baseline, threshold);
   if (found.length === 0) return {};

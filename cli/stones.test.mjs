@@ -123,6 +123,9 @@ describe('settings', () => {
     assert.deepEqual(s.extraKnownMarketplaces, {
       'claude-plugins-official': { source: { source: 'github', repo: 'anthropics/claude-plugins-official' } },
     });
+    const mixed = composeSettings({ plugins: ['superpowers', 'flask-best-practices'] });
+    assert.equal(mixed.enabledPlugins['flask-best-practices@stones'], true);
+    assert.deepEqual(mixed.extraKnownMarketplaces.stones, { source: { source: 'github', repo: 'alouani-youssef/stones' } });
     const none = composeSettings({});
     assert.equal(none.enabledPlugins, undefined);
     assert.equal(none.extraKnownMarketplaces, undefined);
@@ -140,6 +143,29 @@ describe('settings', () => {
     const py = suggestedPlugins(detect(project({ 'requirements.txt': 'fastapi\nredis\n' })));
     for (const id of ['pyright-lsp', 'redis-development']) assert.ok(py.includes(id), id);
     assert.ok(!py.includes('typescript-lsp') && !py.includes('prisma'));
+  });
+
+  it('suggests the stones framework plugins for NestJS, Gin and Flask', () => {
+    const nest = suggestedPlugins(detect(project({ 'package.json': { dependencies: { '@nestjs/core': '11' } } })));
+    assert.ok(nest.includes('nestjs-best-practices'));
+    const gin = detect(project({ 'go.mod': 'module example.com/api\n\ngo 1.24\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.10.0\n)\n' }));
+    assert.ok(gin.frameworks.includes('Gin'));
+    assert.ok(suggestedPlugins(gin).includes('gin-best-practices'));
+    const flask = suggestedPlugins(detect(project({ 'requirements.txt': 'flask==3.1\n' })));
+    assert.ok(flask.includes('flask-best-practices'));
+    for (const id of ['nestjs-best-practices', 'gin-best-practices', 'flask-best-practices']) {
+      assert.ok(!suggestedPlugins(detect(project({ 'requirements.txt': 'fastapi\n' }))).includes(id), id);
+    }
+  });
+
+  it('lists every stones-marketplace plugin in .claude-plugin/marketplace.json', () => {
+    const market = JSON.parse(readFileSync(join(PACKAGE_ROOT, '.claude-plugin', 'marketplace.json'), 'utf8'));
+    assert.equal(market.name, 'stones');
+    const listed = market.plugins.map((p) => p.name);
+    const ours = pluginCatalog().filter((p) => p.marketplace === 'stones').map((p) => p.id);
+    assert.ok(ours.length);
+    assert.deepEqual([...ours].sort(), [...listed].sort());
+    for (const p of market.plugins) assert.match(p.source.sha ?? '', /^[0-9a-f]{40}$/, `${p.name} is pinned`);
   });
 
   it('adds nx permissions only in nx monorepos and drops the jq status line without jq', () => {
@@ -279,17 +305,34 @@ describe('init', () => {
     assert.ok(loadManifest(root).files['AGENT.md']);
   });
 
-  it('installs the testing hook and active scenario note only when selected', async () => {
-    const withTesting = nextApp();
-    await runInit(withTesting, { 'install.hooks': ['testing'] });
-    const settings = JSON.parse(read(withTesting, '.claude/settings.json'));
-    assert.ok(read(withTesting, '.claude/hooks/testing.mjs').length > 0);
-    assert.match(read(withTesting, 'context/tasks/active.md'), /^## Expected behavior$/m);
+  it('installs the testing hook with the task board, or the legacy note without it', async () => {
+    const withBoard = nextApp();
+    execFileSync('git', ['init', '-q'], { cwd: withBoard });
+    await runInit(withBoard, { 'install.hooks': ['testing'] });
+    const settings = JSON.parse(read(withBoard, '.claude/settings.json'));
+    assert.ok(read(withBoard, '.claude/hooks/testing.mjs').length > 0);
     assert.match(JSON.stringify(settings.hooks.PreToolUse), /testing\.mjs/);
-    assert.ok(loadManifest(withTesting).files['context/tasks/active.md']);
+    for (const state of ['current', 'next', 'blocked', 'done']) assert.ok(existsSync(join(withBoard, `context/tasks/state/${state}.md`)), state);
+    assert.ok(existsSync(join(withBoard, 'context/tasks/list/.gitkeep')));
+    assert.ok(read(withBoard, '.claude/tools/tasks.mjs').length > 0);
+    assert.ok(read(withBoard, '.claude/tools/review.mjs').length > 0);
+    assert.ok(read(withBoard, '.claude/skills/tracking-tasks/SKILL.md').length > 0);
+    assert.ok(settings.permissions.allow.includes('Bash(node .claude/tools/tasks.mjs:*)'));
+    assert.match(read(withBoard, '.gitignore'), /^\.claude\/reviews\/$/m);
+    assert.equal(existsSync(join(withBoard, 'context/tasks/active.md')), false);
+
+    // The installed tool runs from .claude/tools and reaches the installed hooks.
+    const out = execFileSync('node', ['.claude/tools/tasks.mjs', 'add', 'First task'], { cwd: withBoard, encoding: 'utf8' });
+    assert.match(out, /context\/tasks\/list\/0001-first-task\.md/);
+
+    const legacy = nextApp();
+    await runInit(legacy, { 'install.hooks': ['testing'], 'install.skills': ['writing-tests'] });
+    assert.match(read(legacy, 'context/tasks/active.md'), /^## Expected behavior$/m);
+    assert.ok(loadManifest(legacy).files['context/tasks/active.md']);
+    assert.equal(existsSync(join(legacy, '.claude/tools/tasks.mjs')), false);
 
     const withoutTesting = nextApp();
-    await runInit(withoutTesting, { 'install.hooks': ['access_guard'] });
+    await runInit(withoutTesting, { 'install.hooks': ['access_guard'], 'install.skills': ['writing-tests'] });
     assert.equal(existsSync(join(withoutTesting, 'context/tasks/active.md')), false);
   });
 

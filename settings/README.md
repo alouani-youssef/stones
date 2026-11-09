@@ -6,7 +6,9 @@ focused source files here and compose them into `settings.json` after edits.
 - `hooks.json`: tool hooks
 - `sandbox.json`: sandbox configuration
 - `plugins.json`: plugin catalog and marketplaces; `default: true` plugins are
-  suggested for every project, `when` matches detected languages or frameworks
+  suggested for every project, `when` matches detected languages or frameworks;
+  `"marketplace": "stones"` entries must also be listed in
+  `.claude-plugin/marketplace.json` (a test checks this)
 
 Run `node settings/build-settings.mjs` from the repository root to regenerate
 `settings/settings.json`. Commit both the source files and generated settings
