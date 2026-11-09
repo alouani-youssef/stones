@@ -1,3 +1,12 @@
+---
+name: modular-design
+description: Use when deciding where behavior belongs, drawing module or package boundaries, splitting a large file, untangling circular imports, or when a change ripples across many unrelated modules.
+metadata:
+  title: Modularity
+  kind: pattern
+  summary: Modules with one cohesive responsibility, a small explicit interface and hidden internals.
+---
+
 # Modularity
 
 Modularity is the practice of organizing a system into parts with clear responsibilities and explicit boundaries. A module groups related behavior and hides implementation details behind a small interface. Other parts of the system should need to know what the module promises, not how it fulfills that promise.

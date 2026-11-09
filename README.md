@@ -1,7 +1,7 @@
 # claude-stones
 
 Generate a Claude Code setup tailored to a project: a `.claude/` folder with
-only the hooks, permissions and guides the project needs, an `AGENT.md` that
+only the hooks, permissions and skills the project needs, an `AGENT.md` that
 tells Claude what the project is and how to work in it, and a `ROADMAP.md`
 written with you in a Claude session.
 
@@ -21,7 +21,7 @@ Requires Node.js 22.13+ (the history hook uses the built-in `node:sqlite`).
 2. **Asks about what it cannot detect**, with detected values as defaults:
    what the project is, what each top-level folder holds, architecture,
    design patterns, secrets and auth, conventions, branching, TDD, and which
-   hooks, guides and MCP servers to install.
+   hooks, skills and MCP servers to install.
 3. **Writes the setup**:
 
 ```
@@ -33,7 +33,7 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 ├── settings.json         selected hooks, permissions for your commands,
 │                         sandbox limited to your package registries
 ├── hooks/                only the selected hooks
-├── docs/                 only the selected guides and patterns
+├── skills/               only the selected skills and pattern skills
 ├── graph/                code graph (with the graph hook)
 ├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
 ├── danger/               specs for db, packages and network branches (atomicity hook)
@@ -44,13 +44,15 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 ## Why it is efficient
 
 - **Small always-loaded context.** `CLAUDE.md` only imports `AGENT.md`, a short
-  brief. Guides in `.claude/docs/` and `ROADMAP.md` are linked, so Claude reads
-  them when relevant instead of loading them every session.
+  brief. Guides ship as Claude Code skills in `.claude/skills/`: only each
+  skill's one-line "Use when…" description is in context, and Claude loads the
+  body (and its reference files) when the task matches: committing, opening a
+  PR, writing tests, naming a file, and so on. `ROADMAP.md` is linked, not loaded.
 - **Only what the stack uses.** Permissions come from your real commands
   (`pnpm run test`, `uv run pytest`, `go test`); sandbox domains from your
   ecosystems; nx rules only in nx repos; the format hook only when a formatter
   exists; the jq status line and `block-rm` hook only when jq is installed.
-- **Pattern guides match the stack.** Repository for ORMs, dependency
+- **Pattern skills match the stack.** Repository for ORMs, dependency
   injection for NestJS/Angular/JVM, summary-details for API frameworks.
 - **Fast re-runs.** Previous answers become the defaults, so updating the
   setup is mostly pressing Enter, or `init --yes`.
@@ -70,6 +72,10 @@ or changing your answers:
 | `.claude/atomicity.json`               | Created once, then owned by you                    |
 
 Use `--dry-run` to see the plan without writing anything.
+
+Setups made before guides became skills keep their choices: saved guide ids
+map to the new skill names, and skills added since are offered. Old files in
+`.claude/docs/` are not removed; delete that folder once `.claude/skills/` is in place.
 
 ## Roadmap sessions
 
@@ -106,11 +112,11 @@ Inside Claude Code the same session is `/roadmap [focus]`.
 | `AGENT.md`    | section template for the generated `AGENT.md`                   |
 | `hooks/`      | hook scripts; any hook registered in `settings/hooks.json` is offered |
 | `settings/`   | modular settings sources; `stacks.json` maps ecosystems to permissions and domains |
-| `docs/`       | guides and pattern docs offered during setup                    |
+| `skills/`     | skills offered during setup: `<name>/SKILL.md` plus reference files; `metadata.kind: pattern` marks pattern skills |
 | `graph/`      | code graph seed and documentation                               |
 | `commands/`   | slash commands installed into `.claude/commands/`               |
 | `mcps/`       | MCP servers offered for `.mcp.json`                             |
 
-Adding a hook, guide, command or MCP server to these folders is enough for
-`init` to offer it. `npm run build:settings` regenerates
+Adding a hook, skill, command or MCP server to these folders is enough for
+`init` to offer it. A skill folder without a `SKILL.md` is ignored. `npm run build:settings` regenerates
 `settings/settings.json` for this repository; `npm test` runs all tests.

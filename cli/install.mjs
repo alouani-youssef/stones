@@ -1,6 +1,6 @@
 // Turns the answers into a plan of file operations, then applies it.
 //
-// Files the package owns (hooks, docs, AGENT.md...) are tracked by hash in
+// Files the package owns (hooks, skills, AGENT.md...) are tracked by hash in
 // `.claude/stones.json`. On a re-run a file is updated only if it is still
 // exactly what was installed; a file the user edited is left alone and
 // reported, unless `--force`. JSON config the user may share with other
@@ -10,7 +10,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { dirname, join } from 'node:path';
 
 import { renderAgentDoc } from './agent-doc.mjs';
-import { commandCatalog, docCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT } from './catalog.mjs';
+import { commandCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT, skillCatalog } from './catalog.mjs';
 import { composeSettings, mergeSettings } from './settings.mjs';
 
 export const MANIFEST = '.claude/stones.json';
@@ -66,9 +66,9 @@ function desiredFiles({ answers, stack, root }) {
     files.push({ path: '.claude/atomicity.json', content: json(atomicitySeed(pkg('settings/atomicity.json'), stack)), kind: 'seed' });
     files.push({ path: '.claude/danger/.gitkeep', content: '', kind: 'seed' });
   }
-  const docIds = new Set([...answers.install.docs, ...answers.patterns]);
-  for (const doc of docCatalog(root).filter((d) => docIds.has(d.id))) {
-    for (const rel of doc.files) files.push({ path: `.claude/docs/${rel}`, content: pkg(`docs/${rel}`), kind: 'managed' });
+  const skillIds = new Set([...answers.install.skills, ...answers.patterns]);
+  for (const skill of skillCatalog(root).filter((s) => skillIds.has(s.id))) {
+    for (const rel of skill.files) files.push({ path: `.claude/skills/${rel}`, content: pkg(`skills/${rel}`), kind: 'managed' });
   }
   for (const command of commandCatalog(root)) {
     files.push({ path: `.claude/commands/${command.file}`, content: pkg(`commands/${command.file}`), kind: 'managed' });

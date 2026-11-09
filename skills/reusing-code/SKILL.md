@@ -1,3 +1,12 @@
+---
+name: reusing-code
+description: Use when the same rule or logic appears in more than one place, when tempted to extract a shared helper, utility or library, or when an existing helper is collecting flags and special cases.
+metadata:
+  title: Reusability
+  kind: pattern
+  summary: Share a rule once it has a real second use, with a small contract and only the variation callers need.
+---
+
 # Reusability
 
 Reusability is the ability to apply a piece of behavior in more than one context without copying its implementation. Reusable code has a clear purpose, a stable contract, and only the variation points that real callers need.

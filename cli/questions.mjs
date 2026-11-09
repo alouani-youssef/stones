@@ -1,6 +1,6 @@
 // The setup interview. Defaults come from the previous run's answers first,
 // then from stack detection, so re-running `init` is mostly pressing Enter.
-import { docCatalog, hookCatalog, mcpCatalog } from './catalog.mjs';
+import { currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, skillCatalog } from './catalog.mjs';
 
 const ARCHITECTURES = [
   { value: 'monolith', label: 'Monolith', hint: 'one deployable application' },
@@ -28,20 +28,31 @@ const API_FRAMEWORKS = ['Next.js', 'Express', 'Fastify', 'Hono', 'NestJS', 'Fast
 export function suggestedPatterns(stack) {
   const uses = (names) => stack.frameworks.some((f) => names.includes(f));
   return [
-    'patterns/modularity',
-    'patterns/reusability',
-    'patterns/complexity',
-    uses(ORMS) && 'patterns/repository',
-    (uses(DI_FRAMEWORKS) || stack.ecosystems.includes('jvm')) && 'patterns/dependency-injection',
-    uses(API_FRAMEWORKS) && 'patterns/summary-details',
+    'modular-design',
+    'reusing-code',
+    'managing-complexity',
+    uses(ORMS) && 'repository-pattern',
+    (uses(DI_FRAMEWORKS) || stack.ecosystems.includes('jvm')) && 'dependency-injection',
+    uses(API_FRAMEWORKS) && 'summary-details-responses',
   ].filter(Boolean);
 }
 const split = (text) => (Array.isArray(text) ? text : String(text ?? '').split(',').map((s) => s.trim()).filter(Boolean));
 
+// Default skill selection: the previous run's, else everything. A run from
+// before guides became skills saved `install.docs`; keep its choices and add
+// the skills that did not exist then.
+function previousSkills(previous, guides) {
+  const all = guides.map((s) => s.id);
+  if (Array.isArray(previous.install?.skills)) return previous.install.skills;
+  if (!Array.isArray(previous.install?.docs)) return all;
+  const legacy = new Set(Object.values(LEGACY_SKILL_IDS));
+  return [...new Set([...currentSkillIds(previous.install.docs), ...all.filter((id) => !legacy.has(id))])];
+}
+
 export async function interview(ask, stack, previous = {}) {
   const p = (path, fallback) => path.split('.').reduce((o, k) => o?.[k], previous) ?? fallback;
   const hooks = hookCatalog();
-  const docs = docCatalog();
+  const skills = skillCatalog();
   const mcps = mcpCatalog();
 
   ask.note('\n— Project');
@@ -67,12 +78,12 @@ export async function interview(ask, stack, previous = {}) {
     'Main components and how they talk (e.g. "REST API + Postgres + React SPA")',
     p('architecture.notes', ''),
   );
-  const patternDocs = docs.filter((d) => d.pattern);
+  const patternSkills = skills.filter((s) => s.pattern);
   const patterns = await ask.multi(
     'patterns',
-    'Design patterns the code follows (their guides are installed and linked)',
-    patternDocs.map((d) => ({ value: d.id, label: d.title, hint: d.lead })),
-    p('patterns', suggestedPatterns(stack).filter((id) => patternDocs.some((d) => d.id === id))),
+    'Design patterns the code follows (installed as skills in .claude/skills and linked)',
+    patternSkills.map((s) => ({ value: s.id, label: s.title, hint: s.lead })),
+    currentSkillIds(p('patterns', suggestedPatterns(stack).filter((id) => patternSkills.some((s) => s.id === id)))),
   );
 
   ask.note('\n— Access and security');
@@ -109,12 +120,12 @@ export async function interview(ask, stack, previous = {}) {
     })),
     p('install.hooks', defaultHooks),
   );
-  const guideDocs = docs.filter((d) => !d.pattern);
-  const selectedDocs = await ask.multi(
-    'install.docs',
-    'Guides to install in .claude/docs (read by Claude on demand, not loaded every session)',
-    guideDocs.map((d) => ({ value: d.id, label: d.title, hint: d.lead })),
-    p('install.docs', guideDocs.map((d) => d.id)),
+  const guideSkills = skills.filter((s) => !s.pattern);
+  const selectedSkills = await ask.multi(
+    'install.skills',
+    'Skills to install in .claude/skills (Claude loads one only when its task comes up)',
+    guideSkills.map((s) => ({ value: s.id, label: s.title, hint: s.lead })),
+    previousSkills(previous, guideSkills),
   );
   const selectedMcps = mcps.length
     ? await ask.multi(
@@ -136,7 +147,7 @@ export async function interview(ask, stack, previous = {}) {
     conventions: { commits, notes: conventionNotes },
     workflow: { branching, commands, tdd },
     guardrails: { notes: guardrailNotes },
-    install: { hooks: selectedHooks, docs: selectedDocs, mcp: selectedMcps, sandbox },
+    install: { hooks: selectedHooks, skills: selectedSkills, mcp: selectedMcps, sandbox },
   };
 }
 

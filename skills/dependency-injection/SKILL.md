@@ -1,3 +1,12 @@
+---
+name: dependency-injection
+description: Use when a class or function constructs its own database, HTTP, email, clock or other infrastructure client, when tests cannot swap a collaborator, or when wiring services with constructors or a DI container (NestJS, Angular, Spring).
+metadata:
+  title: Dependency Injection
+  kind: pattern
+  summary: Collaborators passed in rather than constructed inside, with concrete choices made at the composition root.
+---
+
 # Dependency Injection
 
 Dependency injection (DI) is a way to provide an object or function with the collaborators it needs instead of having it construct those collaborators itself. The code that wires the application together chooses concrete implementations; business logic depends on the capabilities it needs.

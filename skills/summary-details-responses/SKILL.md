@@ -1,3 +1,12 @@
+---
+name: summary-details-responses
+description: Use when building list and detail API endpoints or queries, when list responses are slow or heavy with large fields or joins, or when returning database entities directly from an API.
+metadata:
+  title: Summary-Details Pattern
+  kind: pattern
+  summary: Compact summary shapes for collections and fuller detail shapes for one item, each an explicit DTO.
+---
+
 # Summary-Details Pattern
 
 The summary-details pattern returns a compact representation for collection views and a fuller representation for a single item. A list usually needs enough information to identify and scan each item; a detail view can request larger or less frequently used fields only when the user opens that item.
