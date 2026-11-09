@@ -55,8 +55,8 @@ function sections(answers, stack) {
     'access and security': bullets([
       answers.security.secrets && `Secrets: ${answers.security.secrets}`,
       answers.security.auth && `Authentication: ${answers.security.auth}`,
-      has('guard') && 'Never read `.env*` files (except `.env.example`) or anything under `private/`; the guard hook blocks it.',
-      has('guard') && 'Never `git push`; a human pushes.',
+      has('access_guard') && 'Never read `.env*` files (except `.env.example`) or anything under `private/`; the access guard hook blocks it.',
+      has('access_guard') && 'Never `git push`; a human pushes.',
       answers.security.notes,
     ]),
 

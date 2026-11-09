@@ -103,9 +103,9 @@ describe('settings', () => {
   });
 
   it('keeps only selected hooks and the project ecosystems', () => {
-    const s = composeSettings({ hooks: ['guard'], ecosystems: ['python'], commands: { test: 'pytest' } });
+    const s = composeSettings({ hooks: ['access_guard'], ecosystems: ['python'], commands: { test: 'pytest' } });
     const commands = JSON.stringify(s.hooks);
-    assert.match(commands, /guard\.mjs/);
+    assert.match(commands, /access_guard\.mjs/);
     assert.doesNotMatch(commands, /naming|graph|format|block-rm/);
     assert.ok(s.permissions.allow.includes('Bash(pytest:*)'));
     assert.ok(!s.permissions.allow.some((p) => p.includes('nx')));
@@ -178,7 +178,7 @@ describe('init', () => {
     assert.match(read(root, 'AGENT.md'), /^## Workflow$/m);
     assert.match(read(root, '.gitignore'), /\.claude\/graph\/project\.json/);
     assert.equal(JSON.parse(read(root, '.mcp.json')).mcpServers.context7.command, 'npx');
-    assert.ok(read(root, '.claude/hooks/guard.mjs').length > 0);
+    assert.ok(read(root, '.claude/hooks/access_guard.mjs').length > 0);
     assert.ok(read(root, '.claude/commands/roadmap.md').includes('ROADMAP.md'));
     assert.ok(statSync(join(root, '.claude/hooks/block-rm.sh')).mode & 0o100);
     assert.ok(loadManifest(root).files['AGENT.md']);
@@ -194,7 +194,7 @@ describe('init', () => {
     assert.ok(loadManifest(withTesting).files['context/tasks/active.md']);
 
     const withoutTesting = nextApp();
-    await runInit(withoutTesting, { 'install.hooks': ['guard'] });
+    await runInit(withoutTesting, { 'install.hooks': ['access_guard'] });
     assert.equal(existsSync(join(withoutTesting, 'context/tasks/active.md')), false);
   });
 
@@ -208,7 +208,7 @@ describe('init', () => {
     const a = actions(ops);
     assert.equal(a['AGENT.md'], 'conflict');
     assert.match(read(root, 'AGENT.md'), /My own notes\./);
-    assert.equal(a['.claude/hooks/guard.mjs'], 'same');
+    assert.equal(a['.claude/hooks/access_guard.mjs'], 'same');
     assert.equal(a['CLAUDE.md'], undefined);
     assert.equal(read(root, 'CLAUDE.md'), '@AGENT.md\n\nLocal rules.\n');
 
@@ -233,16 +233,16 @@ describe('init', () => {
 
     const without = nextApp();
     execFileSync('git', ['init', '-q'], { cwd: without });
-    await runInit(without, { 'install.hooks': ['guard'] });
+    await runInit(without, { 'install.hooks': ['access_guard'] });
     assert.doesNotMatch(read(without, '.gitignore'), /history\.db/);
   });
 
   it('remembers previous answers', async () => {
     const root = nextApp();
-    await runInit(root, { 'architecture.style': 'microservices', 'install.hooks': ['guard'] });
+    await runInit(root, { 'architecture.style': 'microservices', 'install.hooks': ['access_guard'] });
     const { answers } = await runInit(root);
     assert.equal(answers.architecture.style, 'microservices');
-    assert.deepEqual(answers.install.hooks, ['guard']);
+    assert.deepEqual(answers.install.hooks, ['access_guard']);
   });
 
   it('merges into an existing settings.json and appends to CLAUDE.md', async () => {
