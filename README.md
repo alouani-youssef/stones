@@ -93,6 +93,29 @@ npx claude-stones roadmap --print-prompt   # just print the prompt
 
 Inside Claude Code the same session is `/roadmap [focus]`.
 
+## Dev containers
+
+For Node + pnpm, Python and Go projects, `init` adds a dev container (the
+default dev sandbox) in `.devcontainer/`, unless you decline. Claude Code's own
+sandbox stays on inside it.
+
+- **The Dockerfile is the single source of truth.** `devcontainer.json` is
+  generated from it: `USER`, `ENV`, `EXPOSE` and `WORKDIR` of the last stage become
+  `remoteUser`, `containerEnv`, `forwardPorts` and `workspaceFolder`. Anything
+  else (extensions, `postCreateCommand`, mounts...) goes in
+  `LABEL devcontainer.metadata='{...}'`, which wins over derived fields.
+  Lifecycle commands (`postCreateCommand`...) stay in the label only: dev
+  container tools read it from the image, and copying them would run them twice.
+- The Dockerfile is yours after install; re-running `init` never overwrites it,
+  but always regenerates `devcontainer.json` from it.
+- The `devcontainer` hook regenerates the JSON whenever Claude edits the
+  Dockerfile, and undoes hand edits to the JSON.
+
+```sh
+npx claude-stones sync           # regenerate .devcontainer/devcontainer.json
+npx claude-stones sync --check   # CI: fail if it is out of date
+```
+
 ## Options
 
 ```
@@ -102,6 +125,7 @@ Inside Claude Code the same session is `/roadmap [focus]`.
 --no-roadmap      do not offer a roadmap session after init
 --focus <text>    roadmap focus
 --print-prompt    print the roadmap prompt instead of starting Claude
+--check           with sync: fail if devcontainer.json is out of date
 ```
 
 ## Repository layout
@@ -116,6 +140,7 @@ Inside Claude Code the same session is `/roadmap [focus]`.
 | `graph/`      | code graph seed and documentation                               |
 | `commands/`   | slash commands installed into `.claude/commands/`               |
 | `mcps/`       | MCP servers offered for `.mcp.json`                             |
+| `devcontainer/` | one dev container per stack (`node-pnpm`, `python`, `go`); `npm run build:devcontainers` regenerates their `devcontainer.json` |
 
 Adding a hook, skill, command or MCP server to these folders is enough for
 `init` to offer it. A skill folder without a `SKILL.md` is ignored. `npm run build:settings` regenerates

@@ -17,6 +17,7 @@
     "settings/*.json",
     "!settings/settings.json",
     "skills/",
+    "devcontainer/",
     "graph/",
     "commands/",
     "mcps/",
@@ -27,7 +28,8 @@
   "scripts": {
     "test": "node --test hooks/ cli/",
     "test:hooks": "node --test hooks/",
-    "build:settings": "node settings/build-settings.mjs"
+    "build:settings": "node settings/build-settings.mjs",
+    "build:devcontainers": "node cli/devcontainer.mjs"
   },
   "engines": {
     "node": ">=22.13"

@@ -7,10 +7,12 @@
 // tools (settings.json, .mcp.json) is merged instead of replaced.
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
+import { renderDevcontainer } from '../hooks/devcontainer.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
 import { commandCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT, skillCatalog } from './catalog.mjs';
+import { shippedDockerfile } from './devcontainer.mjs';
 import { composeSettings, mergeSettings } from './settings.mjs';
 
 export const MANIFEST = '.claude/stones.json';
@@ -48,7 +50,26 @@ function atomicitySeed(template, stack) {
 }
 
 // Desired content for every file this run manages.
-function desiredFiles({ answers, stack, root }) {
+const DC_DOCKERFILE = '.devcontainer/Dockerfile';
+const DC_JSON = '.devcontainer/devcontainer.json';
+
+// The dev container: the Dockerfile is seeded once and then belongs to the
+// project; devcontainer.json is always generated from the project's copy.
+function devcontainerFiles({ answers, target, root }) {
+  const id = answers.install.devcontainer;
+  if (!id) return [];
+  const seed = shippedDockerfile(id, root);
+  const source = readText(join(target, DC_DOCKERFILE)) ?? seed;
+  const json = { path: DC_JSON, kind: 'generated' };
+  try {
+    json.content = renderDevcontainer(source, { name: basename(target) });
+  } catch (error) {
+    json.error = error.message;
+  }
+  return [{ path: DC_DOCKERFILE, content: seed, kind: 'seed', tracked: true }, json];
+}
+
+function desiredFiles({ answers, stack, root, target }) {
   const files = [];
   const pkg = (rel) => readFileSync(join(root, rel), 'utf8');
   const hooks = hookCatalog(root).filter((h) => answers.install.hooks.includes(h.id));
@@ -92,6 +113,8 @@ function desiredFiles({ answers, stack, root }) {
     files.push({ path: '.mcp.json', content: json(value), kind: 'json', value });
   }
 
+  files.push(...devcontainerFiles({ answers, target, root }));
+
   files.push({ path: 'AGENT.md', content: renderAgentDoc(answers, stack, root), kind: 'managed' });
   files.push({ path: 'CLAUDE.md', line: '@AGENT.md', content: '@AGENT.md\n', kind: 'line' });
   if (stack.git) {
@@ -107,11 +130,24 @@ export function plan({ target, answers, stack, force = false, root = PACKAGE_ROO
   const ops = [];
   const pending = new Map(); // appended lines per file, so one op per file
 
-  for (const file of desiredFiles({ answers, stack, root })) {
+  // A .devcontainer/ the project already had is theirs, not ours.
+  const foreignDevcontainer = existsSync(join(target, '.devcontainer')) && !manifest.files?.[DC_DOCKERFILE];
+
+  for (const file of desiredFiles({ answers, stack, root, target })) {
     const abs = join(target, file.path);
     const current = readText(abs);
     const installed = manifest.files?.[file.path];
     const pristine = current !== undefined && installed === sha(current);
+
+    if (file.path.startsWith('.devcontainer/') && foreignDevcontainer && !force) {
+      ops.push({ ...file, action: 'conflict', reason: 'existing .devcontainer not installed by stones' });
+      continue;
+    }
+    if (file.kind === 'generated') {
+      if (file.error) ops.push({ ...file, action: 'conflict', reason: file.error });
+      else ops.push({ ...file, action: current === undefined ? 'create' : current === file.content ? 'same' : 'update' });
+      continue;
+    }
 
     if (file.kind === 'line') {
       const base = pending.get(file.path) ?? current ?? '';
@@ -159,7 +195,9 @@ export function apply({ target, ops, answers, stack }) {
       if (op.executable) chmodSync(abs, 0o755);
     }
     // Track what we own and wrote; merged/appended files stay the user's.
-    if (op.kind === 'managed' && ['create', 'update', 'same'].includes(op.action)) files[op.path] = sha(op.content);
+    if (['managed', 'generated'].includes(op.kind) && ['create', 'update', 'same'].includes(op.action)) files[op.path] = sha(op.content);
+    // A tracked seed records that stones installed it, so later runs treat it as ours.
+    if (op.tracked && op.action === 'create') files[op.path] = sha(op.content);
     if (op.kind === 'json' && ['create', 'update'].includes(op.action)) files[op.path] = sha(op.content);
   }
   const next = {

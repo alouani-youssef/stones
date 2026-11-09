@@ -33,6 +33,7 @@ const HOOK_HINTS = {
   testing: 'requires clear test scenarios and guards spec/test edits unless expected behavior changes',
   atomicity: 'blocks mixed commits/branches and requires dedicated, specced branches for db, packages and network changes',
   'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
+  devcontainer: 'regenerates .devcontainer/devcontainer.json whenever its Dockerfile is edited',
   history: 'logs prompts and replies per session to a local, git-ignored SQLite db (.claude/history.db)',
 };
 

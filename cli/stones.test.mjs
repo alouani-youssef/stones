@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { inspectSpec } from '../hooks/atomicity.mjs';
+import { parseDockerfile, renderDevcontainer } from '../hooks/devcontainer.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { hookCatalog, LEGACY_SKILL_IDS, skillCatalog, skillFrontmatter } from './catalog.mjs';
+import { hookCatalog, LEGACY_SKILL_IDS, PACKAGE_ROOT, skillCatalog, skillFrontmatter } from './catalog.mjs';
 import { detect } from './detect.mjs';
+import { DEVCONTAINER_STACKS, devcontainerStack } from './devcontainer.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
 import { createPrompter, createScriptedPrompter } from './prompt.mjs';
 import { interview, suggestedPatterns } from './questions.mjs';
@@ -395,5 +397,148 @@ describe('atomicity hook install', () => {
     assert.match(skill.lead, /atomic/i);
     const template = readFileSync(new URL('../skills/atomic-changes/spec-template.md', import.meta.url), 'utf8');
     assert.equal(inspectSpec(template, 'db').valid, false);
+  });
+});
+
+describe('devcontainers', () => {
+  const pkgFile = (...parts) => readFileSync(join(PACKAGE_ROOT, 'devcontainer', ...parts), 'utf8');
+
+  it('shipped devcontainer.json files match their Dockerfiles', () => {
+    for (const id of DEVCONTAINER_STACKS) {
+      assert.equal(pkgFile(id, 'devcontainer.json'), renderDevcontainer(pkgFile(id, 'Dockerfile'), { name: id }), id);
+    }
+  });
+
+  it('every image has what stones and the Claude sandbox need', () => {
+    for (const id of DEVCONTAINER_STACKS) {
+      const dockerfile = pkgFile(id, 'Dockerfile');
+      for (const re of [/bubblewrap/, /socat/, /\bjq\b/, /\bgit\b/, /claude-code/]) assert.match(dockerfile, re, `${id} ${re}`);
+      const user = parseDockerfile(dockerfile).user;
+      assert.ok(user && user !== 'root' && user !== '0', `${id} runs as ${user}`);
+      if (id !== 'node-pnpm') assert.match(dockerfile, /node/i, id);
+    }
+  });
+
+  it('picks the stack', () => {
+    const pick = (files) => devcontainerStack(detect(project(files)));
+    assert.equal(pick({ 'package.json': { name: 'a' }, 'pnpm-lock.yaml': '', 'pyproject.toml': '[project]\nname = "a"\n' }), 'node-pnpm');
+    assert.equal(pick({ 'package.json': { name: 'a' }, 'package-lock.json': '{}' }), null);
+    assert.equal(pick({ 'pyproject.toml': '[project]\nname = "a"\n' }), 'python');
+    assert.equal(pick({ 'go.mod': 'module a\n\ngo 1.25\n' }), 'go');
+    assert.equal(pick({ 'Cargo.toml': '[package]\nname = "a"\n' }), null);
+  });
+});
+
+describe('devcontainer install', () => {
+  const DC = '.devcontainer/Dockerfile';
+  const DC_JSON = '.devcontainer/devcontainer.json';
+  const shipped = readFileSync(join(PACKAGE_ROOT, 'devcontainer', 'node-pnpm', 'Dockerfile'), 'utf8');
+
+  it('installs the node-pnpm dev container by default', async () => {
+    const root = nextApp();
+    const { ops, answers } = await runInit(root);
+    assert.equal(answers.install.devcontainer, 'node-pnpm');
+    assert.equal(actions(ops)[DC], 'create');
+    assert.equal(actions(ops)[DC_JSON], 'create');
+    assert.equal(read(root, DC_JSON), renderDevcontainer(shipped, { name: basename(root) }));
+  });
+
+  it('does not offer a dev container for unsupported stacks', async () => {
+    const root = project({ 'package.json': { name: 'a' }, 'package-lock.json': '{}' });
+    const { ops, answers } = await runInit(root);
+    assert.equal(answers.install.devcontainer, null);
+    assert.equal(ops.some((o) => o.path.startsWith('.devcontainer/')), false);
+  });
+
+  it('skips the dev container when declined', async () => {
+    const root = nextApp();
+    const { ops, answers } = await runInit(root, { 'install.devcontainer': false });
+    assert.equal(answers.install.devcontainer, null);
+    assert.equal(ops.some((o) => o.path.startsWith('.devcontainer/')), false);
+  });
+
+  it("regenerates json from the project's edited Dockerfile on re-run", async () => {
+    const root = nextApp();
+    await runInit(root);
+    writeFileSync(join(root, DC), `${read(root, DC)}ENV X=1\n`);
+    const { ops } = await runInit(root);
+    assert.equal(actions(ops)[DC], 'keep');
+    assert.equal(actions(ops)[DC_JSON], 'update');
+    assert.equal(JSON.parse(read(root, DC_JSON).replace(/^\/\/.*\n/, '')).containerEnv.X, '1');
+  });
+
+  it('leaves an existing unmanaged .devcontainer alone', async () => {
+    const root = nextApp();
+    mkdirSync(join(root, '.devcontainer'));
+    writeFileSync(join(root, DC), 'FROM mine\n');
+    const { ops } = await runInit(root);
+    const conflicts = ops.filter((o) => o.path.startsWith('.devcontainer/'));
+    assert.deepEqual(conflicts.map((o) => o.action), ['conflict', 'conflict']);
+    assert.ok(conflicts.every((o) => o.reason === 'existing .devcontainer not installed by stones'));
+    assert.equal(read(root, DC), 'FROM mine\n');
+    assert.equal(existsSync(join(root, DC_JSON)), false);
+
+    const forced = await runInit(root, {}, { force: true });
+    assert.equal(actions(forced.ops)[DC], 'keep');
+    assert.equal(actions(forced.ops)[DC_JSON], 'create');
+    assert.equal(read(root, DC), 'FROM mine\n');
+  });
+
+  it('reports malformed metadata as a conflict without writing', async () => {
+    const root = nextApp();
+    await runInit(root);
+    writeFileSync(join(root, DC), `FROM x\nLABEL devcontainer.metadata='{bad'\n`);
+    const before = read(root, DC_JSON);
+    const { ops } = await runInit(root);
+    const op = ops.find((o) => o.path === DC_JSON);
+    assert.equal(op.action, 'conflict');
+    assert.match(op.reason, /devcontainer\.metadata/);
+    assert.equal(read(root, DC_JSON), before);
+  });
+
+  it('AGENT.md mentions the dev container', async () => {
+    const root = nextApp();
+    await runInit(root);
+    assert.match(read(root, 'AGENT.md'), /Dev container: \.devcontainer\/ \(`node-pnpm`\)\. Edit \.devcontainer\/Dockerfile only/);
+  });
+});
+
+describe('stones sync', () => {
+  const BIN = join(PACKAGE_ROOT, 'bin', 'stones.mjs');
+  const DC_JSON = '.devcontainer/devcontainer.json';
+  const sync = (root, ...flags) => spawnSync('node', [BIN, 'sync', root, ...flags], { encoding: 'utf8' });
+  const withDockerfile = (extra = {}) => project({ '.devcontainer/Dockerfile': 'FROM node:22\nUSER node\n', ...extra });
+
+  it('sync writes devcontainer.json', () => {
+    const root = withDockerfile();
+    assert.equal(sync(root).status, 0);
+    assert.ok(existsSync(join(root, DC_JSON)));
+  });
+
+  it('sync --check fails on drift without writing', () => {
+    const root = withDockerfile({ [DC_JSON]: '{}' });
+    assert.equal(sync(root, '--check').status, 1);
+    assert.equal(read(root, DC_JSON), '{}');
+  });
+
+  it('sync --check passes when in sync', () => {
+    const root = withDockerfile();
+    sync(root);
+    assert.equal(sync(root, '--check').status, 0);
+  });
+
+  it('sync without a Dockerfile is a no-op', () => {
+    const root = project({});
+    const result = sync(root);
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /no \.devcontainer\/Dockerfile/);
+  });
+
+  it('sync reports bad metadata', () => {
+    const root = project({ '.devcontainer/Dockerfile': `FROM x\nLABEL devcontainer.metadata='{bad'\n`, [DC_JSON]: 'X' });
+    const result = sync(root);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /devcontainer\.metadata/);
+    assert.equal(read(root, DC_JSON), 'X');
   });
 });

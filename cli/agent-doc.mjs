@@ -97,6 +97,7 @@ function renderGuardrails(answers, stack, { has, doc, hooks }) {
   return bullets([
     ...hookBullets,
     has('atomicity') && `Danger zones (db, packages, network) go on their own \`db/\`, \`deps/\`, \`net/\` branch and PR with a spec in \`.claude/danger/\`; never mix them with other changes; generate migrations with \`${migrationGen}\`${docSuffix(doc('atomic-changes'))}.`,
+    answers.install.devcontainer && `Dev container: .devcontainer/ (\`${answers.install.devcontainer}\`). Edit .devcontainer/Dockerfile only — devcontainer.json is generated from it.`,
     has('graph') && 'When the graph hook asks for a file summary, add it to the OpenSpec `files.md` it names (see `.claude/graph/README.md`).',
     answers.guardrails.notes,
   ]) || '_None yet._';
