@@ -109,7 +109,7 @@ export async function interview(ask, stack, previous = {}) {
   ask.note('\n— Claude Code configuration');
   const missing = (h) => h.requires.filter((tool) => !stack.tooling[tool]);
   const defaultHooks = hooks
-    .filter((h) => missing(h).length === 0)
+    .filter((h) => h.default && missing(h).length === 0)
     .filter((h) => h.id !== 'format' || stack.formatters.length > 0)
     .map((h) => h.id);
   const selectedHooks = await ask.multi(
@@ -118,7 +118,7 @@ export async function interview(ask, stack, previous = {}) {
     hooks.map((h) => ({
       value: h.id,
       label: h.id,
-      hint: `${h.hint}${missing(h).length ? ` (needs ${list(missing(h))})` : ''}`,
+      hint: `${h.hint}${h.default ? '' : ' (opt-in)'}${missing(h).length ? ` (needs ${list(missing(h))})` : ''}`,
     })),
     p('install.hooks', defaultHooks),
   );

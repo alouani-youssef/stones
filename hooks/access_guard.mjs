@@ -1,22 +1,29 @@
-import { pathToFileURL } from 'node:url';
 import { existsSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import { parseShell, REDIRECTS } from './lib/shell.mjs';
 
 const segments = (p) => p.split('/');
-const isSecret = (s) =>
-  s === '.env' || (s.startsWith('.env.') && s !== '.env.example');
+// Case-insensitive: on macOS and Windows `.ENV` is the same file as `.env`.
+const isSecret = (s) => {
+  const name = s.toLowerCase();
+  return name === '.env' || (name.startsWith('.env.') && name !== '.env.example');
+};
 const isPrivate = (s) => s === 'private';
+const isEnvLike = (s) => s.toLowerCase().startsWith('.env') && s.toLowerCase() !== '.env.example';
 
 const pathHit = (p) => segments(p).some((s) => isSecret(s) || isPrivate(s));
 // Globs can match a secret through a wildcard such as `.env*`.
 const globHit = (p) =>
-  segments(p).some((s) => s.startsWith('.env') && s !== '.env.example') ||
+  segments(p).some(isEnvLike) ||
   segments(p).some(isPrivate);
 
 // Bash expands wildcards itself, so `.env*` must count as a secret too.
 const bashHit = (t) =>
   pathHit(t) ||
-  segments(t).some((s) => s.startsWith('.env') && /[*?[{]/.test(s));
+  segments(t).some((s) => isEnvLike(s) && /[*?[{]/.test(s));
 
 const PATH_KEYS = ['file_path', 'notebook_path'];
 const ROOT_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Grep', 'Glob']);
@@ -52,12 +59,29 @@ function realpathWithMissingTail(path) {
   }
 }
 
+const within = (dir, target) => {
+  const rel = relative(dir, target);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+};
+
+// Device files and temp dirs are not project files but are not private either:
+// `2>/dev/null` and scratch files in /tmp are everyday shell use.
+const DEVICES = ['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/tty', '/dev/zero', '/dev/random', '/dev/urandom'];
+const TEMP_DIRS = [...new Set(
+  [tmpdir(), process.env.TMPDIR, '/tmp', '/private/tmp', '/var/tmp']
+    .filter(Boolean)
+    .map((dir) => realpathWithMissingTail(dir)),
+)];
+const allowedOutside = (target) =>
+  DEVICES.includes(target) || target.startsWith('/dev/fd/') || TEMP_DIRS.some((dir) => within(dir, target));
+
 function outsideRoot(path, root, cwd) {
   if (!root || typeof path !== 'string' || !path) return false;
-  const target = realpathWithMissingTail(isAbsolute(path) ? path : resolve(cwd, path));
-  const realRoot = realpathWithMissingTail(root);
-  const rel = relative(realRoot, target);
-  return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  const raw = isAbsolute(path) ? path : resolve(cwd, path);
+  if (allowedOutside(resolve(raw))) return false;
+  const target = realpathWithMissingTail(raw);
+  if (allowedOutside(target)) return false;
+  return !within(realpathWithMissingTail(root), target);
 }
 
 const blockOutside = (path) => ({
@@ -65,149 +89,27 @@ const blockOutside = (path) => ({
   reason: `Blocked: ${path} is outside the project root.`,
 });
 
-const pathLike = (token) => isAbsolute(token) || /^(?:\.\.?)(?:\/|$)|^~\//.test(token);
+// `~/x`, `$HOME/x` and `${HOME}/x` all point into the home directory.
+const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
+const expandHome = (token) => token.replace(HOME_PREFIX, process.env.HOME ?? homedir());
+const pathLike = (token) => isAbsolute(token) || /^(?:\.\.?)(?:\/|$)/.test(token) || HOME_PREFIX.test(token);
 
 function findOutsideToken(command, root, cwd) {
   const { segments } = parse(command);
   for (const tokens of segments) {
     const start = commandIndex(tokens);
     for (const token of tokens.slice(start + 1)) {
-      if (pathLike(token) && outsideRoot(token.startsWith('~/') ? resolve(process.env.HOME ?? '', token.slice(2)) : token, root, cwd)) {
-        return token;
-      }
+      if (pathLike(token) && outsideRoot(expandHome(token), root, cwd)) return token;
     }
   }
 }
 
-function skipComment(command, i) {
-  let next = i;
-  while (next + 1 < command.length && command[next + 1] !== '\n') next++;
-  return next;
-}
-
-function skipHeredocBodies(command, startIndex, heredocs) {
-  let i = startIndex;
-  for (const { word, strip } of heredocs.splice(0)) {
-    while (i + 1 < command.length) {
-      const end = command.indexOf('\n', i + 1);
-      const lineEnd = end < 0 ? command.length : end;
-      const line = command.slice(i + 1, lineEnd);
-      i = lineEnd;
-      if ((strip ? line.trim() : line) === word) break;
-    }
-  }
-  return i;
-}
-
-function processHeredocHeader(command, i, heredocs) {
-  const m = /^<<(-?)\s*(['"]?)([\w.-]+)\2/.exec(command.slice(i));
-  if (m) {
-    heredocs.push({ word: m[3], strip: m[1] === '-' });
-    return i + m[0].length - 1;
-  }
-  return i + 1;
-}
-
-function processQuoted(command, i, state) {
-  const ch = command[i];
-  if (ch === state.quote) {
-    state.quote = null;
-    return i;
-  }
-  if (ch === '\\' && state.quote === '"' && i + 1 < command.length) {
-    state.token += command[i + 1];
-    return i + 1;
-  }
-  state.token += ch;
-  return i;
-}
-
-function handleQuoteStart(ch, _command, i, state, _endToken) {
-  state.quote = ch;
-  return i;
-}
-
-function handleBackslash(_ch, command, i, state, endToken) {
-  if (command[i + 1] === '\n') endToken();
-  else state.token += command[i + 1] ?? '';
-  return i + 1;
-}
-
-function handleComment(_ch, command, i, _state, _endToken) {
-  return skipComment(command, i);
-}
-
-function handleHeredoc(_ch, command, i, state, endToken) {
-  const nextI = processHeredocHeader(command, i, state.heredocs);
-  endToken();
-  return nextI;
-}
-
-function handleNewline(_ch, command, i, state, endToken) {
-  endToken();
-  state.segments.push([]);
-  return skipHeredocBodies(command, i, state.heredocs);
-}
-
-function handleSegmentBreak(_ch, _command, i, state, endToken) {
-  endToken();
-  state.segments.push([]);
-  return i;
-}
-
-function handleWhitespace(_ch, _command, i, _state, endToken) {
-  endToken();
-  return i;
-}
-
-function classifyUnquoted(ch, command, i, state) {
-  if (ch === '"' || ch === "'") return handleQuoteStart;
-  if (ch === '\\') return handleBackslash;
-  if (ch === '#' && !state.token) return handleComment;
-  if (ch === '<' && /^<<(?!<)/.test(command.slice(i))) return handleHeredoc;
-  if (ch === '\n') return handleNewline;
-  if (/[;&|()`]/.test(ch)) return handleSegmentBreak;
-  if (/[\s<>]/.test(ch)) return handleWhitespace;
-  return null;
-}
-
-function processUnquoted(command, i, state, endToken) {
-  const ch = command[i];
-  const handler = classifyUnquoted(ch, command, i, state);
-  if (handler) return handler(ch, command, i, state, endToken);
-  state.token += ch;
-  return i;
-}
-
-// Splits a command into segments of tokens. Unquoted shell operators and
-// grouping characters end a token; `;`, `&`, `|`, newlines, parentheses and
-// backticks also end the segment. Quote characters are removed, backslashes
-// escape the next character (outside quotes and inside "..."), `#` starts a
-// comment and heredoc bodies are skipped. `unclosed` is true when a quote is
-// still open at the end, so the caller can fail closed.
+// Segments of tokens from the shared tokenizer, with a leading `./` dropped
+// so `./.env` reads as `.env`. Redirection operators are words of their own.
 function parse(command) {
-  const state = {
-    segments: [[]],
-    heredocs: [],
-    token: '',
-    quote: null,
-  };
-
-  const endToken = () => {
-    if (state.token) state.segments.at(-1).push(state.token.replace(/^\.\//, ''));
-    state.token = '';
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    if (state.quote) {
-      i = processQuoted(command, i, state);
-    } else {
-      i = processUnquoted(command, i, state, endToken);
-    }
-  }
-
-  endToken();
-  return { segments: state.segments, unclosed: state.quote !== null };
+  const { commands, unclosed } = parseShell(command);
+  const segments = commands.map((words) => words.filter((w) => !REDIRECTS.has(w)).map((w) => w.replace(/^\.\//, '')));
+  return { segments, unclosed };
 }
 
 const WRAPPERS = ['sudo', 'env', 'time', 'command', 'nice', 'exec', 'xargs'];
@@ -335,7 +237,17 @@ export function evaluate({ tool_name, tool_input = {}, cwd }, { projectDir } = {
   return { block: false };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;

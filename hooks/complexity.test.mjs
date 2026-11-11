@@ -210,7 +210,7 @@ describe('evaluate', () => {
   });
 });
 
-// Runs when `docker compose -f quality/compose.yaml up -d` is running.
+// Runs when `docker compose -f analyzers/compose.yaml up -d` is running.
 const containerUp = (() => {
   try {
     return execFileSync('docker', ['inspect', '-f', '{{.State.Running}}', 'claude-analyzers'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() === 'true';
@@ -219,7 +219,7 @@ const containerUp = (() => {
   }
 })();
 
-describe('docker backend', { skip: containerUp ? false : 'start quality/compose.yaml to run' }, () => {
+describe('docker backend', { skip: containerUp ? false : 'start analyzers/compose.yaml to run' }, () => {
   for (const ext of ['py', 'ts', 'go']) {
     it(`analyzes ${ext} in the container`, async () => {
       const root = mkdtempSync(join(tmpdir(), 'complexity-'));

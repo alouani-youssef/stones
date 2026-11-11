@@ -4,6 +4,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
+import { tokenize } from './lib/shell.mjs';
+
 export const DEFAULTS = {
   enabled: true,
   exempt: [],
@@ -330,122 +332,8 @@ function contentClass(change, config, ignored) {
 // Bash command parsing
 // ---------------------------------------------------------------------------
 
-function readHeredocTag(command, i) {
-  const m = /^<<(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z0-9_]+))/.exec(command.slice(i));
-  return m ? { length: m[0].length, tag: m[2] ?? m[3] ?? m[4], strip: m[1] === '-' } : null;
-}
-
-function skipHeredocBody(command, from, heredocs) {
-  let i = from;
-  for (const { tag, strip } of heredocs) {
-    while (i < command.length) {
-      let end = command.indexOf('\n', i);
-      if (end === -1) end = command.length;
-      const line = command.slice(i, end);
-      i = Math.min(end + 1, command.length);
-      if ((strip ? line.replace(/^\t+/, '') : line) === tag) break;
-    }
-  }
-  return i;
-}
-
-export function tokenize(command) {
-  const commands = [];
-  let words = [];
-  let word = '';
-  let has = false;
-  const heredocs = [];
-  const endWord = () => {
-    if (has) words.push(word);
-    word = '';
-    has = false;
-  };
-  const endCommand = () => {
-    endWord();
-    if (words.length) commands.push(words);
-    words = [];
-  };
-  let i = 0;
-  while (i < command.length) {
-    const c = command[i];
-    if (c === "'") {
-      const end = command.indexOf("'", i + 1);
-      const stop = end === -1 ? command.length : end;
-      word += command.slice(i + 1, stop);
-      has = true;
-      i = stop + 1;
-    } else if (c === '"') {
-      i += 1;
-      has = true;
-      while (i < command.length && command[i] !== '"') {
-        if (command[i] === '\\' && i + 1 < command.length && '"\\$`\n'.includes(command[i + 1])) i += 1;
-        if (!(command[i] === '\n' && command[i - 1] === '\\')) word += command[i];
-        i += 1;
-      }
-      i += 1;
-    } else if (c === '\\') {
-      if (command[i + 1] === '\n') {
-        i += 2;
-      } else {
-        word += command[i + 1] ?? '';
-        has = true;
-        i += 2;
-      }
-    } else if (c === '#' && !has) {
-      while (i < command.length && command[i] !== '\n') i += 1;
-    } else if (c === '<' && command.startsWith('<<<', i)) {
-      endWord();
-      i += 3;
-    } else if (c === '<' && command[i + 1] === '<') {
-      const h = readHeredocTag(command, i);
-      if (h) {
-        heredocs.push(h);
-        i += h.length;
-      } else {
-        i += 2;
-      }
-    } else if (c === '\n') {
-      endCommand();
-      i += 1;
-      if (heredocs.length) {
-        i = skipHeredocBody(command, i, heredocs);
-        heredocs.length = 0;
-      }
-    } else if (c === ';' || c === '|' || c === '&') {
-      if (c === '&' && (command[i - 1] === '>' || command[i - 1] === '<')) {
-        word += c;
-        has = true;
-        i += 1;
-        continue;
-      }
-      endCommand();
-      i += command[i + 1] === c || (c === '|' && command[i + 1] === '&') ? 2 : 1;
-    } else if (c === '>') {
-      if (/^\d+$/.test(word)) {
-        word = '';
-        has = false;
-      }
-      endWord();
-      const op = command[i + 1] === '>' ? '>>' : '>';
-      i += op.length;
-      if (command[i] === '&') {
-        words.push('>&');
-        i += 1;
-      } else {
-        words.push(op);
-      }
-    } else if (c === ' ' || c === '\t' || c === '\r') {
-      endWord();
-      i += 1;
-    } else {
-      word += c;
-      has = true;
-      i += 1;
-    }
-  }
-  endCommand();
-  return commands;
-}
+// Tokenizing lives in ./lib/shell.mjs, shared with access_guard.
+export { tokenize };
 
 const GIT_GLOBAL_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path']);
 const COMMIT_VALUE_FLAGS = new Set([
@@ -1196,7 +1084,17 @@ export function evaluate(event, { projectDir } = {}) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;
