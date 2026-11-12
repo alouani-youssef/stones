@@ -1,5 +1,5 @@
 {
-  "name": "@alouani-youssef/stones",
+  "name": "@alouaniyoussef/stones",
   "version": "1.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "type": "module",
