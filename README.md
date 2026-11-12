@@ -36,6 +36,7 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 ├── hooks/                only the selected hooks
 ├── skills/               only the selected skills and pattern skills
 ├── graph/                code graph (with the graph hook)
+├── analyzers/            complexity analyzer container, compose.yaml (with the complexity hook)
 ├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
 ├── danger/               specs for db, packages and network branches (atomicity hook)
 ├── commands/roadmap.md   the /roadmap command
@@ -55,6 +56,18 @@ context/tasks/            task board (with the tracking-tasks skill)
   skill's one-line "Use when…" description is in context, and Claude loads the
   body (and its reference files) when the task matches: committing, opening a
   PR, writing tests, naming a file, and so on. `ROADMAP.md` is linked, not loaded.
+- **Guardrails on, gates opt-in.** By default only hooks that never get in
+  the way are selected: `access_guard`, `block-rm`, `format`, `naming` and
+  `devcontainer`. Hooks that block work until a process is followed
+  (`testing`, `atomicity`, `complexity`), add context to every prompt or read
+  (`four-d`, `graph`) or record every prompt and reply (`history`) are offered
+  but marked opt-in. Personal preferences (`language`, thinking, attribution,
+  transcript cleanup) belong in your `~/.claude/settings.json`; the shared
+  project settings do not set them.
+- **Guardrails are not a sandbox.** `access_guard` and `block-rm` catch
+  accidents (secrets, paths outside the project, `git push`, `rm`), not a
+  determined bypass such as building a path in `python -c`. The sandbox and
+  `permissions.deny` are the boundary.
 - **Only what the stack uses.** Permissions come from your real commands
   (`pnpm run test`, `uv run pytest`, `go test`); sandbox domains from your
   ecosystems; nx rules only in nx repos; the format hook only when a formatter

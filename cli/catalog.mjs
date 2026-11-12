@@ -39,6 +39,12 @@ const HOOK_HINTS = {
 
 const HOOK_REQUIRES = { 'block-rm': ['jq'] };
 
+// Selected by default: guardrails that never get in the way of normal work.
+// The rest block common actions until a process is followed (testing,
+// atomicity, complexity), add context to every prompt or read (four-d, graph)
+// or record every prompt and reply (history), so a project opts in to them.
+const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer']);
+
 function firstComment(file) {
   const text = readFileSync(file, 'utf8');
   const m = /^(?:#!.*\n)?\s*(?:\/\/|#)\s*(.+)/.exec(text);
@@ -60,6 +66,7 @@ export function hookCatalog(root = PACKAGE_ROOT) {
           file,
           hint: HOOK_HINTS[id] ?? firstComment(join(root, 'hooks', file)) ?? '',
           requires: HOOK_REQUIRES[id] ?? [],
+          default: DEFAULT_HOOKS.has(id),
           events: [],
         };
         entry.events.push(`${event}:${group.matcher ?? '*'}`);

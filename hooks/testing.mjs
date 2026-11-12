@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -10,13 +10,18 @@ const LEGACY_NOTE = 'context/tasks/active.md';
 const START_HINT = 'start one with `node .claude/tools/tasks.mjs start <id>`';
 const isPlaceholder = (text) =>
   /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
+// Each pattern must start at the command word of a shell segment (after env
+// assignments and runners such as `uv run` or `python -m`), so commands that
+// merely mention a test tool (`grep vitest package.json`) are not test runs.
+const RUNNER = String.raw`^(?:(?:[A-Za-z_]\w*=\S*|sudo|env|time|nohup|uv\s+run|poetry\s+run|pipenv\s+run|hatch\s+run|pdm\s+run|rye\s+run|python3?\s+-m|bundle\s+exec)\s+)*`;
+const at = (source) => new RegExp(RUNNER + source, 'i');
 const TEST_COMMANDS = [
-  /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:(?:--workspace|--filter|--scope)(?:=|\s+)[^\s]+\s+|workspace\s+[^\s]+\s+)*(?:run\s+)?(?:tests?(?:[:.-][\w.-]+)?|unit:tests?|specs?|e2e)(?=\s|$)/i,
-  /(?:^|\s)(?:node|npx|bunx|npm\s+exec|pnpm\s+exec|yarn\s+dlx)\s+[^;&|\n]*(?:--test\b|\b(?:jest|vitest|mocha|playwright|cypress|pytest)\b)/i,
-  /(?:^|\s)(?:(?:npx|bunx|npm\s+exec|pnpm\s+exec)\s+)?nx\s+(?:run\s+)?(?:test\b|[^\s:]+:test\b)/i,
-  /(?:^|\s)turbo\s+(?:run\s+)?test\b/i,
-  /(?:^|\s)(?:pytest|tox|nosetests|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|swift\s+test|phpunit|rspec|bun\s+test)(?=\s|$)/i,
-  /(?:^|\s)(?:jest|vitest|mocha|playwright|cypress)\b/i,
+  at(String.raw`(?:npm|pnpm|yarn|bun)\s+(?:(?:--workspace|--filter|--scope)(?:=|\s+)[^\s]+\s+|workspace\s+[^\s]+\s+)*(?:run\s+)?(?:tests?(?:[:.-][\w.-]+)?|unit:tests?|specs?|e2e)(?=\s|$)`),
+  at(String.raw`(?:node|npx|bunx|npm\s+exec|pnpm\s+exec|yarn\s+dlx)\s+[^;&|\n]*(?:--test\b|\b(?:jest|vitest|mocha|playwright|cypress|pytest)\b)`),
+  at(String.raw`(?:(?:npx|bunx|npm\s+exec|pnpm\s+exec)\s+)?nx\s+(?:run\s+)?(?:test\b|[^\s:]+:test\b)`),
+  at(String.raw`turbo\s+(?:run\s+)?test\b`),
+  at(String.raw`(?:pytest|py\.test|tox|nox|nosetests|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|\.\/gradlew\s+test|swift\s+test|phpunit|rspec|bun\s+test)(?=\s|$)`),
+  at(String.raw`(?:jest|vitest|mocha|playwright|cypress)\b`),
 ];
 
 export const section = (text, heading) => {
@@ -160,7 +165,17 @@ export function evaluate(event, { projectDir } = {}) {
   return allow();
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;

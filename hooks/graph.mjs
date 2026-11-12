@@ -21,9 +21,7 @@
 // prose summary is written by Claude. Hooks always exit 0.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import {
-  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -451,7 +449,17 @@ export function mermaid(project) {
 
 // ------------------------------------------------------------- entrypoint
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   const mode = process.argv[2];
   const project = resolve(process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
   try {

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.13', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # The tools' tests create commits in temporary repositories.
+      - run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+          git config --global init.defaultBranch main
+      - run: npm test
+      - name: settings/settings.json is up to date
+        run: |
+          npm run build:settings
+          git diff --exit-code settings/settings.json
+      - name: package contents
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e '
+            const files = JSON.parse(require("fs").readFileSync("pack.json", "utf8"))[0].files.map((f) => f.path);
+            const bad = files.filter((f) => /\.test\.|^settings\/settings\.json$/.test(f));
+            const missing = ["bin/stones.mjs", "analyzers/compose.yaml", "AGENT.md"].filter((f) => !files.includes(f));
+            if (bad.length || missing.length) { console.error({ bad, missing }); process.exit(1); }
+            console.log(`${files.length} files`);
+          '

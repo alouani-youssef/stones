@@ -1,5 +1,5 @@
 {
-  "name": "@alouani-youssef/stones",
+  "name": "claude-stones",
   "version": "1.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "type": "module",
@@ -13,9 +13,10 @@
     "!cli/*.test.mjs",
     "hooks/*.mjs",
     "hooks/*.sh",
+    "hooks/lib/*.mjs",
+    "!hooks/*.test.*",
     "tools/*.mjs",
     "!tools/*.test.mjs",
-    "!hooks/*.test.mjs",
     "settings/*.json",
     "!settings/settings.json",
     "skills/",
@@ -23,6 +24,7 @@
     "graph/",
     "commands/",
     "mcps/",
+    "analyzers/",
     "AGENT.md",
     "setup.bash"
   ],

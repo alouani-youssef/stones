@@ -83,10 +83,57 @@ export function composeSettings({
 }
 
 const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const REMOVED = Symbol('removed');
+const isEmpty = (v) => (Array.isArray(v) ? v.length === 0 : isObject(v) && Object.keys(v).length === 0);
 
-// Merges generated settings into a user's existing ones without losing
-// anything: objects merge, arrays are unioned, existing scalars win.
-export function mergeSettings(existing, generated) {
+// `existing` minus what stones generated last time (`previous`): array items
+// and scalars that still equal what stones wrote are taken out, anything the
+// user added or changed stays. Containers emptied this way are dropped.
+export function subtractGenerated(existing, previous) {
+  if (Array.isArray(existing) && Array.isArray(previous)) {
+    const ours = new Set(previous.map((v) => JSON.stringify(v)));
+    return existing.filter((v) => !ours.has(JSON.stringify(v)));
+  }
+  if (isObject(existing) && isObject(previous)) {
+    const out = {};
+    for (const [key, value] of Object.entries(existing)) {
+      if (!(key in previous)) {
+        out[key] = value;
+        continue;
+      }
+      const rest = subtractGenerated(value, previous[key]);
+      if (rest === REMOVED || (isEmpty(rest) && !isEmpty(value))) continue;
+      out[key] = rest;
+    }
+    return out;
+  }
+  return JSON.stringify(existing) === JSON.stringify(previous) ? REMOVED : existing;
+}
+
+const HOOK_FILE = /\.claude\/hooks\/([\w.-]+\.(?:mjs|js|sh|py))/;
+
+// Settings written before stones recorded what it generated: every hook
+// entry that runs one of stones' own hook files is treated as stones'.
+function withoutStonesHooks(settings, root) {
+  if (!isObject(settings?.hooks)) return settings;
+  const ours = new Set(hookCatalog(root).map((h) => h.file));
+  const hooks = {};
+  for (const [event, groups] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(groups)) {
+      hooks[event] = groups;
+      continue;
+    }
+    const kept = groups
+      .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((h) => !ours.has(HOOK_FILE.exec(h.command ?? '')?.[1])) }))
+      .filter((group) => group.hooks.length);
+    if (kept.length) hooks[event] = kept;
+  }
+  const out = { ...settings, hooks };
+  if (!Object.keys(hooks).length) delete out.hooks;
+  return out;
+}
+
+function union(existing, generated) {
   if (Array.isArray(existing) && Array.isArray(generated)) {
     const seen = new Set(existing.map((v) => JSON.stringify(v)));
     return [...existing, ...generated.filter((v) => !seen.has(JSON.stringify(v)))];
@@ -94,9 +141,20 @@ export function mergeSettings(existing, generated) {
   if (isObject(existing) && isObject(generated)) {
     const out = { ...existing };
     for (const [key, value] of Object.entries(generated)) {
-      out[key] = key in existing ? mergeSettings(existing[key], value) : value;
+      out[key] = key in existing ? union(existing[key], value) : value;
     }
     return out;
   }
   return existing === undefined ? generated : existing;
+}
+
+// Merges generated settings into a user's existing ones without losing their
+// own keys: objects merge, arrays are unioned, the user's scalars win. What
+// stones generated on the previous run (`previous`) is taken out first, so
+// deselected hooks, declined options and changed hook definitions do not
+// linger or duplicate. Without a previous snapshot, stones' hook entries are
+// recognised by the hook file they run.
+export function mergeSettings(existing, generated, previous, root = PACKAGE_ROOT) {
+  const base = previous === undefined ? withoutStonesHooks(existing, root) : subtractGenerated(existing, previous);
+  return union(base === REMOVED ? undefined : base, generated);
 }
