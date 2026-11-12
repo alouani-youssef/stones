@@ -12,6 +12,7 @@
 // Notes are local until shared: `git push origin refs/notes/comments` and
 // `git fetch origin refs/notes/comments:refs/notes/comments`.
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -154,4 +155,14 @@ export function run(argv, options) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) process.exitCode = run(process.argv.slice(2));
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) process.exitCode = run(process.argv.slice(2));

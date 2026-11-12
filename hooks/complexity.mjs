@@ -8,7 +8,7 @@
 //   - Go: gocognit
 // Each analyzer is used when installed in the project or on PATH; otherwise
 // the hook falls back to the analyzer container from
-// `quality/compose.yaml` (`docker compose up -d`). Nothing is installed or
+// `.claude/analyzers/compose.yaml` (`docker compose up -d`), installed with this hook. Nothing is installed or
 // downloaded. When neither is available, Claude is told once per session.
 //
 // Clean as you code: the edited file is compared with its version at git
@@ -26,7 +26,7 @@
 //     "container": "claude-analyzers"
 //   }
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -56,7 +56,7 @@ const INSTALL = {
   javascript: 'npm install --save-dev eslint eslint-plugin-sonarjs typescript-eslint',
   go: 'go install github.com/uudashr/gocognit/cmd/gocognit@latest',
 };
-const COMPOSE_HINT = 'or start the analyzer container: docker compose -f .claude/quality/compose.yaml up -d';
+const COMPOSE_HINT = 'or start the analyzer container: docker compose -f .claude/analyzers/compose.yaml up -d --build';
 
 export const languageOf = (file) => LANGUAGES[file.slice(file.lastIndexOf('.') + 1).toLowerCase()];
 
@@ -387,7 +387,17 @@ async function serveAnalysis(language, name, source) {
   process.stdout.write(JSON.stringify(result));
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;

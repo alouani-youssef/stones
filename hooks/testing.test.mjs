@@ -28,6 +28,12 @@ const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
 const edit = (file_path) => ({ tool_name: 'Edit', tool_input: { file_path } });
 
 describe('testing hook', () => {
+  it('recognises test runs behind common runners and env assignments', () => {
+    for (const command of ['uv run pytest -q', 'python -m pytest', 'CI=1 vitest run', 'poetry run pytest', 'cd api && go test ./...', 'npx jest --watch=false', 'bundle exec rspec']) {
+      assert.equal(evaluate(bash(command), { projectDir: project() }).block, true, command);
+    }
+  });
+
   it('blocks a test run when the active task note is missing', () => {
     const result = evaluate(bash('npm test'), { projectDir: project() });
     assert.equal(result.block, true);
@@ -116,6 +122,9 @@ describe('testing hook', () => {
     assert.deepEqual(evaluate(edit('src/auth/session.ts'), { projectDir: root }), { block: false });
     assert.deepEqual(evaluate(bash('git status --short'), { projectDir: root }), { block: false });
     assert.deepEqual(evaluate(bash('test -f src/auth/session.ts'), { projectDir: root }), { block: false });
+    for (const command of ['grep vitest package.json', 'cat jest.config.js', 'rg pytest requirements.txt', 'echo "run go test later"', 'ls tests/']) {
+      assert.deepEqual(evaluate(bash(command), { projectDir: root }), { block: false }, command);
+    }
   });
 
   it('exits with a clear block reason when invoked as a Claude Code hook', () => {

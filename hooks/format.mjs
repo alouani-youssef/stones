@@ -58,15 +58,12 @@ try {
           '--write', '--ignore-unknown', '--log-level=silent',
         ], file);
       } else if (ext === 'py') {
-        if (executable(project, 'ruff')) {
-          run(project, 'ruff', ['check', '--fix'], file);
-          run(project, 'ruff', ['format'], file);
-        } else {
-          run(project, 'black', ['--quiet'], file);
-        }
+        // Layout only. `ruff check --fix` and `goimports` delete unused
+        // imports, which breaks the common two-step edit where Claude adds
+        // an import first and uses it in the next edit.
+        if (!run(project, 'ruff', ['format'], file)) run(project, 'black', ['--quiet'], file);
       } else if (ext === 'go') {
         run(project, 'gofmt', ['-w'], file);
-        run(project, 'goimports', ['-w'], file);
       } else if (ext === 'toon') {
         await formatToon(project, file);
       }

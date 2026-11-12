@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -417,6 +417,59 @@ describe('init', () => {
     assert.ok(settings.hooks);
     assert.equal(read(root, 'CLAUDE.md'), '# House rules\n@AGENT.md\n');
   });
+
+  it('drops deselected hooks and declined sandbox from an edited settings.json, keeping user keys', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.hooks': ['access_guard', 'naming', 'atomicity'], 'install.sandbox': true });
+    const edited = JSON.parse(read(root, '.claude/settings.json'));
+    edited.model = 'opus';
+    edited.permissions.allow.push('Bash(make:*)');
+    edited.hooks.PreToolUse.push({ matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-hook.sh' }] });
+    writeFileSync(join(root, '.claude/settings.json'), JSON.stringify(edited, null, 2));
+
+    const { ops } = await runInit(root, { 'install.hooks': ['access_guard'], 'install.sandbox': false });
+    assert.equal(actions(ops)['.claude/settings.json'], 'merge');
+    const settings = JSON.parse(read(root, '.claude/settings.json'));
+    const commands = settings.hooks.PreToolUse.flatMap((g) => g.hooks.map((h) => h.command));
+    assert.ok(commands.some((c) => c.includes('access_guard.mjs')));
+    assert.ok(!commands.some((c) => c.includes('naming.mjs') || c.includes('atomicity.mjs')), 'deselected hooks are unregistered');
+    assert.ok(commands.includes('my-own-hook.sh'), 'user hooks are kept');
+    assert.equal(settings.model, 'opus');
+    assert.ok(settings.permissions.allow.includes('Bash(make:*)'));
+    assert.equal(settings.sandbox, undefined, 'a declined sandbox is removed');
+  });
+
+  it('does not duplicate a hook whose definition changed upstream', () => {
+    const before = composeSettings({ hooks: ['access_guard'] });
+    const after = structuredClone(before);
+    after.hooks.PreToolUse[0].hooks[0].timeout = 30;
+    const existing = { ...structuredClone(before), model: 'opus' };
+    const merged = mergeSettings(existing, after, before);
+    assert.equal(merged.hooks.PreToolUse.length, 1);
+    assert.equal(merged.hooks.PreToolUse[0].hooks[0].timeout, 30);
+    assert.equal(merged.model, 'opus');
+  });
+
+  it('cleans stones hooks from settings installed before snapshots were recorded', () => {
+    const old = composeSettings({ hooks: ['access_guard', 'naming'] });
+    const merged = mergeSettings(old, composeSettings({ hooks: ['access_guard'] }));
+    const commands = merged.hooks.PreToolUse.flatMap((g) => g.hooks.map((h) => h.command));
+    assert.deepEqual(commands.filter((c) => c.includes('.claude/hooks/')).length, 1);
+  });
+
+  it('removes files of deselected hooks and skills unless they were edited', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.hooks': ['access_guard', 'naming', 'format'], 'install.skills': ['writing-tests', 'naming-files'] });
+    writeFileSync(join(root, '.claude/hooks/format.mjs'), '// my tweaks\n');
+    const { ops } = await runInit(root, { 'install.hooks': ['access_guard'], 'install.skills': ['writing-tests'] });
+    assert.equal(actions(ops)['.claude/hooks/naming.mjs'], 'remove');
+    assert.equal(existsSync(join(root, '.claude/hooks/naming.mjs')), false);
+    assert.equal(existsSync(join(root, '.claude/skills/naming-files/SKILL.md')), false);
+    assert.equal(actions(ops)['.claude/hooks/format.mjs'], 'conflict', 'an edited file is left in place');
+    assert.equal(existsSync(join(root, '.claude/hooks/format.mjs')), true);
+    assert.equal(loadManifest(root).files['.claude/hooks/naming.mjs'], undefined);
+    assert.ok(existsSync(join(root, '.claude/skills/writing-tests/SKILL.md')));
+  });
 });
 
 describe('prompts', () => {
@@ -635,5 +688,86 @@ describe('stones sync', () => {
     assert.equal(result.status, 1);
     assert.match(result.stderr, /devcontainer\.metadata/);
     assert.equal(read(root, DC_JSON), 'X');
+  });
+});
+
+describe('package', () => {
+  it('is published under the name the README tells people to run with npx', () => {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8'));
+    const readme = readFileSync(join(PACKAGE_ROOT, 'README.md'), 'utf8');
+    const names = new Set([...readme.matchAll(/npx ([@\w/.-]+)/g)].map((m) => m[1]));
+    assert.deepEqual([...names], [pkg.name]);
+  });
+});
+
+describe('complexity hook install', () => {
+  it('installs the analyzer compose file the hook points Claude to', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.hooks': ['complexity'] });
+    const hint = /docker compose -f (\S+)/.exec(read(root, '.claude/hooks/complexity.mjs'))[1];
+    assert.ok(existsSync(join(root, hint)), `${hint} is installed`);
+    assert.ok(existsSync(join(root, '.claude/analyzers/analyzers.Dockerfile')));
+    const dockerfile = /dockerfile: (\S+)/.exec(read(root, hint))[1];
+    assert.ok(existsSync(join(root, '.claude', dockerfile)), 'the build context .claude/ holds the Dockerfile');
+  });
+});
+
+describe('defaults', () => {
+  it('selects only the non-blocking core hooks by default; gates and logging are opt-in', async () => {
+    const { answers } = await runInit(nextApp());
+    for (const id of ['access_guard', 'naming', 'format']) assert.ok(answers.install.hooks.includes(id), id);
+    for (const id of ['history', 'testing', 'atomicity', 'four-d', 'complexity', 'graph']) {
+      assert.ok(!answers.install.hooks.includes(id), `${id} is opt-in`);
+    }
+  });
+
+  it('marks opt-in hooks in the catalog so the interview can say so', () => {
+    const byId = Object.fromEntries(hookCatalog().map((h) => [h.id, h]));
+    assert.equal(byId.access_guard.default, true);
+    assert.equal(byId.history.default, false);
+  });
+
+  it('keeps personal preferences out of the shared project settings', () => {
+    const s = composeSettings({ hooks: ['access_guard'] });
+    for (const key of ['language', 'alwaysThinkingEnabled', 'attribution', 'cleanupPeriodDays']) {
+      assert.equal(key in s, false, key);
+    }
+  });
+});
+
+describe('hook libraries', () => {
+  it('installs the shared shell tokenizer with the hooks that import it, and they run', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.hooks': ['access_guard'] });
+    assert.ok(existsSync(join(root, '.claude/hooks/lib/shell.mjs')));
+    const run = spawnSync(process.execPath, [join(root, '.claude/hooks/access_guard.mjs')], {
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'cat .env' }, cwd: root }),
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+    });
+    assert.equal(run.status, 2, String(run.stderr));
+
+    await runInit(root, { 'install.hooks': ['naming'] });
+    assert.equal(existsSync(join(root, '.claude/hooks/lib/shell.mjs')), false, 'removed when no hook needs it');
+  });
+
+  it('runs installed hooks when the project path goes through a symlink', async () => {
+    const real = nextApp();
+    await runInit(real, { 'install.hooks': ['access_guard'] });
+    const link = join(mkdtempSync(join(tmpdir(), 'stones-link-')), 'project');
+    symlinkSync(real, link);
+    const run = spawnSync(process.execPath, [join(link, '.claude/hooks/access_guard.mjs')], {
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'cat .env' }, cwd: link }),
+      env: { ...process.env, CLAUDE_PROJECT_DIR: link },
+    });
+    assert.equal(run.status, 2, String(run.stderr));
+  });
+
+  it('every relative import in a hook resolves to a file the installer ships with it', () => {
+    for (const hook of hookCatalog()) {
+      const source = readFileSync(join(PACKAGE_ROOT, 'hooks', hook.file), 'utf8');
+      for (const [, rel] of source.matchAll(/from '\.\/(lib\/[\w.-]+)'/g)) {
+        assert.ok(existsSync(join(PACKAGE_ROOT, 'hooks', rel)), `${hook.file} -> ${rel}`);
+      }
+    }
   });
 });

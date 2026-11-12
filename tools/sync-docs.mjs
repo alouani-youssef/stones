@@ -8,7 +8,7 @@
 //   - CLAUDE.md that no longer imports AGENT.md (fixed with --fix)
 //
 //   node .claude/tools/sync-docs.mjs [--fix] [--json]
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -161,4 +161,14 @@ export function main(argv, { log = console.log, cwd = process.cwd() } = {}) {
   return result.ok ? 0 : 1;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) process.exitCode = main(process.argv.slice(2));
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) process.exitCode = main(process.argv.slice(2));

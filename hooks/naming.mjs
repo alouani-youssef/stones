@@ -13,7 +13,7 @@
 // that cannot have dots in module names (Python, Go, Rust...) are told how
 // to express the role instead (`test_user.py`, `user_test.go`).
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -454,7 +454,17 @@ export function evaluate(event, { projectDir } = {}) {
   };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;
