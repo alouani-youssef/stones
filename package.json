@@ -1,5 +1,5 @@
 {
-  "name": "@alouaniyoussef/stones",
+  "name": "harness-stones",
   "version": "1.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "type": "module",
