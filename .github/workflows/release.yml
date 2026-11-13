@@ -1,0 +1,58 @@
+name: Release
+
+# Push a tag that matches package.json, e.g. `npm version patch && git push --follow-tags`.
+# The full CI runs first; then the package is published to GitHub Packages
+# with the workflow's own token and a GitHub Release is created.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish to GitHub Packages
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write # GitHub Release
+      packages: write # npm.pkg.github.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@alouani-youssef'
+
+      - name: Tag matches package.json version
+        id: version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          case "$version" in *-*) echo "dist_tag=next" >> "$GITHUB_OUTPUT" ;; *) echo "dist_tag=latest" >> "$GITHUB_OUTPUT" ;; esac
+
+      - name: Pack
+        run: npm pack
+
+      - name: Publish
+        run: npm publish ./*.tgz --tag "${{ steps.version.outputs.dist_tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.version.outputs.dist_tag == 'next' && '--prerelease' || '' }}
+        run: |
+          # shellcheck disable=SC2086
+          gh release create "$GITHUB_REF_NAME" ./*.tgz --verify-tag --generate-notes $PRERELEASE

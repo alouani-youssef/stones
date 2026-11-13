@@ -32,7 +32,7 @@ Options
   --json                Print the result as JSON
   -h, --help            Show this help
 
-Commands come from .claude/stones.json (written by \`npx claude-stones init\`).
+Commands come from .claude/stones.json (written by \`npx @alouani-youssef/harness-stones init\`).
 The format step rewrites files, so it runs only with --only format.`;
 
 class QualityError extends Error {}
@@ -81,7 +81,7 @@ function runStep(root, step) {
 
 export function qualityCheck(root, { only = [], skip = [], overrides = {}, failFast = false } = {}) {
   const steps = planSteps({ ...configuredCommands(root), ...overrides }, { only, skip });
-  if (!steps.length) fail('no commands to run; run `npx claude-stones init` or pass --cmd test="..."');
+  if (!steps.length) fail('no commands to run; run `npx @alouani-youssef/harness-stones init` or pass --cmd test="..."');
   mkdirSync(join(root, QUALITY_DIR), { recursive: true });
   const results = [];
   for (const step of steps) {

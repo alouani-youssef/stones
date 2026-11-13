@@ -8,3 +8,5 @@ node_modules/
 .claude/quality/
 .claude/reviews/
 .claude/pr.md
+.env
+.package-lock.json

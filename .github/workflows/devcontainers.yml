@@ -1,0 +1,36 @@
+name: Dev containers
+
+# Building the images is slow, so it runs only when they can change: edits to
+# devcontainer/, and weekly to catch breakage in base images or Claude Code.
+on:
+  push:
+    branches: [main]
+    paths: ['devcontainer/**', '.github/workflows/devcontainers.yml']
+  pull_request:
+    paths: ['devcontainer/**', '.github/workflows/devcontainers.yml']
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devcontainers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.stack }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [node-pnpm, python, go]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t "stones-devcontainer-${{ matrix.stack }}" "devcontainer/${{ matrix.stack }}"
+      - name: Node and Claude Code are on PATH
+        run: docker run --rm "stones-devcontainer-${{ matrix.stack }}" sh -c 'node --version && claude --version'
