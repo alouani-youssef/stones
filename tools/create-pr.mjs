@@ -9,7 +9,7 @@
 //
 // It never pushes: push the branch yourself first (`git push -u origin HEAD`).
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -177,4 +177,14 @@ export function runCli(argv, options) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) process.exitCode = runCli(process.argv.slice(2));
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) process.exitCode = runCli(process.argv.slice(2));

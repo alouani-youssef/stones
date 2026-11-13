@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories:
+      - /analyzers
+      - /devcontainer/node-pnpm
+      - /devcontainer/python
+      - /devcontainer/go
+    schedule:
+      interval: weekly
+    groups:
+      images:
+        patterns: ['*']

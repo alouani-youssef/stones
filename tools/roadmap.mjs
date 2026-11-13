@@ -7,8 +7,8 @@
 //   node .claude/tools/roadmap.mjs check [--max-age <days>]  rule violations; exit 1 if any
 //   node .claude/tools/roadmap.mjs decide "<decision>" "<why>"  add a row to Decisions
 //
-// Changing milestones is a conversation: run /roadmap (or `npx claude-stones roadmap`).
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+// Changing milestones is a conversation: run /roadmap (or `npx @alouani-youssef/harness-stones roadmap`).
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -25,7 +25,7 @@ Usage
   node .claude/tools/roadmap.mjs check [--max-age <days>]      Report rule violations (exit 1 if any)
   node .claude/tools/roadmap.mjs decide "<decision>" "<why>"   Record a decision with today's date
 
-To change milestones, run /roadmap in Claude Code or \`npx claude-stones roadmap\`.`;
+To change milestones, run /roadmap in Claude Code or \`npx @alouani-youssef/harness-stones roadmap\`.`;
 
 class RoadmapError extends Error {}
 const fail = (message) => {
@@ -143,7 +143,7 @@ export function main(argv, { log = console.log, cwd = process.cwd() } = {}) {
   }
   const [command = 'show', ...rest] = args;
   const file = join(projectRoot(cwd), ROADMAP);
-  if (!existsSync(file)) fail('no ROADMAP.md yet; run /roadmap in Claude Code or `npx claude-stones roadmap`');
+  if (!existsSync(file)) fail('no ROADMAP.md yet; run /roadmap in Claude Code or `npx @alouani-youssef/harness-stones roadmap`');
   const text = readFileSync(file, 'utf8');
   switch (command) {
     case 'show': {
@@ -177,4 +177,14 @@ export function run(argv, options) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) process.exitCode = run(process.argv.slice(2));
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) process.exitCode = run(process.argv.slice(2));

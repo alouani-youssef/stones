@@ -18,7 +18,7 @@
 // NULL on rows recorded before the column existed.
 //
 // The hook never blocks or alters a prompt: any failure exits 0 silently.
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -166,7 +166,17 @@ export async function recordReply(event, { projectDir, now = new Date() } = {}) 
   return true;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;

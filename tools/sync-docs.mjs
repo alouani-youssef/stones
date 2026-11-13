@@ -8,7 +8,7 @@
 //   - CLAUDE.md that no longer imports AGENT.md (fixed with --fix)
 //
 //   node .claude/tools/sync-docs.mjs [--fix] [--json]
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -103,8 +103,8 @@ export function agentDrift(agentText, manifest) {
   const problems = [];
   for (const [task, command] of Object.entries(recorded)) {
     if (!command) continue;
-    if (!(task in documented)) problems.push({ file: 'AGENT.md', kind: 'agent', message: `does not list the ${task} command \`${command}\`; re-run \`npx claude-stones init\`` });
-    else if (documented[task] !== command) problems.push({ file: 'AGENT.md', kind: 'agent', message: `${task} is \`${documented[task]}\` but .claude/stones.json has \`${command}\`; re-run \`npx claude-stones init\`` });
+    if (!(task in documented)) problems.push({ file: 'AGENT.md', kind: 'agent', message: `does not list the ${task} command \`${command}\`; re-run \`npx @alouani-youssef/harness-stones init\`` });
+    else if (documented[task] !== command) problems.push({ file: 'AGENT.md', kind: 'agent', message: `${task} is \`${documented[task]}\` but .claude/stones.json has \`${command}\`; re-run \`npx @alouani-youssef/harness-stones init\`` });
   }
   return problems;
 }
@@ -161,4 +161,14 @@ export function main(argv, { log = console.log, cwd = process.cwd() } = {}) {
   return result.ok ? 0 : 1;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) process.exitCode = main(process.argv.slice(2));
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) process.exitCode = main(process.argv.slice(2));

@@ -1,4 +1,14 @@
-.npmrc
+node_modules/
+*.tgz
+.DS_Store
+# Local Claude Code state (same entries stones adds to target projects)
+.claude/settings.local.json
+.claude/graph/project.json
+.claude/history.db*
+.claude/four-d.log
+.claude/quality/
+.claude/reviews/
+.claude/pr.md
 .env
 .package-lock.json
-node_modules/
+.npmrc

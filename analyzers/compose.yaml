@@ -1,21 +1,23 @@
-# Code-quality services for Claude Code hooks.
+# Code-quality services for Claude Code hooks. Installed by claude-stones
+# with the complexity hook as .claude/analyzers/compose.yaml; in the stones
+# repository it is analyzers/compose.yaml. Run from the project root:
 #
-#   docker compose -f quality/compose.yaml up -d --build
-#       analyzer container used by hooks/complexity.mjs on every edit
+#   docker compose -f .claude/analyzers/compose.yaml up -d --build
+#       analyzer container used by the complexity hook on every edit
 #
-#   docker compose -f quality/compose.yaml --profile sonarqube up -d
+#   docker compose -f .claude/analyzers/compose.yaml --profile sonarqube up -d
 #       + SonarQube Community Build on http://localhost:9000 (admin/admin)
 #
-#   SONAR_TOKEN=... docker compose -f quality/compose.yaml run --rm scanner
+#   SONAR_TOKEN=... docker compose -f .claude/analyzers/compose.yaml run --rm scanner
 #       full SonarQube analysis of the project (quality gate, duplication,
-#       security hotspots); SONAR_PROJECT_DIR defaults to the parent folder.
+#       security hotspots); SONAR_PROJECT_DIR defaults to the current folder.
 name: claude-quality
 
 services:
   analyzers:
     build:
       context: ..
-      dockerfile: quality/analyzers.Dockerfile
+      dockerfile: analyzers/analyzers.Dockerfile
     image: claude-analyzers:latest
     container_name: claude-analyzers
     restart: unless-stopped
@@ -79,7 +81,7 @@ services:
       - -Dsonar.qualitygate.wait=true
       - -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/.venv/**,**/dist/**,**/build/**
     volumes:
-      - ${SONAR_PROJECT_DIR:-..}:/usr/src
+      - ${SONAR_PROJECT_DIR:-${PWD}}:/usr/src
 
 volumes:
   sonarqube_data:

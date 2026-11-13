@@ -1,23 +1,43 @@
 # claude-stones
 
+[![CI](https://github.com/alouani-youssef/stones/actions/workflows/ci.yml/badge.svg)](https://github.com/alouani-youssef/stones/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Generate a Claude Code setup tailored to a project: a `.claude/` folder with
 only the hooks, permissions and skills the project needs, an `AGENT.md` that
 tells Claude what the project is and how to work in it, and a `ROADMAP.md`
 written with you in a Claude session.
 
 ```sh
-npx claude-stones init          # answer a few questions in your project root
-npx claude-stones roadmap       # start a Claude session that writes ROADMAP.md
+npx @alouani-youssef/harness-stones init          # answer a few questions in your project root
+npx @alouani-youssef/harness-stones roadmap       # start a Claude session that writes ROADMAP.md
 ```
 
 From a clone of this repository: `bash setup.bash init /path/to/project`.
 Requires Node.js 22.13+ (the history hook uses the built-in `node:sqlite`).
 
+## Install
+
+The package is published to GitHub Packages as
+`@alouani-youssef/harness-stones`. GitHub Packages needs a token even for
+public packages: create a GitHub token with `read:packages`, then add it to
+your **user** `~/.npmrc` (never to a project's `.npmrc`):
+
+```sh
+echo "@alouani-youssef:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=<your token>" >> ~/.npmrc
+npm install -g @alouani-youssef/harness-stones   # provides `claude-stones`
+```
+
+After that, run it with `npx @alouani-youssef/harness-stones …` or, once
+installed globally, `claude-stones …`. Never pass the bare `claude-stones` to npx: that
+name resolves to whatever unrelated package holds it on the public npm registry.
+
 ## What `init` does
 
 1. **Detects the stack** from the files already there: languages, frameworks,
    package manager, monorepo tool, test/lint/typecheck/build commands,
-   formatters, commit style. Run `npx claude-stones detect` to see it.
+   formatters, commit style. Run `npx @alouani-youssef/harness-stones detect` to see it.
 2. **Asks about what it cannot detect**, with detected values as defaults:
    what the project is, what each top-level folder holds, architecture,
    design patterns, secrets and auth, conventions, branching, TDD, and which
@@ -36,6 +56,7 @@ CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
 ├── hooks/                only the selected hooks
 ├── skills/               only the selected skills and pattern skills
 ├── graph/                code graph (with the graph hook)
+├── analyzers/            complexity analyzer container, compose.yaml (with the complexity hook)
 ├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
 ├── danger/               specs for db, packages and network branches (atomicity hook)
 ├── commands/roadmap.md   the /roadmap command
@@ -55,6 +76,18 @@ context/tasks/            task board (with the tracking-tasks skill)
   skill's one-line "Use when…" description is in context, and Claude loads the
   body (and its reference files) when the task matches: committing, opening a
   PR, writing tests, naming a file, and so on. `ROADMAP.md` is linked, not loaded.
+- **Guardrails on, gates opt-in.** By default only hooks that never get in
+  the way are selected: `access_guard`, `block-rm`, `format`, `naming` and
+  `devcontainer`. Hooks that block work until a process is followed
+  (`testing`, `atomicity`, `complexity`), add context to every prompt or read
+  (`four-d`, `graph`) or record every prompt and reply (`history`) are offered
+  but marked opt-in. Personal preferences (`language`, thinking, attribution,
+  transcript cleanup) belong in your `~/.claude/settings.json`; the shared
+  project settings do not set them.
+- **Guardrails are not a sandbox.** `access_guard` and `block-rm` catch
+  accidents (secrets, paths outside the project, `git push`, `rm`), not a
+  determined bypass such as building a path in `python -c`. The sandbox and
+  `permissions.deny` are the boundary.
 - **Only what the stack uses.** Permissions come from your real commands
   (`pnpm run test`, `uv run pytest`, `go test`); sandbox domains from your
   ecosystems; nx rules only in nx repos; the format hook only when a formatter
@@ -100,7 +133,7 @@ map to the new skill names, and skills added since are offered. Old files in
 
 ## Roadmap sessions
 
-`npx claude-stones roadmap` opens Claude Code with the `/roadmap` prompt. Claude
+`npx @alouani-youssef/harness-stones roadmap` opens Claude Code with the `/roadmap` prompt. Claude
 reads `AGENT.md`, the existing `ROADMAP.md`, recent commits and any OpenSpec
 specs, interviews you in short rounds (outcome, the one milestone for *Now*,
 *Next*/*Later*, constraints, risks), shows a draft, and writes `ROADMAP.md`.
@@ -108,8 +141,8 @@ Run it again to revise: finished milestones move out of *Now* and the reason
 for each change is recorded under *Decisions*.
 
 ```sh
-npx claude-stones roadmap --focus "plan the next milestone"
-npx claude-stones roadmap --print-prompt   # just print the prompt
+npx @alouani-youssef/harness-stones roadmap --focus "plan the next milestone"
+npx @alouani-youssef/harness-stones roadmap --print-prompt   # just print the prompt
 ```
 
 Inside Claude Code the same session is `/roadmap [focus]`.
@@ -223,8 +256,8 @@ sandbox stays on inside it.
   Dockerfile, and undoes hand edits to the JSON.
 
 ```sh
-npx claude-stones sync           # regenerate .devcontainer/devcontainer.json
-npx claude-stones sync --check   # CI: fail if it is out of date
+npx @alouani-youssef/harness-stones sync           # regenerate .devcontainer/devcontainer.json
+npx @alouani-youssef/harness-stones sync --check   # CI: fail if it is out of date
 ```
 
 ## Options
@@ -255,6 +288,36 @@ npx claude-stones sync --check   # CI: fail if it is out of date
 | `settings/plugins.json` | plugins offered: `default: true` for every project, `when` to match detected languages/frameworks |
 | `devcontainer/` | one dev container per stack (`node-pnpm`, `python`, `go`); `npm run build:devcontainers` regenerates their `devcontainer.json` |
 
+| `scripts/`    | repository checks and the package smoke test (not shipped)      |
+| `.github/`    | CI, dev container builds, release and Dependabot                |
+
 Adding a hook, skill, command or MCP server to these folders is enough for
 `init` to offer it. A skill folder without a `SKILL.md` is ignored. `npm run build:settings` regenerates
 `settings/settings.json` for this repository; `npm test` runs all tests.
+
+## CI and releases
+
+| Workflow | Runs on | What it checks |
+| --- | --- | --- |
+| `ci.yml` | every push to `main` and every PR | `npm run check` (syntax, JSON, license, secrets, local paths), shellcheck, actionlint, generated files up to date, package contents; `npm test` on Ubuntu and macOS with Node 22.13 and 24; the packed tarball smoke-tested on Node, Python, Go and empty projects; complexity hook tests with real analyzers and the analyzer container. `CI passed` is the one check to require in branch protection. |
+| `devcontainers.yml` | changes to `devcontainer/`, weekly | each dev container image builds and has `node` and `claude` |
+| `release.yml` | a `v*.*.*` tag | the full CI, then `npm publish` to GitHub Packages with the workflow token, and a GitHub Release with the tarball |
+
+Run the same checks locally:
+
+```sh
+npm run check     # repository checks
+npm test          # unit and hook tests
+npm run smoke     # init/detect/sync on throwaway projects
+```
+
+To release, bump the version and push the tag:
+`npm version patch && git push --follow-tags`. A tag with a pre-release
+suffix (`v1.2.0-rc.1`) is published under the `next` dist-tag.
+
+## License
+
+[MIT](LICENSE) © 2026 ALOUANI YOUSSEF. The vendored plugins in `plugins/`
+keep their upstream licenses: `nestjs-best-practices` is MIT (Kadajett),
+`gin-best-practices` and `flask-best-practices` are Apache-2.0; see each
+plugin's `LICENSE` and `UPSTREAM.md`.

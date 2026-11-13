@@ -33,7 +33,7 @@
 // Project context is read from the files the stones tools write, each
 // optional: context/tasks/state/*.md (tasks.mjs), ROADMAP.md (roadmap.mjs,
 // /roadmap), context/decisions/*.md, and .claude/history.db (history hook).
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -616,7 +616,17 @@ export function logInjection(project, { prompt, sessionId, context, now = new Da
   appendFileSync(file, `=== ${now.toISOString()}${session}\nprompt: ${prompt.trim()}\n${context}\n\n`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;

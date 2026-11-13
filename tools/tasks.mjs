@@ -11,7 +11,7 @@
 // only when its tests pass. `review` builds one file a reviewer reads to judge
 // the task against what it promised.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -227,8 +227,11 @@ export function runTests(root, task, command) {
   const cmd = command || defaultTestCommand(root) || fail('no test command: pass one after --, e.g. tasks done 7 -- npm test');
   mkdirSync(join(root, REVIEWS_DIR), { recursive: true });
   const log = `${REVIEWS_DIR}/${task.id}-tests.log`;
-  const r = spawnSync(cmd, { cwd: root, shell: true, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-  const output = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  // A hung test run must not hang the tool: STONES_COMMAND_TIMEOUT seconds, 30 minutes by default.
+  const timeout = (Number(process.env.STONES_COMMAND_TIMEOUT) || 1800) * 1000;
+  const r = spawnSync(cmd, { cwd: root, shell: true, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout });
+  const timedOut = r.error?.code === 'ETIMEDOUT';
+  const output = `${r.stdout ?? ''}${r.stderr ?? ''}${timedOut ? `\ntimed out after ${timeout / 1000}s (STONES_COMMAND_TIMEOUT)\n` : ''}`;
   writeFileSync(join(root, log), output);
   const last = output.split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? '(no output)';
   return { ok: r.status === 0, status: r.status, command: cmd, log, last, tail: output.split('\n').slice(-6).join('\n') };
@@ -337,7 +340,17 @@ export async function main(argv, { root = projectRoot(), log = console.log } = {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Node resolves symlinks in import.meta.url but not in argv[1]; compare real
+// paths so this still runs when the project path goes through a symlink.
+const entryPath = () => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1] ?? '';
+  }
+};
+
+if (import.meta.url === pathToFileURL(entryPath()).href) {
   try {
     process.exitCode = await main(process.argv.slice(2));
   } catch (error) {

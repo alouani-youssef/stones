@@ -1,6 +1,6 @@
 # Cognitive-complexity analyzers for hooks/complexity.mjs, in one image:
 # eslint-plugin-sonarjs (JS/TS), complexipy (Python) and gocognit (Go).
-# Build context is the folder holding hooks/ (repository root, or .claude/).
+# Build context is the folder holding hooks/ and analyzers/ (repository root, or .claude/).
 
 FROM golang:1.26-bookworm AS go
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/uudashr/gocognit/cmd/gocognit@v1.3.0

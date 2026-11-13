@@ -6,7 +6,7 @@
 // reported, unless `--force`. JSON config the user may share with other
 // tools (settings.json, .mcp.json) is merged instead of replaced.
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 import { renderDevcontainer } from '../hooks/devcontainer.mjs';
@@ -22,6 +22,9 @@ const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
 const TASKS_GITIGNORE = ['.claude/reviews/'];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
+const ANALYZER_FILES = ['compose.yaml', 'analyzers.Dockerfile'];
+// Files in hooks/lib/ each hook imports.
+const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'] };
 // Installed in every project. All but create-pr are allowed in settings.json;
 // create-pr opens a pull request on GitHub, so Claude asks before running it.
 export const PROJECT_TOOLS = [
@@ -108,6 +111,13 @@ function hookFiles(answers, root, pkg) {
       kind: 'managed',
       executable: hook.file.endsWith('.sh'),
     });
+  }
+  // Shared helpers the selected hooks import from ./lib/.
+  const libs = new Set(hooks.flatMap((id) => HOOK_LIBS[id] ?? []));
+  for (const lib of libs) files.push({ path: `.claude/hooks/lib/${lib}`, content: pkg(`hooks/lib/${lib}`), kind: 'managed' });
+  // The analyzer container the complexity hook falls back to without local analyzers.
+  if (hooks.includes('complexity')) {
+    for (const file of ANALYZER_FILES) files.push({ path: `.claude/analyzers/${file}`, content: pkg(`analyzers/${file}`), kind: 'managed' });
   }
   if (hooks.includes('graph')) {
     files.push({ path: '.claude/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
@@ -228,14 +238,14 @@ function planGenerated(file, current) {
   return { ...file, action: current === file.content ? 'same' : 'update' };
 }
 
-function planJson(file, current) {
+function planJson(file, current, previous) {
   let existing;
   try {
     existing = JSON.parse(current);
   } catch {
     return { ...file, action: 'conflict', reason: 'existing file is not valid JSON' };
   }
-  const merged = json(mergeSettings(existing, file.value));
+  const merged = json(mergeSettings(existing, file.value, previous));
   return { ...file, content: merged, action: merged === current ? 'same' : 'merge' };
 }
 
@@ -257,7 +267,7 @@ function planFileOp(file, current, manifest, force) {
     return { ...file, action: 'update' };
   }
   if (file.kind === 'json') {
-    return planJson(file, current);
+    return planJson(file, current, manifest.generated?.[file.path]);
   }
   return { ...file, action: 'conflict', reason: 'edited since it was installed' };
 }
@@ -297,14 +307,53 @@ export function plan({ target, answers, stack, force = false, root = PACKAGE_ROO
   }
 
   ops.push(...planPendingLines(target, pending));
+  ops.push(...planRemovals(target, manifest, new Set(ops.map((o) => o.path))));
   return ops;
+}
+
+// Files stones installed on an earlier run that this run no longer wants
+// (a deselected hook, skill, tool...): removed when untouched, left in place
+// and handed over to the user when edited.
+function planRemovals(target, manifest, wanted) {
+  return Object.entries(manifest.files ?? {})
+    .filter(([path]) => !wanted.has(path))
+    .map(([path, hash]) => {
+      const current = readText(join(target, path));
+      if (current === undefined) return { path, action: 'forget' };
+      if (sha(current) === hash) return { path, action: 'remove' };
+      return { path, action: 'conflict', orphan: true, reason: 'no longer selected but edited since it was installed; left in place, now yours' };
+    });
+}
+
+// Removes now-empty folders left behind under .claude/ and context/.
+function pruneEmptyDirs(target, path) {
+  let dir = dirname(join(target, path));
+  while (dir.startsWith(join(target, '.claude')) && dir !== target) {
+    try {
+      if (readdirSync(dir).length) return;
+      rmdirSync(dir);
+    } catch {
+      return;
+    }
+    dir = dirname(dir);
+  }
 }
 
 export function apply({ target, ops, answers, stack }) {
   const manifest = loadManifest(target);
   const files = { ...manifest.files };
+  const generated = { ...manifest.generated };
   for (const op of ops) {
     const abs = join(target, op.path);
+    if (op.action === 'remove') {
+      unlinkSync(abs);
+      pruneEmptyDirs(target, op.path);
+    }
+    if (op.action === 'remove' || op.action === 'forget' || op.orphan) {
+      delete files[op.path];
+      delete generated[op.path];
+      continue;
+    }
     if (['create', 'update', 'merge', 'append'].includes(op.action)) {
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, op.content);
@@ -315,9 +364,11 @@ export function apply({ target, ops, answers, stack }) {
     // A tracked seed records that stones installed it, so later runs treat it as ours.
     if (op.tracked && op.action === 'create') files[op.path] = sha(op.content);
     if (op.kind === 'json' && ['create', 'update'].includes(op.action)) files[op.path] = sha(op.content);
+    // What stones contributed, so the next merge can take it back out.
+    if (op.kind === 'json' && ['create', 'update', 'merge', 'same'].includes(op.action)) generated[op.path] = op.value;
   }
   const next = {
-    $comment: 'Written by claude-stones: your setup answers and the files it installed. Re-run `npx claude-stones init` to update.',
+    $comment: 'Written by claude-stones: your setup answers and the files it installed. Re-run `npx @alouani-youssef/harness-stones init` to update.',
     version: 1,
     generatedAt: new Date().toISOString(),
     stack: {
@@ -326,6 +377,7 @@ export function apply({ target, ops, answers, stack }) {
     },
     answers,
     files,
+    generated,
   };
   mkdirSync(join(target, '.claude'), { recursive: true });
   writeFileSync(join(target, MANIFEST), json(next));
@@ -333,14 +385,15 @@ export function apply({ target, ops, answers, stack }) {
 }
 
 const SYMBOLS = {
-  create: '+', update: '~', merge: '⇄', append: '»', same: '=', keep: '=', conflict: '!',
+  create: '+', update: '~', merge: '⇄', append: '»', remove: '-', same: '=', keep: '=', conflict: '!',
 };
 
 export function describePlan(ops) {
-  const order = ['create', 'update', 'merge', 'append', 'conflict', 'keep', 'same'];
+  const order = ['create', 'update', 'merge', 'append', 'remove', 'conflict', 'keep', 'same'];
+  const note = (op) => (op.reason ? `  (${op.reason}${op.orphan ? '' : '; use --force to overwrite'})` : '');
   return [...ops]
     .sort((a, b) => order.indexOf(a.action) - order.indexOf(b.action) || a.path.localeCompare(b.path))
-    .filter((op) => op.action !== 'same')
-    .map((op) => `  ${SYMBOLS[op.action]} ${op.action.padEnd(8)} ${op.path}${op.reason ? `  (${op.reason}; use --force to overwrite)` : ''}`)
+    .filter((op) => op.action !== 'same' && op.action !== 'forget')
+    .map((op) => `  ${SYMBOLS[op.action]} ${op.action.padEnd(8)} ${op.path}${note(op)}`)
     .join('\n');
 }

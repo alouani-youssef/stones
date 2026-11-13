@@ -15,10 +15,10 @@ import { roadmapPrompt, startRoadmapSession } from '../cli/roadmap.mjs';
 const HELP = `claude-stones — Claude Code setup tailored to your project
 
 Usage
-  npx claude-stones init [dir]      Answer questions, generate AGENT.md and .claude/
-  npx claude-stones roadmap [dir]   Start a Claude session that writes ROADMAP.md
-  npx claude-stones detect [dir]    Print the detected stack as JSON
-  npx claude-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
+  npx @alouani-youssef/harness-stones init [dir]      Answer questions, generate AGENT.md and .claude/
+  npx @alouani-youssef/harness-stones roadmap [dir]   Start a Claude session that writes ROADMAP.md
+  npx @alouani-youssef/harness-stones detect [dir]    Print the detected stack as JSON
+  npx @alouani-youssef/harness-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
 
 Options
   -y, --yes          Accept detected defaults and previous answers, no questions
@@ -59,14 +59,14 @@ async function maybeStartRoadmap(target, args, ask, stack, out) {
   const interactive = !args.yes;
   const shouldOffer = args.roadmap && interactive && stack.tooling.claude;
   if (!shouldOffer) {
-    out.write('Next: run `npx claude-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    out.write('Next: run `npx @alouani-youssef/harness-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
     return;
   }
 
   const start = await ask.confirm('roadmap.start', '\nStart a Claude session now to write ROADMAP.md?', true);
   ask.close();
   if (!start) {
-    out.write('Next: run `npx claude-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    out.write('Next: run `npx @alouani-youssef/harness-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
     return;
   }
 
@@ -113,7 +113,7 @@ function handleSync(target, args) {
     return;
   }
   if (status === 'drift') {
-    console.error('devcontainer.json is out of date: run `npx claude-stones sync`');
+    console.error('devcontainer.json is out of date: run `npx @alouani-youssef/harness-stones sync`');
     process.exitCode = 1;
     return;
   }

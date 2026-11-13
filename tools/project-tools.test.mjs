@@ -80,6 +80,20 @@ describe('quality-check', () => {
     assert.equal(none.code, 2);
     assert.match(none.err, /no commands to run/);
   });
+
+  it('stops a hung command after STONES_COMMAND_TIMEOUT seconds', () => {
+    const { root } = repo();
+    process.env.STONES_COMMAND_TIMEOUT = '1';
+    try {
+      const started = Date.now();
+      const r = qualityCheck(root, { overrides: { test: 'node -e "setTimeout(() => {}, 20000)"' } });
+      assert.ok(Date.now() - started < 10000, 'returned before the command finished');
+      assert.equal(r.steps[0].passed, false);
+      assert.equal(r.steps[0].status, 'timeout');
+    } finally {
+      delete process.env.STONES_COMMAND_TIMEOUT;
+    }
+  });
 });
 
 describe('create-pr', () => {
