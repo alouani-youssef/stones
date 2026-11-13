@@ -6,7 +6,10 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { addDecision } from '../tools/roadmap.mjs';
+import { addTask, startTask } from '../tools/tasks.mjs';
 import { classifyRisk, classifyTask, detectCommands, evaluate, findGaps } from './four-d.mjs';
+import { recordPrompt } from './history.mjs';
 
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), 'four-d.mjs');
 
@@ -155,6 +158,106 @@ describe('evaluate', () => {
     }));
     assert.match(context, /Verify with: make check\./);
     assert.match(context, /Update CHANGELOG\.md\. Attach the failing input\./);
+  });
+});
+
+const ROADMAP = `# Roadmap
+
+_Last revised: 2026-11-01_
+
+## Outcome
+
+Ship stones v1.
+
+## Now
+
+### M1 Context-aware guardrails
+- **Goal:** inject project context into the 4D block
+- **Scope:** hooks/four-d.mjs
+- **Done when:** the block names the current task and decisions
+
+## Next
+
+- **M2 Docs** — document every hook
+- **M3 CI** — run the suite on each PR
+
+## Later
+
+## Out of scope
+
+- **Billing** — no payments in v1
+- **Cloud sync** — history stays local
+
+## Decisions
+
+| Date | Decision | Why |
+| ---- | -------- | --- |
+`;
+
+function contextProject() {
+  const root = project({ 'ROADMAP.md': ROADMAP });
+  let roadmap = readFileSync(join(root, 'ROADMAP.md'), 'utf8');
+  roadmap = addDecision(roadmap, 'Store history in SQLite', 'no extra dependency', '2026-11-02');
+  roadmap = addDecision(roadmap, 'Keep hooks standalone', 'they are copied into projects', '2026-11-03');
+  roadmap = addDecision(roadmap, 'Use node:test for tests', 'built into Node', '2026-11-04');
+  writeFileSync(join(root, 'ROADMAP.md'), roadmap);
+  mkdirSync(join(root, 'context', 'decisions'), { recursive: true });
+  writeFileSync(join(root, 'context', 'decisions', '0001-plain-text-logs.md'),
+    '# Logs are plain text\n\nStatus: accepted\n\nThe four-d log is plain text so it can be tailed.\n');
+  const task = addTask(root, 'Inject project context', { scope: 'hooks/**' });
+  const file = join(root, task.path);
+  writeFileSync(file, readFileSync(file, 'utf8').replace('TODO: Describe the behavior the source should provide.', 'The 4D block lists the current task, roadmap and decisions.'));
+  startTask(root, task.id);
+  addTask(root, 'Document the four-d context');
+  addTask(root, 'Add a CI workflow');
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  return root;
+}
+
+describe('project context', () => {
+  it('adds the current task, next tasks and the roadmap Now milestone', () => {
+    const { context } = evaluate({ prompt: 'implement the context section in hooks/four-d.mjs' }, { projectDir: contextProject() });
+    assert.match(context, /^Task — 0001 Inject project context \(scope: hooks\/\*\*\): The 4D block lists the current task, roadmap and decisions\.$/m);
+    assert.match(context, /Next tasks: 0002 Document the four-d context; 0003 Add a CI workflow\./);
+    assert.match(context, /^Roadmap — Now: M1 Context-aware guardrails — goal: inject project context into the 4D block; done when: the block names the current task and decisions\. Out of scope: Billing, Cloud sync\.$/m);
+  });
+
+  it('lists recorded decisions, the most relevant to the prompt first', () => {
+    const { context } = evaluate({ prompt: 'fix the sqlite history write when the db is locked' }, { projectDir: contextProject() });
+    const line = /^Decisions — (.*)$/m.exec(context)?.[1];
+    assert.ok(line, context);
+    assert.ok(line.startsWith('2026-11-02 Store history in SQLite (no extra dependency)'), line);
+    assert.match(line, /Logs are plain text \(The four-d log is plain text so it can be tailed\.\)/);
+    assert.match(line, /Keep hooks standalone/);
+    assert.match(line, /Follow these, and if the work must contradict one, say so and ask first\.$/);
+  });
+
+  it('caps decisions at the configured number', () => {
+    const root = contextProject();
+    writeFileSync(join(root, '.claude', 'four-d.json'), JSON.stringify({ context: { decisions: 2 } }));
+    const line = /^Decisions — (.*)$/m.exec(evaluate({ prompt: 'fix the sqlite history write' }, { projectDir: root }).context)[1];
+    assert.equal(line.split('; ').length, 2, line);
+  });
+
+  it('adds recent prompts from earlier sessions only', async () => {
+    const root = contextProject();
+    await recordPrompt({ session_id: 'old', prompt: 'fix the failing parser test in tools/roadmap.mjs' }, { projectDir: root });
+    await recordPrompt({ session_id: 'now', prompt: 'this prompt is from the current session' }, { projectDir: root });
+    const { context } = evaluate({ prompt: 'write unit tests for the parser', session_id: 'now' }, { projectDir: root });
+    assert.match(context, /^History — earlier sessions: "fix the failing parser test in tools\/roadmap\.mjs" \(debugging\)\.$/m);
+    assert.doesNotMatch(context, /current session/);
+  });
+
+  it('adds no context lines when the project has none of the sources', () => {
+    const { context } = run('implement the context section in hooks/four-d.mjs');
+    assert.doesNotMatch(context, /^(Task|Roadmap|Decisions|History) — /m);
+  });
+
+  it('can turn every source off', () => {
+    const root = contextProject();
+    writeFileSync(join(root, '.claude', 'four-d.json'), JSON.stringify({ context: false }));
+    const { context } = evaluate({ prompt: 'implement the context section in hooks/four-d.mjs' }, { projectDir: root });
+    assert.doesNotMatch(context, /^(Task|Roadmap|Decisions|History) — /m);
   });
 });
 

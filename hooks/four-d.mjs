@@ -23,9 +23,17 @@
 //     "commands": { "test": "make test" },     // verification commands
 //     "rules": { "*": ["..."], "debugging": ["..."] }, // extra Diligence lines
 //     "show": true,                            // also display each block to the user
-//     "log": true                              // append each block to .claude/four-d.log
+//     "log": true,                             // append each block to .claude/four-d.log
+//     "context": {                             // project context (false turns it all off)
+//       "tasks": true, "roadmap": true,        //   current/next tasks, ROADMAP.md Now
+//       "decisions": 5, "history": 3           //   how many decisions / earlier prompts
+//     }
 //   }
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+//
+// Project context is read from the files the stones tools write, each
+// optional: context/tasks/state/*.md (tasks.mjs), ROADMAP.md (roadmap.mjs,
+// /roadmap), context/decisions/*.md, and .claude/history.db (history hook).
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -404,9 +412,162 @@ export function resolvePolicy({ category, risk, gaps, commands, extraRules = [] 
   };
 }
 
+// ------------------------------------------------------ project context
+//
+// Parsers for the formats tools/tasks.mjs and tools/roadmap.mjs write. They
+// are duplicated here, not imported, so the hook keeps working on its own.
+
+const readFile = (project, path) => {
+  try {
+    return readFileSync(join(project, path), 'utf8');
+  } catch {
+    return '';
+  }
+};
+const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
+const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+// `- [0001 Title](../list/0001-slug.md) · branch x` lines of a board state file.
+function boardTasks(project, state) {
+  return readFile(project, `context/tasks/state/${state}.md`).split('\n').flatMap((line) => {
+    const m = /^- \[(\d+) (.+?)\]\(\.\.\/list\/([^)]+)\)/.exec(line);
+    return m ? [{ id: m[1], title: m[2], file: m[3] }] : [];
+  });
+}
+
+function taskLines(project) {
+  const lines = [];
+  const [current] = boardTasks(project, 'current');
+  if (current) {
+    const text = readFile(project, `context/tasks/list/${current.file}`);
+    const scope = /^Scope:[ \t]*(.*)$/m.exec(text)?.[1]?.trim();
+    const expected = /^## Expected behavior\s*\n([\s\S]*?)(?=\n## |$)/m.exec(text)?.[1]?.trim() ?? '';
+    const behavior = expected && !expected.startsWith('TODO') ? `: ${clip(oneLine(expected), 240)}` : '';
+    lines.push(`Task — ${current.id} ${current.title}${scope ? ` (scope: ${scope})` : ''}${behavior}`);
+  }
+  const next = boardTasks(project, 'next').slice(0, 3);
+  if (next.length) {
+    const tail = current ? ' Keep this work inside the current task; list follow-ups instead of doing them.' : '';
+    lines.push(`Next tasks: ${next.map((t) => `${t.id} ${t.title}`).join('; ')}.${tail}`);
+  }
+  return lines;
+}
+
+function roadmapSections(text) {
+  const sections = {};
+  let current = null;
+  for (const line of text.split(/\r?\n/)) {
+    const h2 = /^##\s+(.+?)\s*$/.exec(line);
+    if (h2) sections[current = h2[1]] = [];
+    else if (current) sections[current].push(line);
+  }
+  return sections;
+}
+
+function roadmapLine(sections) {
+  const parts = [];
+  let milestone = null;
+  for (const line of sections.Now ?? []) {
+    const h3 = /^###\s+(.+?)\s*$/.exec(line);
+    if (h3) {
+      if (milestone) break;
+      milestone = { name: h3[1], fields: {} };
+    }
+    const field = milestone && /^\s*[-*]\s+\*\*(.+?):\*\*\s*(.*)$/.exec(line);
+    if (field) milestone.fields[field[1].toLowerCase()] = field[2].trim();
+  }
+  if (milestone) {
+    const fields = ['goal', 'done when'].filter((f) => milestone.fields[f]).map((f) => `${f}: ${milestone.fields[f]}`);
+    parts.push(`Now: ${milestone.name}${fields.length ? ` — ${fields.join('; ')}` : ''}.`);
+  }
+  const out = (sections['Out of scope'] ?? [])
+    .map((l) => /^\s*[-*]\s+(?:\*\*(.+?)\*\*|(.+))/.exec(l))
+    .filter(Boolean)
+    .map((m) => (m[1] ?? m[2]).trim());
+  if (out.length) parts.push(`Out of scope: ${out.join(', ')}.`);
+  return parts.length ? [`Roadmap — ${clip(parts.join(' '), 400)}`] : [];
+}
+
+// Oldest first: context/decisions/*.md by file name, then the ROADMAP.md table.
+function readDecisions(project, sections) {
+  const decisions = [];
+  let files = [];
+  try {
+    files = readdirSync(join(project, 'context', 'decisions')).filter((f) => f.endsWith('.md')).sort();
+  } catch { /* no decision records */ }
+  for (const file of files) {
+    const text = readFile(project, `context/decisions/${file}`);
+    const title = /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
+    if (!title) continue;
+    const summary = text.split(/\n\s*\n/).map((p) => p.trim())
+      .find((p) => p && !p.startsWith('#') && !/^[A-Z][\w ]*:\s/.test(p)) ?? '';
+    decisions.push({ date: '', decision: title, why: oneLine(summary) });
+  }
+  for (const line of sections.Decisions ?? []) {
+    if (!/^\s*\|.*\|\s*$/.test(line)) continue;
+    const [date = '', decision, why = ''] = line.trim().slice(1, -1).split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
+    if (decision === undefined || /^:?-+:?$/.test(date) || date.toLowerCase() === 'date') continue;
+    decisions.push({ date, decision, why });
+  }
+  return decisions;
+}
+
+const STOP = new Set(['this', 'that', 'with', 'from', 'when', 'what', 'into', 'have', 'should', 'there', 'their', 'make', 'need', 'please', 'they', 'them', 'then', 'than', 'were', 'will', 'just', 'like', 'some']);
+const words = (text) => new Set((text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) ?? [])
+  .map((w) => w.replace(/s$/, '')).filter((w) => !STOP.has(w)));
+
+// Most relevant to the prompt first, newest first among equals.
+export function rankDecisions(decisions, prompt, limit) {
+  const asked = words(prompt);
+  return decisions
+    .map((d, index) => ({ d, index, score: [...words(`${d.decision} ${d.why}`)].filter((w) => asked.has(w)).length }))
+    .sort((a, b) => b.score - a.score || b.index - a.index)
+    .slice(0, limit)
+    .map(({ d }) => d);
+}
+
+function decisionLine(project, sections, prompt, limit) {
+  if (!(limit > 0)) return [];
+  const chosen = rankDecisions(readDecisions(project, sections), prompt, limit);
+  if (!chosen.length) return [];
+  const items = chosen.map((d) => clip(`${d.date ? `${d.date} ` : ''}${d.decision}${d.why ? ` (${d.why})` : ''}`, 160));
+  return [`Decisions — ${items.join('; ')}. Follow these, and if the work must contradict one, say so and ask first.`];
+}
+
+// Recent prompts from other sessions; the current session is already in context.
+function historyLine(project, sessionId, limit) {
+  if (!(limit > 0) || !existsSync(join(project, '.claude', 'history.db'))) return [];
+  let db;
+  try {
+    const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
+    db = new DatabaseSync(join(project, '.claude', 'history.db'), { readOnly: true });
+    const rows = db.prepare('SELECT prompt, category FROM exchanges WHERE session_id IS NOT ? ORDER BY id DESC LIMIT ?')
+      .all(sessionId ?? null, limit);
+    if (!rows.length) return [];
+    const items = rows.map((r) => `"${clip(oneLine(r.prompt), 120)}"${r.category ? ` (${r.category})` : ''}`);
+    return [`History — earlier sessions: ${items.join('; ')}.`];
+  } catch {
+    return [];
+  } finally {
+    db?.close();
+  }
+}
+
+export function projectContext(project, { prompt, sessionId, config = {} }) {
+  if (config === false) return [];
+  const want = (key, fallback) => config[key] ?? fallback;
+  const sections = roadmapSections(readFile(project, 'ROADMAP.md'));
+  return [
+    ...(want('tasks', true) ? taskLines(project) : []),
+    ...(want('roadmap', true) ? roadmapLine(sections) : []),
+    ...decisionLine(project, sections, prompt, Number(want('decisions', 5))),
+    ...historyLine(project, sessionId, Number(want('history', 3))),
+  ];
+}
+
 // ------------------------------------------------------- context injector
 
-export function render({ category, secondary, risk, policy }) {
+export function render({ category, secondary, risk, policy, project = [] }) {
   const also = secondary.length ? ` (also: ${secondary.slice(0, 2).join(', ')})` : '';
   const why = risk.reasons.length ? ` (${risk.reasons.join(', ')})` : '';
   const lines = [
@@ -417,6 +578,7 @@ export function render({ category, secondary, risk, policy }) {
     `Diligence — ${policy.diligence}`,
   ];
   if (policy.risk.length) lines.push(`Risk (${risk.level}) — ${policy.risk.join(' ')}`);
+  lines.push(...project);
   return lines.join('\n');
 }
 
@@ -439,8 +601,9 @@ export function evaluate(event, { projectDir } = {}) {
   const commands = { ...detectCommands(project), ...(config.commands ?? {}) };
   const extraRules = [...(config.rules?.['*'] ?? []), ...(config.rules?.[category] ?? [])];
   const policy = resolvePolicy({ category, risk, gaps, commands, extraRules });
+  const context = projectContext(project, { prompt, sessionId: event.session_id, config: config.context ?? {} });
 
-  return { category, risk, config, project, context: render({ category, secondary, risk, policy }) };
+  return { category, risk, config, project, context: render({ category, secondary, risk, policy, project: context }) };
 }
 
 export const LOG_PATH = '.claude/four-d.log';

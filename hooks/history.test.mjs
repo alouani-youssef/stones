@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 import { DB_PATH, lastReply, openDb, recordPrompt, recordReply } from './history.mjs';
@@ -33,6 +34,45 @@ describe('history hook', () => {
     assert.equal(row.reply, null);
     const [session] = await rows(project, 'SELECT * FROM sessions');
     assert.equal(session.project, project);
+  });
+
+  it('stores the naive prompt and the prompt enhanced with the 4D block', async () => {
+    const project = tmp();
+    const prompt = 'fix the failing test in hooks/naming.test.mjs';
+    await recordPrompt({ session_id: 's1', prompt }, { projectDir: project });
+    const [row] = await rows(project);
+    assert.equal(row.naive_prompt, prompt);
+    assert.ok(row.enhanced_prompt.startsWith(`${prompt}\n\n[4D guardrails] task: debugging`));
+    assert.match(row.enhanced_prompt, /^Diligence — /m);
+  });
+
+  it('stores the prompt unchanged as enhanced when four-d injects nothing', async () => {
+    const project = tmp();
+    await recordPrompt({ session_id: 's1', prompt: 'thanks, looks good' }, { projectDir: project });
+    const disabled = tmp();
+    mkdirSync(join(disabled, '.claude'), { recursive: true });
+    writeFileSync(join(disabled, '.claude', 'four-d.json'), JSON.stringify({ enabled: false }));
+    await recordPrompt({ session_id: 's1', prompt: 'fix the login bug please' }, { projectDir: disabled });
+    for (const [row] of [await rows(project), await rows(disabled)]) {
+      assert.equal(row.enhanced_prompt, row.naive_prompt);
+    }
+  });
+
+  it('adds the prompt columns to a database created before them', async () => {
+    const project = tmp();
+    mkdirSync(join(project, '.claude'), { recursive: true });
+    const old = new DatabaseSync(join(project, DB_PATH));
+    old.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, project TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL);
+      CREATE TABLE exchanges (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, prompt TEXT NOT NULL, reply TEXT,
+        category TEXT, risk TEXT, prompted_at TEXT NOT NULL, replied_at TEXT);
+      INSERT INTO sessions VALUES ('old', '${project}', 't', 't');
+      INSERT INTO exchanges (session_id, prompt, prompted_at) VALUES ('old', 'legacy prompt', 't');`);
+    old.close();
+    await recordPrompt({ session_id: 'new', prompt: 'write unit tests for the parser' }, { projectDir: project });
+    const [legacy, fresh] = await rows(project);
+    assert.equal(legacy.naive_prompt, 'legacy prompt', 'existing rows are backfilled');
+    assert.equal(legacy.enhanced_prompt, null, 'what was injected back then is unknown');
+    assert.match(fresh.enhanced_prompt, /task: testing/);
   });
 
   it('attaches the reply to the latest prompt of the same session', async () => {

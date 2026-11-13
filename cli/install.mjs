@@ -98,19 +98,30 @@ function devcontainerFiles({ answers, target, root }) {
   return [{ path: DC_DOCKERFILE, content: seed, kind: 'seed', tracked: true }, json];
 }
 
-function desiredFiles({ answers, stack, root, target }) {
+function hookFiles(answers, root, pkg) {
   const files = [];
-  const pkg = (rel) => readFileSync(join(root, rel), 'utf8');
-  const hooks = hookCatalog(root).filter((h) => answers.install.hooks.includes(h.id));
-  for (const hook of hooks) {
-    files.push({ path: `.claude/hooks/${hook.file}`, content: pkg(`hooks/${hook.file}`), kind: 'managed', executable: hook.file.endsWith('.sh') });
+  const hooks = answers.install.hooks;
+  for (const hook of hookCatalog(root).filter((h) => hooks.includes(h.id))) {
+    files.push({
+      path: `.claude/hooks/${hook.file}`,
+      content: pkg(`hooks/${hook.file}`),
+      kind: 'managed',
+      executable: hook.file.endsWith('.sh'),
+    });
   }
-  if (answers.install.hooks.includes('graph')) {
+  if (hooks.includes('graph')) {
     files.push({ path: '.claude/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
     files.push({ path: '.claude/graph/project.json', content: pkg('graph/project.json'), kind: 'seed' });
   }
-  for (const tool of PROJECT_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
-  // The task board replaces the single active.md note the testing hook used to read.
+  return files;
+}
+
+function toolFiles(answers, pkg) {
+  const files = PROJECT_TOOLS.map((tool) => ({
+    path: `.claude/tools/${tool}`,
+    content: pkg(`tools/${tool}`),
+    kind: 'managed',
+  }));
   if (usesTaskBoard(answers)) {
     for (const tool of TASK_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
     for (const state of STATES) files.push({ path: `${STATE_DIR}/${state}.md`, content: `${STATE_HEADERS[state]}\n`, kind: 'seed' });
@@ -118,18 +129,33 @@ function desiredFiles({ answers, stack, root, target }) {
   } else if (answers.install.hooks.includes('testing')) {
     files.push({ path: 'context/tasks/active.md', content: LEGACY_TASK_NOTE, kind: 'managed' });
   }
-  if (answers.install.hooks.includes('atomicity')) {
-    files.push({ path: '.claude/atomicity.json', content: json(atomicitySeed(pkg('settings/atomicity.json'), stack)), kind: 'seed' });
-    files.push({ path: '.claude/danger/.gitkeep', content: '', kind: 'seed' });
-  }
-  const skillIds = new Set([...answers.install.skills, ...answers.patterns]);
-  for (const skill of skillCatalog(root).filter((s) => skillIds.has(s.id))) {
-    for (const rel of skill.files) files.push({ path: `.claude/skills/${rel}`, content: pkg(`skills/${rel}`), kind: 'managed' });
-  }
-  for (const command of commandCatalog(root)) {
-    files.push({ path: `.claude/commands/${command.file}`, content: pkg(`commands/${command.file}`), kind: 'managed' });
-  }
+  return files;
+}
 
+function atomicityFiles(answers, stack, pkg) {
+  if (!answers.install.hooks.includes('atomicity')) return [];
+  return [
+    { path: '.claude/atomicity.json', content: json(atomicitySeed(pkg('settings/atomicity.json'), stack)), kind: 'seed' },
+    { path: '.claude/danger/.gitkeep', content: '', kind: 'seed' },
+  ];
+}
+
+function skillFiles(answers, root, pkg) {
+  const skillIds = new Set([...answers.install.skills, ...answers.patterns]);
+  const files = [];
+  for (const skill of skillCatalog(root).filter((s) => skillIds.has(s.id))) {
+    for (const rel of skill.files) {
+      files.push({ path: `.claude/skills/${rel}`, content: pkg(`skills/${rel}`), kind: 'managed' });
+    }
+  }
+  return files;
+}
+
+function settingsFile(answers, stack, root) {
+  const extraAllow = [
+    ...PROJECT_TOOLS.filter((tool) => !ASK_FIRST_TOOLS.has(tool)).map((tool) => `Bash(node .claude/tools/${tool}:*)`),
+    ...(usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : []),
+  ];
   const settings = composeSettings({
     hooks: answers.install.hooks,
     plugins: answers.install.plugins ?? [],
@@ -139,31 +165,50 @@ function desiredFiles({ answers, stack, root, target }) {
     commands: answers.workflow.commands,
     sandbox: answers.install.sandbox,
     jq: stack.tooling.jq,
-    extraAllow: [...PROJECT_TOOLS.filter((tool) => !ASK_FIRST_TOOLS.has(tool)).map((tool) => `Bash(node .claude/tools/${tool}:*)`), ...(usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : [])],
+    extraAllow,
     root,
   });
-  files.push({ path: '.claude/settings.json', content: json(settings), kind: 'json', value: settings });
+  return { path: '.claude/settings.json', content: json(settings), kind: 'json', value: settings };
+}
 
+function mcpFiles(answers, root) {
   const servers = mcpCatalog(root).filter((m) => answers.install.mcp.includes(m.id));
-  if (servers.length) {
-    const value = { mcpServers: Object.fromEntries(servers.map((m) => [m.id, m.config])) };
-    files.push({ path: '.mcp.json', content: json(value), kind: 'json', value });
-  }
+  if (!servers.length) return [];
+  const value = { mcpServers: Object.fromEntries(servers.map((m) => [m.id, m.config])) };
+  return [{ path: '.mcp.json', content: json(value), kind: 'json', value }];
+}
 
-  files.push(...devcontainerFiles({ answers, target, root }));
+function gitignoreFiles(answers, stack) {
+  if (!stack.git) return [];
+  const hooks = answers.install.hooks;
+  const ignored = [
+    ...GITIGNORE_LINES,
+    ...(hooks.includes('history') ? HISTORY_GITIGNORE : []),
+    ...(hooks.includes('four-d') ? FOUR_D_GITIGNORE : []),
+    ...(usesTaskBoard(answers) ? TASKS_GITIGNORE : []),
+  ];
+  return ignored.map((line) => ({ path: '.gitignore', line, content: `${line}\n`, kind: 'line' }));
+}
 
-  files.push({ path: 'AGENT.md', content: renderAgentDoc(answers, stack, root), kind: 'managed' });
-  files.push({ path: 'CLAUDE.md', line: '@AGENT.md', content: '@AGENT.md\n', kind: 'line' });
-  if (stack.git) {
-    const ignored = [
-      ...GITIGNORE_LINES,
-      ...(answers.install.hooks.includes('history') ? HISTORY_GITIGNORE : []),
-      ...(answers.install.hooks.includes('four-d') ? FOUR_D_GITIGNORE : []),
-      ...(usesTaskBoard(answers) ? TASKS_GITIGNORE : []),
-    ];
-    for (const line of ignored) files.push({ path: '.gitignore', line, content: `${line}\n`, kind: 'line' });
-  }
-  return files;
+function desiredFiles({ answers, stack, root, target }) {
+  const pkg = (rel) => readFileSync(join(root, rel), 'utf8');
+  return [
+    ...hookFiles(answers, root, pkg),
+    ...toolFiles(answers, pkg),
+    ...atomicityFiles(answers, stack, pkg),
+    ...skillFiles(answers, root, pkg),
+    ...commandCatalog(root).map((cmd) => ({
+      path: `.claude/commands/${cmd.file}`,
+      content: pkg(`commands/${cmd.file}`),
+      kind: 'managed',
+    })),
+    settingsFile(answers, stack, root),
+    ...mcpFiles(answers, root),
+    ...devcontainerFiles({ answers, target, root }),
+    { path: 'AGENT.md', content: renderAgentDoc(answers, stack, root), kind: 'managed' },
+    { path: 'CLAUDE.md', line: '@AGENT.md', content: '@AGENT.md\n', kind: 'line' },
+    ...gitignoreFiles(answers, stack),
+  ];
 }
 
 function recordPendingLine(pending, file, current) {
