@@ -103,8 +103,8 @@ export function agentDrift(agentText, manifest) {
   const problems = [];
   for (const [task, command] of Object.entries(recorded)) {
     if (!command) continue;
-    if (!(task in documented)) problems.push({ file: 'AGENT.md', kind: 'agent', message: `does not list the ${task} command \`${command}\`; re-run \`npx claude-stones init\`` });
-    else if (documented[task] !== command) problems.push({ file: 'AGENT.md', kind: 'agent', message: `${task} is \`${documented[task]}\` but .claude/stones.json has \`${command}\`; re-run \`npx claude-stones init\`` });
+    if (!(task in documented)) problems.push({ file: 'AGENT.md', kind: 'agent', message: `does not list the ${task} command \`${command}\`; re-run \`npx @alouani-youssef/harness-stones init\`` });
+    else if (documented[task] !== command) problems.push({ file: 'AGENT.md', kind: 'agent', message: `${task} is \`${documented[task]}\` but .claude/stones.json has \`${command}\`; re-run \`npx @alouani-youssef/harness-stones init\`` });
   }
   return problems;
 }

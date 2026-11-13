@@ -25,7 +25,7 @@ export function startRoadmapSession(target, { focus = '', claude = 'claude' } = 
       started: false,
       message:
         'Claude Code is not on PATH. Install it (https://claude.com/claude-code), then run '
-        + '`npx claude-stones roadmap`, or open Claude Code here and type /roadmap.',
+        + '`npx @alouani-youssef/harness-stones roadmap`, or open Claude Code here and type /roadmap.',
     });
   }
   return new Promise((done) => {

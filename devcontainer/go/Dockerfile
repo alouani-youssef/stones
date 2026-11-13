@@ -1,5 +1,5 @@
 # Dev container for Go projects. This file is the source of truth:
-# devcontainer.json is generated from it (`npx claude-stones sync`).
+# devcontainer.json is generated from it (`npx @alouani-youssef/harness-stones sync`).
 ARG NODE_VERSION=22
 ARG GO_VERSION=1.25
 FROM node:${NODE_VERSION}-bookworm-slim AS node

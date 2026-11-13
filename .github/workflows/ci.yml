@@ -4,16 +4,72 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  # Release runs the full CI before publishing.
+  workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  checks:
+    name: Repository checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Syntax, JSON, license, secrets, paths
+        run: npm run check
+
+      - name: Shell scripts (shellcheck)
+        run: shellcheck hooks/*.sh setup.bash
+
+      - name: Workflows (actionlint)
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+
+      - name: Generated files are up to date
+        run: |
+          npm run build:settings
+          npm run build:devcontainers
+          git diff --exit-code -- settings/settings.json devcontainer/ \
+            || { echo "::error::Run npm run build:settings and npm run build:devcontainers, then commit the result."; exit 1; }
+
+      - name: Package contents
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e '
+            const files = JSON.parse(require("fs").readFileSync("pack.json", "utf8"))[0].files.map((f) => f.path);
+            const bad = files.filter((f) => /\.test\.|^settings\/settings\.json$|^scripts\/|^\.github\//.test(f));
+            const required = ["bin/stones.mjs", "analyzers/compose.yaml", "AGENT.md", "LICENSE", "README.md", "setup.bash"];
+            const missing = required.filter((f) => !files.includes(f));
+            if (bad.length || missing.length) { console.error({ bad, missing }); process.exit(1); }
+            console.log(`${files.length} files`);
+          '
+
+      - name: Pack
+        run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: '*.tgz'
+          retention-days: 7
+
+  test:
+    name: Tests (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         node: ['22.13', '24']
     steps:
       - uses: actions/checkout@v4
@@ -21,22 +77,85 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       # The tools' tests create commits in temporary repositories.
-      - run: |
+      - name: Configure git
+        run: |
           git config --global user.name ci
           git config --global user.email ci@example.com
           git config --global init.defaultBranch main
       - run: npm test
-      - name: settings/settings.json is up to date
+
+  smoke:
+    name: Package smoke test (${{ matrix.os }})
+    needs: checks
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+      - name: Unpack
+        run: mkdir pkg && tar -xzf ./*.tgz -C pkg
+      - name: setup.bash runs the packaged CLI
+        run: bash pkg/package/setup.bash --version
+      - name: init / detect / sync on Node, Python, Go and empty projects
+        run: node scripts/smoke.mjs --bin pkg/package/bin/stones.mjs
+
+  analyzers:
+    name: Complexity analyzers (local tools and container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPLEXITY_TOOLS: ${{ github.workspace }}/.analyzers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      # Same versions as analyzers/analyzers.Dockerfile.
+      - name: Install analyzers
         run: |
-          npm run build:settings
-          git diff --exit-code settings/settings.json
-      - name: package contents
+          mkdir -p "$COMPLEXITY_TOOLS/js" "$COMPLEXITY_TOOLS/go"
+          npm install --prefix "$COMPLEXITY_TOOLS/js" --no-audit --no-fund \
+            eslint@10.14.0 eslint-plugin-sonarjs@4.2.2 typescript-eslint@8.72.1 typescript@6.0.3
+          python -m venv "$COMPLEXITY_TOOLS/py"
+          "$COMPLEXITY_TOOLS/py/bin/pip" install --quiet complexipy==8.3.0
+          GOBIN="$COMPLEXITY_TOOLS/go" go install github.com/uudashr/gocognit/cmd/gocognit@v1.3.0
+      - name: Start the analyzer container
+        run: docker compose -f analyzers/compose.yaml up -d --build
+      - name: Complexity tests, none skipped
         run: |
-          npm pack --dry-run --json > pack.json
-          node -e '
-            const files = JSON.parse(require("fs").readFileSync("pack.json", "utf8"))[0].files.map((f) => f.path);
-            const bad = files.filter((f) => /\.test\.|^settings\/settings\.json$/.test(f));
-            const missing = ["bin/stones.mjs", "analyzers/compose.yaml", "AGENT.md"].filter((f) => !files.includes(f));
-            if (bad.length || missing.length) { console.error({ bad, missing }); process.exit(1); }
-            console.log(`${files.length} files`);
-          '
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+          node --test hooks/complexity.test.mjs | tee complexity.log
+          grep -q '^ℹ skipped 0$' complexity.log || { echo "::error::Some complexity tests were skipped"; exit 1; }
+      - name: Container logs
+        if: failure()
+        run: docker compose -f analyzers/compose.yaml logs
+
+  ci-ok:
+    name: CI passed
+    if: always()
+    needs: [checks, test, smoke, analyzers]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done

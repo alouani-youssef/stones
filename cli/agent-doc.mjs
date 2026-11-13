@@ -136,7 +136,7 @@ function sections(answers, stack) {
     workflow: renderWorkflow(answers, stack, ctx),
     guardrails: renderGuardrails(answers, stack, ctx),
     roadmap: 'Plans and milestones live in [ROADMAP.md](ROADMAP.md); read it when choosing what to work on. '
-      + 'Create or revise it with `/roadmap` in Claude Code or `npx claude-stones roadmap`.',
+      + 'Create or revise it with `/roadmap` in Claude Code or `npx @alouani-youssef/harness-stones roadmap`.',
   };
 }
 

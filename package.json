@@ -1,7 +1,15 @@
 {
-  "name": "claude-stones",
+  "name": "@alouani-youssef/harness-stones",
   "version": "1.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alouani-youssef/stones.git"
+  },
+  "homepage": "https://github.com/alouani-youssef/stones#readme",
+  "bugs": {
+    "url": "https://github.com/alouani-youssef/stones/issues"
+  },
   "type": "module",
   "bin": {
     "stones": "bin/stones.mjs",
@@ -32,7 +40,9 @@
     "test": "node --test hooks/ cli/ tools/",
     "test:hooks": "node --test hooks/",
     "build:settings": "node settings/build-settings.mjs",
-    "build:devcontainers": "node cli/devcontainer.mjs"
+    "build:devcontainers": "node cli/devcontainer.mjs",
+    "check": "node scripts/check-repo.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "engines": {
     "node": ">=22.13"
@@ -45,5 +55,8 @@
     "scaffold"
   ],
   "author": "ALOUANI YOUSSEF",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
