@@ -106,6 +106,34 @@ async function init(target, args) {
   }
 }
 
+function handleSync(target, args) {
+  const { status } = syncDevcontainer(join(target, '.devcontainer'), { check: args.check, name: basename(target) });
+  if (status === 'missing') {
+    console.log('no .devcontainer/Dockerfile, nothing to sync');
+    return;
+  }
+  if (status === 'drift') {
+    console.error('devcontainer.json is out of date: run `npx claude-stones sync`');
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`devcontainer.json ${status}`);
+}
+
+async function handleRoadmap(target, args) {
+  if (args.printPrompt) {
+    console.log(roadmapPrompt(target, args.focus));
+    return;
+  }
+  const result = await startRoadmapSession(target, { focus: args.focus });
+  if (!result.started) {
+    console.error(result.message);
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = result.code ?? 0;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.version) {
@@ -123,27 +151,8 @@ async function main() {
     console.log(JSON.stringify(detect(target), null, 2));
     return;
   }
-  if (command === 'sync') {
-    const { status } = syncDevcontainer(join(target, '.devcontainer'), { check: args.check, name: basename(target) });
-    if (status === 'missing') console.log('no .devcontainer/Dockerfile, nothing to sync');
-    else if (status === 'drift') {
-      console.error('devcontainer.json is out of date: run `npx claude-stones sync`');
-      process.exitCode = 1;
-    } else console.log(`devcontainer.json ${status}`);
-    return;
-  }
-  if (command === 'roadmap') {
-    if (args.printPrompt) {
-      console.log(roadmapPrompt(target, args.focus));
-      return;
-    }
-    const result = await startRoadmapSession(target, { focus: args.focus });
-    if (!result.started) {
-      console.error(result.message);
-      process.exitCode = 1;
-    } else process.exitCode = result.code ?? 0;
-    return;
-  }
+  if (command === 'sync') return handleSync(target, args);
+  if (command === 'roadmap') return handleRoadmap(target, args);
   throw new Error(`Unknown command "${command}". Run with --help.`);
 }
 
