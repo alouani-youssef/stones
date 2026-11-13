@@ -21,10 +21,12 @@
 //     "enabled": true,
 //     "skip": ["explanation"],                 // categories to stay silent on
 //     "commands": { "test": "make test" },     // verification commands
-//     "rules": { "*": ["..."], "debugging": ["..."] }  // extra Diligence lines
+//     "rules": { "*": ["..."], "debugging": ["..."] }, // extra Diligence lines
+//     "show": true,                            // also display each block to the user
+//     "log": true                              // append each block to .claude/four-d.log
 //   }
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // ------------------------------------------------------------ classifier
@@ -274,43 +276,106 @@ export function riskOverlay(risk) {
 
 const ALWAYS = 'Report only checks you actually ran, with their results; say explicitly what was not verified.';
 
+const SCRIPT_CANDIDATES = {
+  test: ['test', 'test:all'],
+  typecheck: ['typecheck', 'typecheck:all', 'type-check'],
+  lint: ['lint', 'lint:all'],
+};
+
+function readProjectFile(project, file) {
+  try {
+    return readFileSync(join(project, file), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function hasProjectFile(project, ...files) {
+  return files.some((f) => existsSync(join(project, f)));
+}
+
+function detectPackageManager(project) {
+  if (hasProjectFile(project, 'pnpm-lock.yaml')) return 'pnpm';
+  if (hasProjectFile(project, 'yarn.lock')) return 'yarn';
+  if (hasProjectFile(project, 'bun.lockb', 'bun.lock')) return 'bun';
+  return 'npm';
+}
+
+function detectNodeCommands(project) {
+  const pkgText = readProjectFile(project, 'package.json');
+  if (!pkgText) return {};
+
+  let scripts = {};
+  try {
+    scripts = JSON.parse(pkgText).scripts ?? {};
+  } catch {
+    // malformed package.json
+  }
+
+  const pm = detectPackageManager(project);
+  const commands = {};
+  for (const [task, candidates] of Object.entries(SCRIPT_CANDIDATES)) {
+    const name = candidates.find((n) => n in scripts);
+    if (name) commands[task] = `${pm} run ${name}`;
+  }
+
+  if (!commands.typecheck && hasProjectFile(project, 'tsconfig.json')) {
+    commands.typecheck = 'npx tsc --noEmit';
+  }
+  return commands;
+}
+
+function detectPythonCommands(project) {
+  const py = readProjectFile(project, 'pyproject.toml') +
+    readProjectFile(project, 'requirements.txt') +
+    readProjectFile(project, 'setup.cfg');
+  if (!py && !hasProjectFile(project, 'setup.py')) return {};
+
+  const commands = {};
+  if (/\bpytest\b/.test(py) || hasProjectFile(project, 'pytest.ini', 'conftest.py', 'tests')) {
+    commands.test = 'pytest';
+  }
+  if (/\bruff\b/.test(py)) commands.lint = 'ruff check .';
+  if (/\bmypy\b/.test(py)) commands.typecheck = 'mypy .';
+  return commands;
+}
+
+function detectMakefileCommands(project) {
+  const makefile = readProjectFile(project, 'Makefile');
+  if (!makefile) return {};
+
+  const commands = {};
+  for (const task of ['test', 'lint', 'typecheck']) {
+    if (new RegExp(`^${task}:`, 'm').test(makefile)) commands[task] = `make ${task}`;
+  }
+  return commands;
+}
+
+function applyDefaults(target, source) {
+  for (const [key, value] of Object.entries(source)) {
+    target[key] ??= value;
+  }
+}
+
 // Verification commands for the project, mirroring cli/detect.mjs but kept
 // standalone so the hook works once copied into a project's .claude/hooks.
 export function detectCommands(project) {
-  const has = (...files) => files.some((f) => existsSync(join(project, f)));
-  const read = (file) => {
-    try { return readFileSync(join(project, file), 'utf8'); } catch { return ''; }
-  };
-  const commands = {};
-  const pkgText = read('package.json');
-  if (pkgText) {
-    let scripts = {};
-    try { scripts = JSON.parse(pkgText).scripts ?? {}; } catch { /* malformed */ }
-    const pm = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('bun.lockb', 'bun.lock') ? 'bun' : 'npm';
-    for (const task of ['test', 'typecheck', 'lint']) {
-      const name = [task, `${task}:all`, task === 'typecheck' ? 'type-check' : null].find((n) => n && n in scripts);
-      if (name) commands[task] = `${pm} run ${name}`;
-    }
-    if (!commands.typecheck && has('tsconfig.json')) commands.typecheck = 'npx tsc --noEmit';
-  }
-  const py = read('pyproject.toml') + read('requirements.txt') + read('setup.cfg');
-  if (py || has('setup.py')) {
-    if (/\bpytest\b/.test(py) || has('pytest.ini', 'conftest.py', 'tests')) commands.test ??= 'pytest';
-    if (/\bruff\b/.test(py)) commands.lint ??= 'ruff check .';
-    if (/\bmypy\b/.test(py)) commands.typecheck ??= 'mypy .';
-  }
-  if (has('go.mod')) {
+  const commands = detectNodeCommands(project);
+
+  applyDefaults(commands, detectPythonCommands(project));
+
+  if (hasProjectFile(project, 'go.mod')) {
     commands.test ??= 'go test ./...';
     commands.lint ??= 'go vet ./...';
   }
-  if (has('Cargo.toml')) {
+
+  if (hasProjectFile(project, 'Cargo.toml')) {
     commands.test ??= 'cargo test';
     commands.lint ??= 'cargo clippy';
   }
-  const makefile = read('Makefile');
-  for (const task of ['test', 'lint', 'typecheck']) {
-    if (new RegExp(`^${task}:`, 'm').test(makefile)) commands[task] ??= `make ${task}`;
-  }
+
+  applyDefaults(commands, detectMakefileCommands(project));
+
   return commands;
 }
 
@@ -375,7 +440,17 @@ export function evaluate(event, { projectDir } = {}) {
   const extraRules = [...(config.rules?.['*'] ?? []), ...(config.rules?.[category] ?? [])];
   const policy = resolvePolicy({ category, risk, gaps, commands, extraRules });
 
-  return { category, risk, context: render({ category, secondary, risk, policy }) };
+  return { category, risk, config, project, context: render({ category, secondary, risk, policy }) };
+}
+
+export const LOG_PATH = '.claude/four-d.log';
+
+// One plain-text entry per injection, readable with `tail -f .claude/four-d.log`.
+export function logInjection(project, { prompt, sessionId, context, now = new Date() }) {
+  const file = join(project, LOG_PATH);
+  mkdirSync(dirname(file), { recursive: true });
+  const session = sessionId ? ` · session ${sessionId}` : '';
+  appendFileSync(file, `=== ${now.toISOString()}${session}\nprompt: ${prompt.trim()}\n${context}\n\n`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -383,11 +458,19 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;
   try {
-    const { context } = evaluate(JSON.parse(input));
+    const event = JSON.parse(input);
+    const { context, config, project } = evaluate(event);
     if (context) {
-      process.stdout.write(JSON.stringify({
-        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
-      }));
+      const output = { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
+      if (config.show === true) output.systemMessage = context;
+      if (config.log === true) {
+        try {
+          logInjection(project, { prompt: event.prompt, sessionId: event.session_id, context });
+        } catch {
+          // A failed log write must not drop the injection.
+        }
+      }
+      process.stdout.write(JSON.stringify(output));
     }
   } catch {
     // Never block a prompt because the hook itself failed.

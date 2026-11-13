@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -169,5 +169,29 @@ describe('hook process', () => {
 
   it('prints nothing and exits 0 on bad input', () => {
     assert.equal(exec('not json'), '');
+  });
+
+  it('does not show or log the block unless configured', () => {
+    const cwd = project();
+    const out = JSON.parse(exec(JSON.stringify({ prompt: 'write unit tests for the parser', cwd })));
+    assert.equal(out.systemMessage, undefined);
+    assert.equal(existsSync(join(cwd, '.claude', 'four-d.log')), false);
+  });
+
+  it('shows the injected block to the user with "show": true', () => {
+    const cwd = project({ '.claude/four-d.json': JSON.stringify({ show: true }) });
+    const out = JSON.parse(exec(JSON.stringify({ prompt: 'write unit tests for the parser', cwd })));
+    assert.equal(out.systemMessage, out.hookSpecificOutput.additionalContext);
+  });
+
+  it('appends each injected block to .claude/four-d.log with "log": true', () => {
+    const cwd = project({ '.claude/four-d.json': JSON.stringify({ log: true }) });
+    exec(JSON.stringify({ prompt: 'write unit tests for the parser', cwd, session_id: 's1' }));
+    exec(JSON.stringify({ prompt: 'fix the login bug please', cwd, session_id: 's1' }));
+    exec(JSON.stringify({ prompt: 'yes', cwd, session_id: 's1' }));
+    const log = readFileSync(join(cwd, '.claude', 'four-d.log'), 'utf8');
+    assert.equal(log.match(/^=== /gm).length, 2, 'one entry per injection, none for silent prompts');
+    assert.match(log, /^=== \d{4}-\d\d-\d\dT[^ ]+ · session s1\nprompt: write unit tests for the parser\n\[4D guardrails\] task: testing/m);
+    assert.match(log, /prompt: fix the login bug please\n\[4D guardrails\] task: debugging/);
   });
 });

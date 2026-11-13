@@ -19,6 +19,7 @@ import { LIST_DIR, STATE_DIR, STATE_HEADERS, STATES } from '../tools/tasks.mjs';
 export const MANIFEST = '.claude/stones.json';
 const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json', '.claude/quality/', '.claude/pr.md'];
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
+const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
 const TASKS_GITIGNORE = ['.claude/reviews/'];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
 // Installed in every project. All but create-pr are allowed in settings.json;
@@ -157,6 +158,7 @@ function desiredFiles({ answers, stack, root, target }) {
     const ignored = [
       ...GITIGNORE_LINES,
       ...(answers.install.hooks.includes('history') ? HISTORY_GITIGNORE : []),
+      ...(answers.install.hooks.includes('four-d') ? FOUR_D_GITIGNORE : []),
       ...(usesTaskBoard(answers) ? TASKS_GITIGNORE : []),
     ];
     for (const line of ignored) files.push({ path: '.gitignore', line, content: `${line}\n`, kind: 'line' });
