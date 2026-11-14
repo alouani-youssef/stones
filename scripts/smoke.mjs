@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// End-to-end smoke test of the claude-stones CLI on throwaway projects, one
+// End-to-end smoke test of the ai-stones CLI on throwaway projects, one
 // per supported stack. CI runs it against the packed tarball so a file
 // missing from package.json "files" fails here, not for users.
 //

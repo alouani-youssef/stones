@@ -1,6 +1,6 @@
 // Regenerates settings/settings.json: the settings this template produces for
 // its own repository, with every available hook enabled. Target projects get
-// a tailored version from `npx @alouani-youssef/harness-stones init`.
+// a tailored version from `npx ai-stones init`.
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

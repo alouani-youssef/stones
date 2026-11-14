@@ -1,6 +1,6 @@
 {
   "name": "ai-stones",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
   },
   "type": "module",
   "bin": {
-    "stones": "bin/stones.mjs"
+    "ai-stones": "bin/stones.mjs"
   },
   "files": [
     "bin/",
@@ -56,6 +56,6 @@
   "author": "ALOUANI YOUSSEF",
   "license": "MIT",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org"
   }
 }

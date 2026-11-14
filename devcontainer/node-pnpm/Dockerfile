@@ -1,5 +1,5 @@
 # Dev container for Node + pnpm projects. This file is the source of truth:
-# devcontainer.json is generated from it (`npx @alouani-youssef/harness-stones sync`).
+# devcontainer.json is generated from it (`npx ai-stones sync`).
 ARG NODE_VERSION=22
 FROM node:${NODE_VERSION}-bookworm
 

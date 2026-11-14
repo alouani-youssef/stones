@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// claude-stones: generate a tailored `.claude/` setup, AGENT.md and ROADMAP.md.
+// ai-stones: generate a tailored `.claude/` setup, AGENT.md and ROADMAP.md.
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
@@ -12,13 +12,13 @@ import { createPrompter, createScriptedPrompter } from '../cli/prompt.mjs';
 import { interview } from '../cli/questions.mjs';
 import { roadmapPrompt, startRoadmapSession } from '../cli/roadmap.mjs';
 
-const HELP = `claude-stones — Claude Code setup tailored to your project
+const HELP = `ai-stones — Claude Code setup tailored to your project
 
 Usage
-  npx @alouani-youssef/harness-stones init [dir]      Answer questions, generate AGENT.md and .claude/
-  npx @alouani-youssef/harness-stones roadmap [dir]   Start a Claude session that writes ROADMAP.md
-  npx @alouani-youssef/harness-stones detect [dir]    Print the detected stack as JSON
-  npx @alouani-youssef/harness-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
+  npx ai-stones init [dir]      Answer questions, generate AGENT.md and .claude/
+  npx ai-stones roadmap [dir]   Start a Claude session that writes ROADMAP.md
+  npx ai-stones detect [dir]    Print the detected stack as JSON
+  npx ai-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
 
 Options
   -y, --yes          Accept detected defaults and previous answers, no questions
@@ -59,14 +59,14 @@ async function maybeStartRoadmap(target, args, ask, stack, out) {
   const interactive = !args.yes;
   const shouldOffer = args.roadmap && interactive && stack.tooling.claude;
   if (!shouldOffer) {
-    out.write('Next: run `npx @alouani-youssef/harness-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    out.write('Next: run `npx ai-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
     return;
   }
 
   const start = await ask.confirm('roadmap.start', '\nStart a Claude session now to write ROADMAP.md?', true);
   ask.close();
   if (!start) {
-    out.write('Next: run `npx @alouani-youssef/harness-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
+    out.write('Next: run `npx ai-stones roadmap` (or /roadmap in Claude Code) to write ROADMAP.md.\n');
     return;
   }
 
@@ -82,7 +82,7 @@ async function init(target, args) {
   const interactive = !args.yes;
   const ask = interactive ? createPrompter() : createScriptedPrompter({}, { output: undefined });
 
-  out.write(`claude-stones: setting up ${target}\n`);
+  out.write(`ai-stones: setting up ${target}\n`);
   const detected = [...stack.languages, ...stack.frameworks].join(', ') || 'no known stack';
   const pms = stack.packageManagers.length ? ` (${stack.packageManagers.join(', ')})` : '';
   out.write(`Detected: ${detected}${pms}\n`);
@@ -113,7 +113,7 @@ function handleSync(target, args) {
     return;
   }
   if (status === 'drift') {
-    console.error('devcontainer.json is out of date: run `npx @alouani-youssef/harness-stones sync`');
+    console.error('devcontainer.json is out of date: run `npx ai-stones sync`');
     process.exitCode = 1;
     return;
   }
@@ -163,7 +163,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`claude-stones: ${error.message}`);
+  console.error(`ai-stones: ${error.message}`);
   process.exitCode = 1;
 });
 

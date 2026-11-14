@@ -1,4 +1,4 @@
-# Code-quality services for Claude Code hooks. Installed by claude-stones
+# Code-quality services for Claude Code hooks. Installed by ai-stones
 # with the complexity hook as .claude/analyzers/compose.yaml; in the stones
 # repository it is analyzers/compose.yaml. Run from the project root:
 #

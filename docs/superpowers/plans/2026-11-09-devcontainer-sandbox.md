@@ -175,7 +175,7 @@ Behaviour:
 
 Behaviour: `stones sync [dir]` calls `syncDevcontainer(join(target, '.devcontainer'), { name: basename(target) })` and prints `devcontainer.json <status>`. `--check` passes `check: true` and exits 1 on `drift`. `missing` prints `no .devcontainer/Dockerfile` and exits 0. Malformed metadata prints the error and exits 1. HELP gets these lines:
 ```
-  npx claude-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
+  npx ai-stones sync [dir]      Regenerate .devcontainer/devcontainer.json from its Dockerfile
   --check            With sync: fail if devcontainer.json is out of date, write nothing
 ```
 

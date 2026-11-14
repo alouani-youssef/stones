@@ -368,7 +368,7 @@ export function apply({ target, ops, answers, stack }) {
     if (op.kind === 'json' && ['create', 'update', 'merge', 'same'].includes(op.action)) generated[op.path] = op.value;
   }
   const next = {
-    $comment: 'Written by claude-stones: your setup answers and the files it installed. Re-run `npx @alouani-youssef/harness-stones init` to update.',
+    $comment: 'Written by ai-stones: your setup answers and the files it installed. Re-run `npx ai-stones init` to update.',
     version: 1,
     generatedAt: new Date().toISOString(),
     stack: {

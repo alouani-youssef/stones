@@ -1,8 +1,7 @@
 name: Release
 
 # Push a tag that matches package.json, e.g. `npm version patch && git push --follow-tags`.
-# The full CI runs first; then the package is published to GitHub Packages
-# with the workflow's own token and a GitHub Release is created.
+# The full CI runs first; then the public npm package and GitHub Release are created.
 on:
   push:
     tags: ['v*.*.*']
@@ -15,21 +14,19 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   publish:
-    name: Publish to GitHub Packages
+    name: Publish to npm
     needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
     permissions:
       contents: write # GitHub Release
-      packages: write # npm.pkg.github.com
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          registry-url: https://npm.pkg.github.com
-          scope: '@alouani-youssef'
+          registry-url: https://registry.npmjs.org
 
       - name: Tag matches package.json version
         id: version
@@ -47,7 +44,7 @@ jobs:
       - name: Publish
         run: npm publish ./*.tgz --tag "${{ steps.version.outputs.dist_tag }}"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: GitHub Release
         env:

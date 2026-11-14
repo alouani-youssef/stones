@@ -1,323 +1,179 @@
-# claude-stones
+# ai-stones
 
 [![CI](https://github.com/alouani-youssef/stones/actions/workflows/ci.yml/badge.svg)](https://github.com/alouani-youssef/stones/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/ai-stones)](https://www.npmjs.com/package/ai-stones)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Generate a Claude Code setup tailored to a project: a `.claude/` folder with
-only the hooks, permissions and skills the project needs, an `AGENT.md` that
-tells Claude what the project is and how to work in it, and a `ROADMAP.md`
-written with you in a Claude session.
+**ai-stones creates a project-aware Claude Code setup.** It detects your
+language, framework, tooling and conventions, then builds a focused `.claude/`
+configuration, an `AGENT.md` project brief and an optional `ROADMAP.md`.
+
+It is published publicly on npm. You can run it with Node.js 22.13 or newer;
+the history hook uses the built-in `node:sqlite` module.
 
 ```sh
-npx @alouani-youssef/harness-stones init          # answer a few questions in your project root
-npx @alouani-youssef/harness-stones roadmap       # start a Claude session that writes ROADMAP.md
+npx ai-stones init       # run in your project root
+npx ai-stones detect     # inspect the detected stack
+npx ai-stones roadmap    # start a Claude session to write ROADMAP.md
 ```
-
-From a clone of this repository: `bash setup.bash init /path/to/project`.
-Requires Node.js 22.13+ (the history hook uses the built-in `node:sqlite`).
 
 ## Install
 
-The package is published to GitHub Packages as
-`@alouani-youssef/harness-stones`. GitHub Packages needs a token even for
-public packages: create a GitHub token with `read:packages`, then add it to
-your **user** `~/.npmrc` (never to a project's `.npmrc`):
+Run a command directly with `npx`:
 
 ```sh
-echo "@alouani-youssef:registry=https://npm.pkg.github.com" >> ~/.npmrc
-echo "//npm.pkg.github.com/:_authToken=<your token>" >> ~/.npmrc
-npm install -g @alouani-youssef/harness-stones   # provides `claude-stones`
+npx ai-stones init
 ```
 
-After that, run it with `npx @alouani-youssef/harness-stones …` or, once
-installed globally, `claude-stones …`. Never pass the bare `claude-stones` to npx: that
-name resolves to whatever unrelated package holds it on the public npm registry.
+Or install globally. The package is named `ai-stones`; its executable is
+`ai-stones`:
 
-## What `init` does
-
-1. **Detects the stack** from the files already there: languages, frameworks,
-   package manager, monorepo tool, test/lint/typecheck/build commands,
-   formatters, commit style. Run `npx @alouani-youssef/harness-stones detect` to see it.
-2. **Asks about what it cannot detect**, with detected values as defaults:
-   what the project is, what each top-level folder holds, architecture,
-   design patterns, secrets and auth, conventions, branching, TDD, and which
-   hooks, skills, plugins and MCP servers to install.
-3. **Writes the setup**:
-
+```sh
+npm install --global ai-stones
+ai-stones init
 ```
-AGENT.md                  project brief for Claude, from your answers
-CLAUDE.md                 "@AGENT.md" (appended if CLAUDE.md already exists)
-.mcp.json                 only the MCP servers you picked
-.gitignore                + generated graph and local settings
+
+No GitHub Packages registry or package token is needed. To run from a source
+checkout instead, use `bash setup.bash init /path/to/project`.
+
+## What `init` creates
+
+Run `init` from the project directory. ai-stones detects the stack first, asks
+about project context it cannot infer, and then writes a tailored setup.
+
+1. **Detects the stack:** languages, frameworks, package manager, monorepo
+   tooling, test/lint/typecheck/build commands, formatters and commit style.
+   Use `npx ai-stones detect` to inspect the result as JSON.
+2. **Asks for project context:** purpose, top-level folders, architecture,
+   design patterns, security conventions, branching and TDD preferences, and
+   which hooks, skills, plugins and MCP servers to include. Detected values
+   become defaults.
+3. **Installs only the selected setup:**
+
+```text
+AGENT.md                  project brief based on your answers
+CLAUDE.md                 imports AGENT.md (appended if CLAUDE.md exists)
+.mcp.json                 selected MCP servers
 .claude/
-├── settings.json         selected hooks, permissions for your commands,
-│                         sandbox limited to your package registries,
-│                         enabled plugins (official + stones marketplaces)
-├── hooks/                only the selected hooks
-├── skills/               only the selected skills and pattern skills
-├── graph/                code graph (with the graph hook)
-├── analyzers/            complexity analyzer container, compose.yaml (with the complexity hook)
-├── atomicity.json        atomicity hook config, detected defaults (with the atomicity hook)
-├── danger/               specs for db, packages and network branches (atomicity hook)
-├── commands/roadmap.md   the /roadmap command
-├── tools/                list-packages, git-comments, worktree-history,
-│                         quality-check, create-pr, roadmap, sync-docs;
-│                         tasks.mjs + review.mjs (with the tracking-tasks skill)
-└── stones.json           your answers and installed-file hashes
-context/tasks/            task board (with the tracking-tasks skill)
-├── list/                 one file per task
-└── state/                current.md, next.md, blocked.md, done.md
+├── settings.json         selected hooks, permissions and plugins
+├── hooks/                selected hooks
+├── skills/               selected and stack-specific skills
+├── graph/                code graph, when selected
+├── analyzers/            complexity analyzer, when selected
+├── commands/             slash commands such as /roadmap
+├── tools/                project and task-board tools
+└── stones.json           saved answers and installed-file hashes
+context/tasks/            task board, when selected
 ```
 
-## Why it is efficient
+The exact files depend on your answers and detected stack. Use `--dry-run` to
+preview the planned changes without writing files.
 
-- **Small always-loaded context.** `CLAUDE.md` only imports `AGENT.md`, a short
-  brief. Guides ship as Claude Code skills in `.claude/skills/`: only each
-  skill's one-line "Use when…" description is in context, and Claude loads the
-  body (and its reference files) when the task matches: committing, opening a
-  PR, writing tests, naming a file, and so on. `ROADMAP.md` is linked, not loaded.
-- **Guardrails on, gates opt-in.** By default only hooks that never get in
-  the way are selected: `access_guard`, `block-rm`, `format`, `naming` and
-  `devcontainer`. Hooks that block work until a process is followed
-  (`testing`, `atomicity`, `complexity`), add context to every prompt or read
-  (`four-d`, `graph`) or record every prompt and reply (`history`) are offered
-  but marked opt-in. Personal preferences (`language`, thinking, attribution,
-  transcript cleanup) belong in your `~/.claude/settings.json`; the shared
-  project settings do not set them.
-- **Guardrails are not a sandbox.** `access_guard` and `block-rm` catch
-  accidents (secrets, paths outside the project, `git push`, `rm`), not a
-  determined bypass such as building a path in `python -c`. The sandbox and
-  `permissions.deny` are the boundary.
-- **Only what the stack uses.** Permissions come from your real commands
-  (`pnpm run test`, `uv run pytest`, `go test`); sandbox domains from your
-  ecosystems; nx rules only in nx repos; the format hook only when a formatter
-  exists; the jq status line and `block-rm` hook only when jq is installed.
-- **Open-source plugins by default.** `superpowers`, `code-review`,
-  `claude-md-management`, `security-guidance` and `context7` are enabled in
-  every project; the language server, frontend and database plugins
-  (`prisma`, `supabase`, `mongodb`, `neon`, `firebase`, `redis-development`)
-  only when the stack uses them. They live in `enabledPlugins`, so Claude Code
-  offers to install them when someone trusts the repo.
-- **Framework best-practice plugins.** This repository is also the `stones`
-  marketplace (`.claude-plugin/marketplace.json`), with Claude Code plugins in
-  `plugins/`: `nestjs-best-practices`
-  (from [Kadajett/agent-nestjs-skills](https://github.com/Kadajett/agent-nestjs-skills)),
-  `gin-best-practices` and `flask-best-practices`
-  (from [TerminalSkills/skills](https://github.com/TerminalSkills/skills)). Each
-  vendors a community skill unchanged from a pinned commit, recorded in its
-  `UPSTREAM.md`, and is enabled only when NestJS, Gin or Flask is detected.
-- **Pattern skills match the stack.** Repository for ORMs, dependency
-  injection for NestJS/Angular/JVM, summary-details for API frameworks.
-- **Fast re-runs.** Previous answers become the defaults, so updating the
-  setup is mostly pressing Enter, or `init --yes`.
+## Why use ai-stones
 
-## Re-running safely
+- **Relevant context, loaded when needed.** `CLAUDE.md` imports a short
+  `AGENT.md` brief. Guides are installed as Claude Code skills, so their full
+  instructions load when a task matches.
+- **Useful defaults, optional process gates.** Lightweight guardrails are
+  selected by default. Hooks that block work or add context to every prompt
+  are opt-in, as are history recording and the code graph.
+- **Settings based on the actual project.** Permissions and sandbox domains
+  follow detected commands and ecosystems. Framework plugins and pattern
+  skills are offered only when relevant.
+- **Safe to rerun.** Previous answers become defaults. Unedited generated
+  files update; edited files are preserved and reported unless `--force` is
+  used. Settings are merged, and user-authored files are left in place.
 
-`init` can be run again at any time, for example after upgrading the package
-or changing your answers:
+## Commands
 
-| File                                   | What happens                                       |
-| -------------------------------------- | -------------------------------------------------- |
-| Installed file you have not edited     | Updated                                            |
-| Installed file you edited              | Left alone and reported (`--force` overwrites)     |
-| `.claude/settings.json`, `.mcp.json`   | Merged: your keys and rules are kept               |
-| `CLAUDE.md`, `.gitignore`              | Lines appended only if missing                     |
-| `.claude/graph/project.json`           | Created once, then owned by the graph hook         |
-| `.claude/atomicity.json`               | Created once, then owned by you                    |
-
-Use `--dry-run` to see the plan without writing anything.
-
-Setups made before guides became skills keep their choices: saved guide ids
-map to the new skill names, and skills added since are offered. Old files in
-`.claude/docs/` are not removed; delete that folder once `.claude/skills/` is in place.
-
-## Roadmap sessions
-
-`npx @alouani-youssef/harness-stones roadmap` opens Claude Code with the `/roadmap` prompt. Claude
-reads `AGENT.md`, the existing `ROADMAP.md`, recent commits and any OpenSpec
-specs, interviews you in short rounds (outcome, the one milestone for *Now*,
-*Next*/*Later*, constraints, risks), shows a draft, and writes `ROADMAP.md`.
-Run it again to revise: finished milestones move out of *Now* and the reason
-for each change is recorded under *Decisions*.
+### Initialize or update a setup
 
 ```sh
-npx @alouani-youssef/harness-stones roadmap --focus "plan the next milestone"
-npx @alouani-youssef/harness-stones roadmap --print-prompt   # just print the prompt
+npx ai-stones init
+npx ai-stones init /path/to/project --dry-run
+npx ai-stones init --yes
 ```
 
-Inside Claude Code the same session is `/roadmap [focus]`.
+`init` can be run again after upgrading ai-stones or changing project answers.
+Use `--dry-run` to preview changes and `--force` to overwrite files that were
+edited after installation.
 
-## Task board
-
-With the `tracking-tasks` skill, `init` installs a task board and two tools.
-Each task is a file in `context/tasks/list/` (expected behavior, scenarios,
-contract change, and a `Scope` of globs it may touch). The files in
-`context/tasks/state/` list which tasks are current, next, blocked and done.
+### Detect the project stack
 
 ```sh
-node .claude/tools/tasks.mjs add "Rate limit logins" --scope "src/auth/**,tests/auth/**"
-node .claude/tools/tasks.mjs start 1        # records the branch and base commit
-node .claude/tools/tasks.mjs done 1         # runs the tests; moves to done.md only if they pass
-node .claude/tools/tasks.mjs review 1 --run-tests
+npx ai-stones detect
 ```
 
-- **One current task.** The testing hook reads the task linked from
-  `state/current.md` and blocks test runs until its scenarios are filled in.
-- **Done means tested.** `done` runs the project's test command and records
-  the commit range and result in `state/done.md`; a failing run records nothing.
-- **Review against the promise.** `review` writes `.claude/reviews/<id>.md`
-  (git-ignored) and exits 1 when the task is not ready. The file holds the
-  verdict, each scenario and whether a changed test covers it, commits, files
-  and the diff. It flags failing or stale test runs, missing tests, changes
-  outside the scope, db/packages/network changes mixed with others (atomicity
-  hook), and functions the complexity hook rejects.
+Prints the detected languages, frameworks, tools and commands as JSON.
 
-Without the skill, the testing hook keeps reading `context/tasks/active.md`.
-
-## Listing packages
-
-Every project gets `.claude/tools/list-packages.mjs`, and AGENT.md tells Claude
-to run it before adding a dependency. It reads the manifests already in the
-repository (`package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`,
-`Cargo.toml`, in every package of a monorepo) without installing anything.
+### Create or revise a roadmap
 
 ```sh
-node .claude/tools/list-packages.mjs              # every manifest, grouped
-node .claude/tools/list-packages.mjs --prod       # runtime dependencies only
-node .claude/tools/list-packages.mjs --grep redis # is there already a client?
+npx ai-stones roadmap
+npx ai-stones roadmap --focus "plan the next milestone"
+npx ai-stones roadmap --print-prompt
+```
+
+The roadmap command starts Claude Code with the `/roadmap` prompt. Claude
+reviews `AGENT.md`, the current roadmap, recent commits and any OpenSpec specs,
+then interviews you and drafts or revises `ROADMAP.md`. In Claude Code, you can
+also run `/roadmap [focus]`.
+
+### Sync a dev container
+
+```sh
+npx ai-stones sync
+npx ai-stones sync --check
+```
+
+Regenerates `.devcontainer/devcontainer.json` from its Dockerfile. `--check`
+exits with an error when the generated file is out of date.
+
+### Useful options
+
+| Option | Effect |
+| --- | --- |
+| `-y`, `--yes` | Accept detected defaults and saved answers without prompts |
+| `--dry-run` | Show planned `init` changes without writing them |
+| `--force` | Overwrite files edited since installation |
+| `--no-roadmap` | Do not offer to start a roadmap session after `init` |
+| `--focus <text>` | Set the focus for a roadmap session |
+| `--print-prompt` | Print the roadmap prompt instead of starting Claude |
+| `--check` | With `sync`, check for drift without writing |
+
+## Included project tools
+
+Depending on the selected skills, the setup can include tools to inspect
+dependencies, review worktree history, store Git comments, run project quality
+checks, draft pull requests, manage a roadmap, synchronize documentation and
+track tasks. For example, the dependency listing tool reads manifests without
+installing packages:
+
+```sh
+node .claude/tools/list-packages.mjs
+node .claude/tools/list-packages.mjs --prod
+node .claude/tools/list-packages.mjs --grep redis
 node .claude/tools/list-packages.mjs --json
 ```
 
-## Git comments and worktree history
+## Repository development
 
-Two more tools in every project help a session pick work back up.
-`git-comments.mjs` keeps comments on commits as git notes under
-`refs/notes/comments`, so the commits themselves never change.
-`worktree-history.mjs` shows what happened in a worktree: its branch, the
-commit it started from, the commits since then (with their comments),
-uncommitted changes and recent HEAD moves.
+The repository contains the CLI, setup catalogs, hooks, skills, plugins,
+settings and dev-container templates. After cloning it, run:
 
 ```sh
-node .claude/tools/git-comments.mjs set HEAD "Verified with npm test; docs left"
-node .claude/tools/git-comments.mjs append HEAD~1 "Reverted in a later commit"
-node .claude/tools/git-comments.mjs get HEAD
-node .claude/tools/git-comments.mjs list main..HEAD
-node .claude/tools/worktree-history.mjs list            # every worktree
-node .claude/tools/worktree-history.mjs show feature/x  # by branch or path; default: this one
-```
-
-Notes stay local until you share them:
-`git push origin refs/notes/comments`, and
-`git fetch origin refs/notes/comments:refs/notes/comments` on the other side.
-
-## Quality, pull requests, roadmap and docs
-
-Four more tools in every project, all plain Node with no dependencies:
-
-```sh
-node .claude/tools/quality-check.mjs                  # lint, typecheck, test, build from your init answers
-node .claude/tools/quality-check.mjs --only test --cmd test="pytest -q"
-node .claude/tools/create-pr.mjs draft > .claude/pr.md  # Summary/Zone/Spec/Risk/Rollback/Verification
-node .claude/tools/create-pr.mjs create --body-file .claude/pr.md [--base deps/x] [--draft]
-node .claude/tools/roadmap.mjs show                   # outcome, the Now milestone, Next
-node .claude/tools/roadmap.mjs check                  # one Now milestone, 2-4 Next, revised recently
-node .claude/tools/roadmap.mjs decide "Use git notes" "Commits stay unchanged"
-node .claude/tools/sync-docs.mjs [--fix]              # broken links, missing scripts, stale AGENT.md
-```
-
-- `quality-check` skips the format step unless asked (`--only format`),
-  because formatters rewrite files. It saves the run to
-  `.claude/quality/last.json` with the commit it ran on.
-- `create-pr` fills the sections the `opening-pull-requests` skill requires:
-  commits and their git comments, the zone from the `db/`, `deps/` or `net/`
-  prefix, the danger spec, and the last quality run (flagged if it ran on an
-  older commit). `create` refuses a body with TODOs and never pushes: push
-  the branch first. It is the one tool not pre-approved in settings, so
-  Claude asks before opening a PR.
-- `sync-docs --fix` only restores the `@AGENT.md` import in CLAUDE.md.
-  Broken links and drifted commands are reported for a person to fix.
-
-## Dev containers
-
-For Node + pnpm, Python and Go projects, `init` adds a dev container (the
-default dev sandbox) in `.devcontainer/`, unless you decline. Claude Code's own
-sandbox stays on inside it.
-
-- **The Dockerfile is the single source of truth.** `devcontainer.json` is
-  generated from it: `USER`, `ENV`, `EXPOSE` and `WORKDIR` of the last stage become
-  `remoteUser`, `containerEnv`, `forwardPorts` and `workspaceFolder`. Anything
-  else (extensions, `postCreateCommand`, mounts...) goes in
-  `LABEL devcontainer.metadata='{...}'`, which wins over derived fields.
-  Lifecycle commands (`postCreateCommand`...) stay in the label only: dev
-  container tools read it from the image, and copying them would run them twice.
-- The Dockerfile is yours after install; re-running `init` never overwrites it,
-  but always regenerates `devcontainer.json` from it.
-- The `devcontainer` hook regenerates the JSON whenever Claude edits the
-  Dockerfile, and undoes hand edits to the JSON.
-
-```sh
-npx @alouani-youssef/harness-stones sync           # regenerate .devcontainer/devcontainer.json
-npx @alouani-youssef/harness-stones sync --check   # CI: fail if it is out of date
-```
-
-## Options
-
-```
--y, --yes         accept defaults and previous answers, no questions
---dry-run         show what init would change, write nothing
---force           overwrite files edited since they were installed
---no-roadmap      do not offer a roadmap session after init
---focus <text>    roadmap focus
---print-prompt    print the roadmap prompt instead of starting Claude
---check           with sync: fail if devcontainer.json is out of date
-```
-
-## Repository layout
-
-| Path          | Role                                                            |
-| ------------- | --------------------------------------------------------------- |
-| `bin/`, `cli/`| the `claude-stones` command                                     |
-| `AGENT.md`    | section template for the generated `AGENT.md`                   |
-| `hooks/`      | hook scripts; any hook registered in `settings/hooks.json` is offered |
-| `settings/`   | modular settings sources; `stacks.json` maps ecosystems to permissions and domains |
-| `skills/`     | skills offered during setup: `<name>/SKILL.md` plus reference files; `metadata.kind: pattern` marks pattern skills |
-| `graph/`      | code graph seed and documentation                               |
-| `commands/`   | slash commands installed into `.claude/commands/`               |
-| `tools/`      | project tools (packages, git comments, worktree history, quality, PRs, roadmap, docs) and task board tools installed into `.claude/tools/` |
-| `mcps/`       | MCP servers offered for `.mcp.json`                             |
-| `settings/plugins.json` | plugins offered: `default: true` for every project, `when` to match detected languages/frameworks |
-| `devcontainer/` | one dev container per stack (`node-pnpm`, `python`, `go`); `npm run build:devcontainers` regenerates their `devcontainer.json` |
-
-| `scripts/`    | repository checks and the package smoke test (not shipped)      |
-| `.github/`    | CI, dev container builds, release and Dependabot                |
-
-Adding a hook, skill, command or MCP server to these folders is enough for
-`init` to offer it. A skill folder without a `SKILL.md` is ignored. `npm run build:settings` regenerates
-`settings/settings.json` for this repository; `npm test` runs all tests.
-
-## CI and releases
-
-| Workflow | Runs on | What it checks |
-| --- | --- | --- |
-| `ci.yml` | every push to `main` and every PR | `npm run check` (syntax, JSON, license, secrets, local paths), shellcheck, actionlint, generated files up to date, package contents; `npm test` on Ubuntu and macOS with Node 22.13 and 24; the packed tarball smoke-tested on Node, Python, Go and empty projects; complexity hook tests with real analyzers and the analyzer container. `CI passed` is the one check to require in branch protection. |
-| `devcontainers.yml` | changes to `devcontainer/`, weekly | each dev container image builds and has `node` and `claude` |
-| `release.yml` | a `v*.*.*` tag | the full CI, then `npm publish` to GitHub Packages with the workflow token, and a GitHub Release with the tarball |
-
-Run the same checks locally:
-
-```sh
-npm run check     # repository checks
+npm run check     # repository consistency checks
 npm test          # unit and hook tests
-npm run smoke     # init/detect/sync on throwaway projects
+npm run smoke     # exercise commands on throwaway projects
 ```
 
-To release, bump the version and push the tag:
-`npm version patch && git push --follow-tags`. A tag with a pre-release
-suffix (`v1.2.0-rc.1`) is published under the `next` dist-tag.
+The CI workflow checks generated files and package contents, runs tests on
+Linux and macOS, and smoke-tests the packed package against sample projects.
+Releases are versioned from `package.json` and tagged as `v<version>`.
 
 ## License
 
 [MIT](LICENSE) © 2026 ALOUANI YOUSSEF. The vendored plugins in `plugins/`
-keep their upstream licenses: `nestjs-best-practices` is MIT (Kadajett),
-`gin-best-practices` and `flask-best-practices` are Apache-2.0; see each
+retain their upstream licenses: `nestjs-best-practices` is MIT (Kadajett),
+while `gin-best-practices` and `flask-best-practices` are Apache-2.0. See each
 plugin's `LICENSE` and `UPSTREAM.md`.
