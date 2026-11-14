@@ -339,33 +339,56 @@ function pruneEmptyDirs(target, path) {
   }
 }
 
+const WRITE_ACTIONS = new Set(['create', 'update', 'merge', 'append']);
+// Ops whose content stones owns, by file kind: their hash goes in the manifest.
+// Merged/appended files stay the user's.
+const OWNED_ACTIONS = new Map([
+  ['managed', new Set(['create', 'update', 'same'])],
+  ['generated', new Set(['create', 'update', 'same'])],
+  ['json', new Set(['create', 'update'])],
+]);
+// JSON stones contributed (even into a merged file), so the next merge can take it back out.
+const CONTRIBUTED_ACTIONS = new Set(['create', 'update', 'merge', 'same']);
+
+// Ops that end stones' ownership of a file: deleted, gone, or handed to the user.
+const releasesFile = (op) => op.action === 'remove' || op.action === 'forget' || op.orphan;
+
+function releaseFile(target, op, manifest) {
+  if (op.action === 'remove') {
+    unlinkSync(join(target, op.path));
+    pruneEmptyDirs(target, op.path);
+  }
+  delete manifest.files[op.path];
+  delete manifest.generated[op.path];
+}
+
+function writeFile(target, op) {
+  if (!WRITE_ACTIONS.has(op.action)) return;
+  const abs = join(target, op.path);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, op.content);
+  if (op.executable) chmodSync(abs, 0o755);
+}
+
+function trackFile(op, manifest) {
+  // A tracked seed records that stones installed it, so later runs treat it as ours.
+  const owned = OWNED_ACTIONS.get(op.kind)?.has(op.action) || (op.tracked && op.action === 'create');
+  if (owned) manifest.files[op.path] = sha(op.content);
+  if (op.kind === 'json' && CONTRIBUTED_ACTIONS.has(op.action)) manifest.generated[op.path] = op.value;
+}
+
 export function apply({ target, ops, answers, stack }) {
   const manifest = loadManifest(target);
   const files = { ...manifest.files };
   const generated = { ...manifest.generated };
+  const tracked = { files, generated };
   for (const op of ops) {
-    const abs = join(target, op.path);
-    if (op.action === 'remove') {
-      unlinkSync(abs);
-      pruneEmptyDirs(target, op.path);
-    }
-    if (op.action === 'remove' || op.action === 'forget' || op.orphan) {
-      delete files[op.path];
-      delete generated[op.path];
+    if (releasesFile(op)) {
+      releaseFile(target, op, tracked);
       continue;
     }
-    if (['create', 'update', 'merge', 'append'].includes(op.action)) {
-      mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, op.content);
-      if (op.executable) chmodSync(abs, 0o755);
-    }
-    // Track what we own and wrote; merged/appended files stay the user's.
-    if (['managed', 'generated'].includes(op.kind) && ['create', 'update', 'same'].includes(op.action)) files[op.path] = sha(op.content);
-    // A tracked seed records that stones installed it, so later runs treat it as ours.
-    if (op.tracked && op.action === 'create') files[op.path] = sha(op.content);
-    if (op.kind === 'json' && ['create', 'update'].includes(op.action)) files[op.path] = sha(op.content);
-    // What stones contributed, so the next merge can take it back out.
-    if (op.kind === 'json' && ['create', 'update', 'merge', 'same'].includes(op.action)) generated[op.path] = op.value;
+    writeFile(target, op);
+    trackFile(op, tracked);
   }
   const next = {
     $comment: 'Written by ai-stones: your setup answers and the files it installed. Re-run `npx ai-stones init` to update.',
