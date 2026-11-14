@@ -1,5 +1,5 @@
 {
-  "name": "stones",
+  "name": "ai-stones",
   "version": "2.0.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "repository": {
