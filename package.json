@@ -12,8 +12,7 @@
   },
   "type": "module",
   "bin": {
-    "stones": "bin/stones.mjs",
-    "claude-stones": "bin/stones.mjs"
+    "stones": "bin/stones.mjs"
   },
   "files": [
     "bin/",

@@ -134,6 +134,18 @@ async function handleRoadmap(target, args) {
   process.exitCode = result.code ?? 0;
 }
 
+function handleDetect(target) {
+  console.log(JSON.stringify(detect(target), null, 2));
+}
+
+// Each command takes the resolved target directory and the parsed args.
+const COMMANDS = new Map([
+  ['init', init],
+  ['detect', handleDetect],
+  ['sync', handleSync],
+  ['roadmap', handleRoadmap],
+]);
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.version) {
@@ -145,15 +157,9 @@ async function main() {
     console.log(HELP);
     return;
   }
-  const target = resolve(dir);
-  if (command === 'init') return init(target, args);
-  if (command === 'detect') {
-    console.log(JSON.stringify(detect(target), null, 2));
-    return;
-  }
-  if (command === 'sync') return handleSync(target, args);
-  if (command === 'roadmap') return handleRoadmap(target, args);
-  throw new Error(`Unknown command "${command}". Run with --help.`);
+  const run = COMMANDS.get(command);
+  if (!run) throw new Error(`Unknown command "${command}". Run with --help.`);
+  return run(resolve(dir), args);
 }
 
 main().catch((error) => {
