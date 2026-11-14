@@ -5,7 +5,7 @@
 FROM golang:1.26-bookworm AS go
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/uudashr/gocognit/cmd/gocognit@v1.3.0
 
-FROM node:22-bookworm-slim
+FROM node:25-bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-pip \
   && pip3 install --no-cache-dir --break-system-packages complexipy==8.3.0 \
