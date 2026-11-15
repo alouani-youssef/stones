@@ -7,7 +7,9 @@ import { describe, it } from 'node:test';
 
 import { currentTask, evaluate as testingGuard } from '../hooks/testing.mjs';
 import { coverage, globMatcher } from './review.mjs';
-import { addTask, boardEntries, currentTaskOf, findTask, main } from './tasks.mjs';
+import { EventEmitter } from 'node:events';
+
+import { addTask, boardEntries, currentTaskOf, findTask, main, taskPrompt } from './tasks.mjs';
 
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'stones-tasks-'));
@@ -31,8 +33,20 @@ const read = (root, path) => readFileSync(join(root, path), 'utf8');
 
 async function cli(root, ...argv) {
   const out = [];
-  const code = await main(argv, { root, log: (l) => out.push(l) });
+  const code = await main(argv, { root, log: (l) => out.push(l), session: false });
   return { code, out: out.join('\n') };
+}
+
+// A stand-in for `claude`: records the call and exits with `code` (or fails with `error`).
+function fakeClaude({ code = 0, error } = {}) {
+  const calls = [];
+  const run = (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    const child = new EventEmitter();
+    setImmediate(() => (error ? child.emit('error', error) : child.emit('exit', code)));
+    return child;
+  };
+  return { calls, run };
 }
 
 function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
@@ -73,6 +87,57 @@ describe('task board', () => {
     assert.equal(testingGuard({ tool_name: 'Bash', tool_input: { command: 'npm test' } }, { projectDir: root }).block, true);
     fillTask(root, a);
     assert.equal(testingGuard({ tool_name: 'Bash', tool_input: { command: 'npm test' } }, { projectDir: root }).block, false);
+  });
+
+  it('opens a Claude Code session loaded with the started task', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'Add login rate limit');
+    const fake = fakeClaude({ code: 4 });
+    const out = [];
+    const code = await main(['start', '1'], { root, log: (l) => out.push(l), session: true, claude: 'claude-x', run: fake.run });
+    assert.equal(code, 4);
+    assert.equal(fake.calls.length, 1);
+    const [{ cmd, args, opts }] = fake.calls;
+    assert.equal(cmd, 'claude-x');
+    assert.equal(opts.cwd, root);
+    assert.equal(opts.stdio, 'inherit');
+    assert.match(args[0], /Work on task 0001 "Add login rate limit"\. It is now the current task on the board \(branch main, base [0-9a-f]{7}\)/);
+    assert.ok(args[0].includes(read(root, task.path).trim()));
+    assert.match(args[0], /still has TODOs/);
+    assert.match(args[0], /tasks\.mjs done 0001/);
+    assert.equal(currentTaskOf(root).id, '0001');
+  });
+
+  it('skips the session with --no-session or when one cannot open, and forces it with --session', async () => {
+    const { root } = repo();
+    addTask(root, 'First');
+    const fake = fakeClaude();
+    assert.equal(await main(['start', '1', '--no-session'], { root, log: () => {}, session: true, run: fake.run }), 0);
+    assert.equal(await main(['start', '1'], { root, log: () => {}, session: false, run: fake.run }), 0);
+    assert.equal(fake.calls.length, 0);
+    assert.equal(await main(['start', '--session', '1'], { root, log: () => {}, session: false, run: fake.run }), 0);
+    assert.equal(fake.calls.length, 1);
+  });
+
+  it('keeps the task started when claude is missing', async () => {
+    const { root } = repo();
+    addTask(root, 'First');
+    const out = [];
+    const fake = fakeClaude({ error: Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }) });
+    assert.equal(await main(['start', '1'], { root, log: (l) => out.push(l), session: true, run: fake.run }), 0);
+    assert.match(out.join('\n'), /no session: claude is not on PATH/);
+    assert.equal(currentTaskOf(root).id, '0001');
+  });
+
+  it('tells a resumed session why the task was blocked', async () => {
+    const { root } = repo();
+    addTask(root, 'First');
+    await cli(root, 'start', '1');
+    await cli(root, 'block', '1', 'waiting for API keys');
+    const fake = fakeClaude();
+    await main(['start', '1'], { root, log: () => {}, session: true, run: fake.run });
+    assert.match(fake.calls[0].args[0], /It was blocked before: waiting for API keys\./);
+    assert.doesNotMatch(taskPrompt(findTask(root, '1')), /blocked before/);
   });
 
   it('blocks the test guard when no task is in progress', async () => {

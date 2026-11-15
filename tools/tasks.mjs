@@ -199,6 +199,46 @@ export function startTask(root, ref) {
   return updated;
 }
 
+// The opening prompt of a task's session: the task note plus how to work it.
+export function taskPrompt(task, { blockedReason = '' } = {}) {
+  const todo = /TODO:/.test(task.text);
+  const where = [task.branch && `branch ${task.branch}`, task.base && `base ${task.base.slice(0, 7)}`].filter(Boolean).join(', ');
+  return [
+    `Work on task ${task.id} "${task.title}". It is now the current task on the board${where ? ` (${where})` : ''}.`,
+    blockedReason ? `It was blocked before: ${blockedReason}. Check that this is resolved before continuing.` : '',
+    `The task note, ${task.path}:`,
+    '<task>',
+    task.text.trim(),
+    '</task>',
+    todo
+      ? 'The note still has TODOs: fill in its expected behavior, scenarios, contract change and scope first, asking me when the expected behavior is unclear. The testing hook blocks test runs until it is complete.'
+      : '',
+    `Only change files inside its Scope. Commit the work, then finish with \`node .claude/tools/tasks.mjs done ${task.id}\``
+      + ` and check it with \`node .claude/tools/tasks.mjs review ${task.id} --run-tests\`.`
+      + ` If it cannot be finished, \`node .claude/tools/tasks.mjs block ${task.id} "<reason>"\`.`,
+    'Start by summarizing the task and your plan.',
+  ].filter(Boolean).join('\n\n');
+}
+
+// Inside Claude Code, or without a terminal, an interactive session cannot run.
+export const canOpenSession = (env = process.env) => !env.CLAUDECODE && Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+// Opens an interactive Claude Code session in `root` with the task's prompt.
+export function startSession(root, task, { claude = process.env.STONES_CLAUDE || 'claude', blockedReason = '', run = spawn } = {}) {
+  const prompt = taskPrompt(task, { blockedReason });
+  return new Promise((done) => {
+    const child = run(claude, [prompt], { cwd: root, stdio: 'inherit' });
+    child.on('exit', (code) => done({ started: true, code: code ?? 1 }));
+    child.on('error', (error) =>
+      done({
+        started: false,
+        message: error.code === 'ENOENT'
+          ? `${claude} is not on PATH; install Claude Code (https://claude.com/claude-code) or open it here and run \`tasks show\``
+          : error.message,
+      }));
+  });
+}
+
 export function blockTask(root, ref, reason) {
   if (!reason.trim()) fail('usage: tasks block <id> <reason>');
   const task = setMeta(root, findTask(root, ref), { Status: 'blocked' });
@@ -266,7 +306,8 @@ const USAGE = `usage: tasks <command>
   add <title> [--scope "glob,glob"]   create a task in list/ and queue it in next.md
   list                                show the board
   show [id]                           print a task (default: the current one)
-  start <id>                          make it current (records branch and base commit)
+  start <id> [--no-session]           make it current (records branch and base commit) and
+                                      open a Claude Code session loaded with the task
   block <id> <reason>                 move it to blocked.md
   done <id> [-- test command]         run the tests; on success move it to done.md
   review [id] [--run-tests]           write the review package to ${REVIEWS_DIR}/<id>.md; exit 1 if not ready`;
@@ -278,7 +319,7 @@ function option(args, name) {
   return value ?? '';
 }
 
-export async function main(argv, { root = projectRoot(), log = console.log } = {}) {
+export async function main(argv, { root = projectRoot(), log = console.log, session = canOpenSession(), claude, run } = {}) {
   const sep = argv.indexOf('--');
   const args = sep < 0 ? [...argv] : argv.slice(0, sep);
   const after = sep < 0 ? '' : argv.slice(sep + 1).join(' ');
@@ -301,9 +342,18 @@ export async function main(argv, { root = projectRoot(), log = console.log } = {
       log(findTask(root, refOrCurrent(rest[0])).text);
       return 0;
     case 'start': {
-      const task = startTask(root, rest[0] ?? fail('usage: tasks start <id>'));
+      const noSession = rest.includes('--no-session');
+      const forceSession = rest.includes('--session');
+      const ref = rest.find((a) => !a.startsWith('--')) ?? fail('usage: tasks start <id> [--no-session]');
+      const blocked = boardEntries(root, 'blocked').find((l) => isEntryFor(l, findTask(root, ref)));
+      const task = startTask(root, ref);
       log(`started ${task.id} ${task.title}\nbase: ${task.base}\nbranch: ${task.branch}\nfile: ${task.path}`);
-      return 0;
+      if (noSession || !(session || forceSession)) return 0;
+      const blockedReason = blocked?.split(' · ').slice(1).join(' · ') ?? '';
+      log(`opening a Claude Code session for ${task.id}`);
+      const result = await startSession(root, task, { blockedReason, ...(claude && { claude }), ...(run && { run }) });
+      if (!result.started) log(`no session: ${result.message}`);
+      return result.started ? result.code : 0;
     }
     case 'block': {
       const task = blockTask(root, rest[0] ?? fail('usage: tasks block <id> <reason>'), rest.slice(1).join(' '));

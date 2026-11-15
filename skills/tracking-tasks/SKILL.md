@@ -25,7 +25,7 @@ Always change the board through the tool, never by hand-editing the state files:
 ```sh
 node .claude/tools/tasks.mjs list                          # the board
 node .claude/tools/tasks.mjs add "Rate limit logins" --scope "src/auth/**,tests/auth/**"
-node .claude/tools/tasks.mjs start 7                       # records branch and base commit
+node .claude/tools/tasks.mjs start 7 [--no-session]        # records branch and base commit; from a terminal, opens a Claude Code session loaded with the task
 node .claude/tools/tasks.mjs show                          # the current task
 node .claude/tools/tasks.mjs block 7 "waiting for API keys"
 node .claude/tools/tasks.mjs done 7 [-- <test command>]    # moves to done only if tests pass
@@ -36,7 +36,7 @@ node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes .claude/revi
 
 1. **Session start:** run `list`. If a task is current, `show` it and continue it; do not start another.
 2. **New work:** `add` the task, then fill its file in `list/`: **Expected behavior**, at least one `- Scenario: <condition>. Expected: <outcome>.`, **Contract change** (`none` or `behavior changed: <reason>`), and a **Scope** of globs for the files it may touch. Ask the user when the expected behavior is unclear.
-3. **Start:** `start <id>` before editing code. One task is current at a time; finish or block the current one first. The testing hook blocks test runs until the current task's note is complete.
+3. **Start:** `start <id>` before editing code. One task is current at a time; finish or block the current one first. Run from a terminal, `start` opens a Claude Code session whose first prompt is the task note (and the old block reason, when resuming); inside Claude Code it only updates the board (`--session` forces one, `--no-session` skips it). The testing hook blocks test runs until the current task's note is complete.
 4. **Blocked:** `block <id> "<reason>"` names what it waits on. `start` resumes it later with its original base commit, so the review still covers all of its work.
 5. **Finish:** commit the work, then `done <id>`. It runs the project's test command (or the one after `--`) and moves the task to done only when it passes. On failure, fix the source and run it again; never edit the task or the tests to get a pass.
 6. **Review:** `review <id> --run-tests` before handing off or opening a pull request.
