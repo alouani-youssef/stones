@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { createPr, draftPr, runCli as prCli, specPath, zoneOf } from './create-pr.mjs';
 import { setComment } from './git-comments.mjs';
-import { planSteps, qualityCheck, run as qualityCli } from './quality-check.mjs';
+import { planSteps, qualityCheck, run as qualityCli, stepEnv } from './quality-check.mjs';
 import { addDecision, checkRoadmap, parseRoadmap, run as roadmapCli } from './roadmap.mjs';
 import { agentDrift, main as syncCli, syncDocs } from './sync-docs.mjs';
 
@@ -79,6 +79,26 @@ describe('quality-check', () => {
     const none = capture(qualityCli, [], root);
     assert.equal(none.code, 2);
     assert.match(none.err, /no commands to run/);
+  });
+
+  it('puts the project virtualenv on PATH unless one is already active', () => {
+    const { root } = repo();
+    mkdirSync(join(root, '.venv', 'bin'), { recursive: true });
+    const env = stepEnv(root, { PATH: '/usr/bin' });
+    assert.equal(env.PATH, `${join(root, '.venv', 'bin')}${delimiter}/usr/bin`);
+    assert.equal(env.VIRTUAL_ENV, join(root, '.venv'));
+    assert.deepEqual([env.NO_COLOR, env.PY_COLORS], ['1', '0']);
+    assert.equal(stepEnv(root, { PATH: '/usr/bin', VIRTUAL_ENV: '/other' }).PATH, '/usr/bin');
+    assert.equal(stepEnv(repo().root, { PATH: '/usr/bin' }).PATH, '/usr/bin');
+  });
+
+  it('runs tools installed in the project virtualenv', { skip: process.platform === 'win32' }, () => {
+    const { root } = repo(manifest({ lint: 'stones-fake-lint' }));
+    mkdirSync(join(root, '.venv', 'bin'), { recursive: true });
+    writeFileSync(join(root, '.venv', 'bin', 'stones-fake-lint'), '#!/bin/sh\necho "linted in $VIRTUAL_ENV"\n', { mode: 0o755 });
+    const r = qualityCheck(root);
+    assert.equal(r.passed, true, r.results[0].tail);
+    assert.match(r.results[0].tail, /linted in .*\.venv/);
   });
 
   it('stops a hung command after STONES_COMMAND_TIMEOUT seconds', () => {

@@ -7,8 +7,8 @@
 //   node .claude/tools/quality-check.mjs [--only lint,test] [--skip build] [--fail-fast] [--json]
 //   node .claude/tools/quality-check.mjs --cmd test="pytest -q"     override or add a step
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { git, projectRoot } from './git-comments.mjs';
@@ -61,10 +61,28 @@ export function planSteps(commands, { only = [], skip = [] } = {}) {
 // A hung command must not hang the tool: STONES_COMMAND_TIMEOUT seconds, 30 minutes by default.
 const timeoutMs = () => (Number(process.env.STONES_COMMAND_TIMEOUT) || 1800) * 1000;
 
+// A Python project's virtualenv, so `ruff check .` or `pytest` run the
+// project's tools even when the venv was never activated.
+const VENV_DIRS = ['.venv', 'venv'];
+const VENV_BIN = process.platform === 'win32' ? 'Scripts' : 'bin';
+
+export function stepEnv(root, env = process.env) {
+  // pytest reads any FORCE_COLOR, even 0, as "force colour"; PY_COLORS and
+  // NO_COLOR take precedence there and keep ANSI codes out of the logs.
+  const out = { ...env, CI: env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1', PY_COLORS: '0' };
+  if (env.VIRTUAL_ENV) return out;
+  const venv = VENV_DIRS.map((d) => join(root, d)).find((d) => existsSync(join(d, VENV_BIN)));
+  if (!venv) return out;
+  const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  out[pathKey] = [join(venv, VENV_BIN), env[pathKey]].filter(Boolean).join(delimiter);
+  out.VIRTUAL_ENV = venv;
+  return out;
+}
+
 function runStep(root, step) {
   const started = Date.now();
   const timeout = timeoutMs();
-  const r = spawnSync(step.command, { cwd: root, shell: true, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout, env: { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0' } });
+  const r = spawnSync(step.command, { cwd: root, shell: true, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout, env: stepEnv(root) });
   const timedOut = r.error?.code === 'ETIMEDOUT';
   const output = `${r.stdout ?? ''}${r.stderr ?? ''}${timedOut ? `\ntimed out after ${timeout / 1000}s (STONES_COMMAND_TIMEOUT)\n` : ''}`;
   const log = `${QUALITY_DIR}/${step.name}.log`;

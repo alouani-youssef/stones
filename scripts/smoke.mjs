@@ -29,9 +29,13 @@ const FIXTURES = {
     },
   },
   python: {
-    expect: { language: 'Python', devcontainer: true },
+    expect: {
+      language: 'Python',
+      devcontainer: true,
+      commands: { test: 'pytest', lint: 'ruff check .', typecheck: 'mypy .', format: 'ruff format .' },
+    },
     files: {
-      'pyproject.toml': '[project]\nname = "demo"\nversion = "0.1.0"\ndependencies = ["flask>=3"]\n\n[tool.pytest.ini_options]\n',
+      'pyproject.toml': '[project]\nname = "demo"\nversion = "0.1.0"\ndependencies = ["flask>=3"]\n\n[dependency-groups]\ndev = ["pytest", "ruff", "mypy"]\n\n[tool.pytest.ini_options]\n',
       'demo/__init__.py': 'ONE = 1\n',
     },
   },
@@ -92,6 +96,10 @@ function smoke(name, { files, expect }) {
       assert.ok(existsSync(join(root, path)), `missing ${path}`);
     }
     assert.match(readFileSync(join(root, 'CLAUDE.md'), 'utf8'), /@AGENT\.md/);
+    if (expect.commands) {
+      const recorded = JSON.parse(readFileSync(join(root, '.claude/stones.json'), 'utf8')).answers.workflow.commands;
+      for (const [task, command] of Object.entries(expect.commands)) assert.equal(recorded[task], command, `stones.json ${task} command`);
+    }
     const settings = JSON.parse(readFileSync(join(root, '.claude/settings.json'), 'utf8'));
     assert.ok(settings.hooks && Object.keys(settings.hooks).length, 'settings.json has no hooks');
     for (const group of Object.values(settings.hooks).flat()) {

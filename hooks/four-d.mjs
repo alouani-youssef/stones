@@ -37,6 +37,8 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realp
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { detectPython } from './lib/python.mjs';
+
 // ------------------------------------------------------------ classifier
 
 // Each category is scored by how many of its patterns match. Ties go to the
@@ -334,18 +336,8 @@ function detectNodeCommands(project) {
 }
 
 function detectPythonCommands(project) {
-  const py = readProjectFile(project, 'pyproject.toml') +
-    readProjectFile(project, 'requirements.txt') +
-    readProjectFile(project, 'setup.cfg');
-  if (!py && !hasProjectFile(project, 'setup.py')) return {};
-
-  const commands = {};
-  if (/\bpytest\b/.test(py) || hasProjectFile(project, 'pytest.ini', 'conftest.py', 'tests')) {
-    commands.test = 'pytest';
-  }
-  if (/\bruff\b/.test(py)) commands.lint = 'ruff check .';
-  if (/\bmypy\b/.test(py)) commands.typecheck = 'mypy .';
-  return commands;
+  const { test, lint, typecheck } = detectPython(project)?.commands ?? {};
+  return Object.fromEntries(Object.entries({ test, lint, typecheck }).filter(([, c]) => c));
 }
 
 function detectMakefileCommands(project) {
@@ -365,7 +357,8 @@ function applyDefaults(target, source) {
   }
 }
 
-// Verification commands for the project, mirroring cli/detect.mjs but kept
+// Verification commands for the project, mirroring cli/detect.mjs (Python
+// detection is shared with it through ./lib/python.mjs) but kept
 // standalone so the hook works once copied into a project's .claude/hooks.
 export function detectCommands(project) {
   const commands = detectNodeCommands(project);

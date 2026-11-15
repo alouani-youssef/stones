@@ -100,7 +100,7 @@ export async function interview(ask, stack, previous = {}) {
   ], p('conventions.commits', stack.conventionalCommits === false ? 'free' : 'conventional'));
   const branching = await ask.select('workflow.branching', 'Branching', BRANCHING, p('workflow.branching', 'feature'));
   const commands = {};
-  for (const task of ['test', 'lint', 'typecheck', 'build']) {
+  for (const task of ['test', 'lint', 'typecheck', 'build', 'format']) {
     commands[task] = await ask.text(`workflow.commands.${task}`, `  ${task} command (Enter to skip)`, p(`workflow.commands.${task}`, stack.commands[task] ?? ''));
   }
   const tdd = await ask.confirm('workflow.tdd', 'Work test-first (TDD)?', p('workflow.tdd', true));

@@ -95,6 +95,29 @@ describe('detect', () => {
     assert.equal(detect(project({ 'go.mod': 'module github.com/me/tool\n' })).name, 'tool');
     assert.equal(detect(project({ 'Cargo.toml': '[package]\nname = "crab"\n' })).commands.test, 'cargo test');
   });
+
+  it('finds Python quality gates in dev requirements and tool configs', () => {
+    const pip = detect(project({
+      'requirements.txt': 'flask\n', 'requirements-dev.txt': 'pytest\n', 'ruff.toml': '', 'mypy.ini': '',
+    }));
+    assert.deepEqual(pip.commands, { test: 'pytest', lint: 'ruff check .', format: 'ruff format .', typecheck: 'mypy .' });
+    assert.deepEqual([pip.linters, pip.formatters], [['ruff'], ['ruff']]);
+
+    const legacy = detect(project({ 'setup.cfg': '[flake8]\nmax-line-length = 100\n', 'requirements.txt': 'black\n', 'pyrightconfig.json': '{}' }));
+    assert.deepEqual(legacy.commands, { lint: 'flake8 .', format: 'black .', typecheck: 'pyright' });
+  });
+
+  it('runs Python gates through the project package manager', () => {
+    const cases = [
+      [{ 'pyproject.toml': '[tool.poetry]\nname = "p"\n[tool.poetry.group.dev.dependencies]\nruff = "*"\n' }, 'poetry'],
+      [{ 'pyproject.toml': '[project]\nname = "p"\n[dependency-groups]\ndev = ["ruff"]\n', 'pdm.lock': '' }, 'pdm'],
+      [{ Pipfile: '[dev-packages]\nruff = "*"\n', 'Pipfile.lock': '{}' }, 'pipenv'],
+    ];
+    for (const [files, pm] of cases) {
+      const py = detect(project(files));
+      assert.deepEqual([py.packageManagers[0], py.commands.lint], [pm, `${pm} run ruff check .`]);
+    }
+  });
 });
 
 describe('settings', () => {
@@ -748,6 +771,17 @@ describe('hook libraries', () => {
 
     await runInit(root, { 'install.hooks': ['naming'] });
     assert.equal(existsSync(join(root, '.claude/hooks/lib/shell.mjs')), false, 'removed when no hook needs it');
+  });
+
+  it('installs the shared Python detector with four-d, and the hook runs', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.hooks': ['four-d'] });
+    assert.ok(existsSync(join(root, '.claude/hooks/lib/python.mjs')));
+    const run = spawnSync(process.execPath, [join(root, '.claude/hooks/four-d.mjs')], {
+      input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: 'fix the failing test', cwd: root }),
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+    });
+    assert.equal(run.status, 0, String(run.stderr));
   });
 
   it('runs installed hooks when the project path goes through a symlink', async () => {

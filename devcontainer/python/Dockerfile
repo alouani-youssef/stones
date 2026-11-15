@@ -31,4 +31,6 @@ ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /workspace
 EXPOSE 8000
 
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.python","charliermarsh.ruff","anthropic.claude-code"]}},"postCreateCommand":"if [ -f pyproject.toml ]; then pip install -e .; elif [ -f requirements.txt ]; then pip install -r requirements.txt; fi"}'
+# postCreateCommand also installs dev dependencies (PEP 735 `dev` group, a
+# `dev` extra, requirements-dev.txt) so lint, typecheck and test gates run.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.python","charliermarsh.ruff","anthropic.claude-code"]}},"postCreateCommand":"pip install -q --upgrade pip; if [ -f pyproject.toml ]; then pip install -e . && { pip install --group dev 2>/dev/null || pip install -e .[dev] 2>/dev/null || true; }; elif [ -f requirements.txt ]; then pip install -r requirements.txt; fi; for f in requirements-dev.txt dev-requirements.txt; do if [ -f $f ]; then pip install -r $f; fi; done"}'

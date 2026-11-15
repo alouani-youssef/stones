@@ -24,7 +24,7 @@ const TASKS_GITIGNORE = ['.claude/reviews/'];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
 const ANALYZER_FILES = ['compose.yaml', 'analyzers.Dockerfile'];
 // Files in hooks/lib/ each hook imports.
-const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'] };
+const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'], 'four-d': ['python.mjs'] };
 // Installed in every project. All but create-pr are allowed in settings.json;
 // create-pr opens a pull request on GitHub, so Claude asks before running it.
 export const PROJECT_TOOLS = [

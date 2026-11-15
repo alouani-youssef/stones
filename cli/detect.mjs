@@ -5,6 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, delimiter, join } from 'node:path';
 
+import { detectPython } from '../hooks/lib/python.mjs';
+
 const read = (root, file) => {
   try {
     return readFileSync(join(root, file), 'utf8');
@@ -94,24 +96,18 @@ function nodeStack(root, stack) {
 }
 
 function pythonStack(root, stack) {
-  if (!has(root, 'pyproject.toml', 'requirements.txt', 'setup.py', 'Pipfile')) return;
-  const text = `${read(root, 'pyproject.toml')}\n${read(root, 'requirements.txt')}\n${read(root, 'Pipfile')}`.toLowerCase();
+  const py = detectPython(root);
+  if (!py) return;
   stack.languages.push('Python');
   stack.ecosystems.push('python');
   stack.name ||= /^\s*name\s*=\s*["']([^"']+)["']/m.exec(read(root, 'pyproject.toml'))?.[1];
   for (const [dep, label] of Object.entries(PY_FRAMEWORKS)) {
-    if (new RegExp(`(^|[\\s"'\\[,])${dep}\\b`, 'm').test(text)) stack.frameworks.push(label);
+    if (new RegExp(`(^|[\\s"'\\[,])${dep}\\b`, 'm').test(py.text)) stack.frameworks.push(label);
   }
-  const pm = has(root, 'uv.lock') ? 'uv' : has(root, 'poetry.lock') ? 'poetry' : 'pip';
-  stack.packageManagers.push(pm);
-  const run = pm === 'pip' ? '' : `${pm} run `;
-  if (/\bpytest\b/.test(text) || has(root, 'tests', 'pytest.ini', 'conftest.py')) stack.commands.test ??= `${run}pytest`;
-  if (/\bruff\b/.test(text)) {
-    stack.commands.lint ??= `${run}ruff check .`;
-    stack.formatters.push('ruff');
-  } else if (/\bblack\b/.test(text)) stack.formatters.push('black');
-  if (/\bmypy\b/.test(text)) stack.commands.typecheck ??= `${run}mypy .`;
-  else if (/\bpyright\b/.test(text)) stack.commands.typecheck ??= `${run}pyright`;
+  stack.packageManagers.push(py.packageManager);
+  stack.formatters.push(...py.formatters);
+  stack.linters.push(...py.linters);
+  for (const [task, command] of Object.entries(py.commands)) stack.commands[task] ??= command;
 }
 
 function otherStacks(root, stack) {

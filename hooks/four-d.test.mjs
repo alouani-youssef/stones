@@ -104,6 +104,10 @@ describe('verification commands', () => {
   it('detects Go and Python projects', () => {
     assert.equal(detectCommands(project({ 'go.mod': 'module x' })).test, 'go test ./...');
     assert.equal(detectCommands(project({ 'pyproject.toml': '[tool.pytest]\n[tool.ruff]' })).lint, 'ruff check .');
+    assert.deepEqual(detectCommands(project({ 'pyproject.toml': '[tool.ruff]\n[tool.pyright]\n', 'uv.lock': '' })), {
+      lint: 'uv run ruff check .', typecheck: 'uv run pyright',
+    });
+    assert.equal(detectCommands(project({ Pipfile: '[dev-packages]\npytest = "*"\n' })).test, 'pipenv run pytest');
   });
 });
 
