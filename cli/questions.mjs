@@ -39,11 +39,13 @@ export function suggestedPatterns(stack) {
 }
 const split = (text) => (Array.isArray(text) ? text : String(text ?? '').split(',').map((s) => s.trim()).filter(Boolean));
 
-// Default skill selection: the previous run's, else everything. A run from
-// before guides became skills saved `install.docs`; keep its choices and add
-// the skills that did not exist then.
-function previousSkills(previous, guides) {
-  const all = guides.map((s) => s.id);
+// Default skill selection: the previous run's, else everything that fits the
+// stack (a skill naming frameworks fits only when the project uses one). A run
+// from before guides became skills saved `install.docs`; keep its choices and
+// add the skills that did not exist then.
+function previousSkills(previous, guides, stack) {
+  const fits = (s) => !s.frameworks?.length || s.frameworks.some((f) => stack.frameworks?.includes(f));
+  const all = guides.filter(fits).map((s) => s.id);
   if (Array.isArray(previous.install?.skills)) return previous.install.skills;
   if (!Array.isArray(previous.install?.docs)) return all;
   const legacy = new Set(Object.values(LEGACY_SKILL_IDS));
@@ -127,7 +129,7 @@ export async function interview(ask, stack, previous = {}) {
     'install.skills',
     'Skills to install in .claude/skills (Claude loads one only when its task comes up)',
     guideSkills.map((s) => ({ value: s.id, label: s.title, hint: s.lead })),
-    previousSkills(previous, guideSkills),
+    previousSkills(previous, guideSkills, stack),
   );
   const selectedPlugins = plugins.length
     ? await ask.multi(

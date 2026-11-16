@@ -226,6 +226,18 @@ describe('pattern defaults', () => {
   });
 });
 
+describe('framework skills', () => {
+  it('selects a framework skill by default only when the project uses that framework', async () => {
+    const fastapi = skillCatalog().find((s) => s.id === 'fastapi');
+    assert.deepEqual(fastapi?.frameworks, ['FastAPI']);
+    const defaults = async (frameworks) => (await interview(createScriptedPrompter({}), { ...detect(nextApp()), frameworks })).install.skills;
+    assert.ok(!(await defaults(['Next.js'])).includes('fastapi'));
+    const api = await defaults(['FastAPI', 'Pydantic']);
+    assert.ok(api.includes('fastapi'));
+    assert.ok(api.includes('writing-tests'), 'skills without frameworks stay selected');
+  });
+});
+
 describe('skills', () => {
   const skills = skillCatalog();
 

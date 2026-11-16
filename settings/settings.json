@@ -33,11 +33,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/four-d.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/four-d.mjs\"",
+            "timeout": 120
           },
           {
             "type": "command",
-            "command": "node --no-warnings \"$CLAUDE_PROJECT_DIR/.claude/hooks/history.mjs\" prompt"
+            "command": "node --no-warnings \"$CLAUDE_PROJECT_DIR/.claude/hooks/history.mjs\" prompt",
+            "timeout": 120
           }
         ]
       }

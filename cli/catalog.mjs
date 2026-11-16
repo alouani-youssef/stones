@@ -124,6 +124,8 @@ export function skillCatalog(root = PACKAGE_ROOT) {
       main: `${d.name}/SKILL.md`,
       files: filesUnder(join(skillsRoot, d.name)).sort().map((f) => `${d.name}/${f}`),
       pattern: fm.metadata.kind === 'pattern',
+      // `metadata.frameworks: FastAPI, Pydantic` limits the default selection to those stacks.
+      frameworks: (fm.metadata.frameworks ?? '').split(',').map((f) => f.trim()).filter(Boolean),
     });
   }
   return skills.sort((a, b) => a.id.localeCompare(b.id));
