@@ -241,9 +241,11 @@ describe('framework skills', () => {
     assert.ok(api.includes('fastapi'));
     assert.ok(api.includes('writing-tests'), 'skills without frameworks stay selected');
     for (const s of ['prompts', 'golden-set', 'langchain', 'langgraph']) assert.ok(!api.includes(s), s);
+    assert.ok(api.includes('system-prompts'), 'system-prompt guidance applies across frameworks');
 
     const agent = await defaults(['LangGraph']);
     for (const s of ['prompts', 'golden-set', 'langgraph']) assert.ok(agent.includes(s), s);
+    assert.ok(agent.includes('system-prompts'));
     assert.ok(!agent.includes('langchain'), 'a LangGraph-only project gets no LangChain skill');
     assert.ok((await defaults(['Anthropic SDK'])).includes('prompts'));
   });
@@ -618,6 +620,25 @@ describe('atomicity hook install', () => {
     const template = readFileSync(new URL('../skills/atomic-changes/spec-template.md', import.meta.url), 'utf8');
     assert.equal(inspectSpec(template, 'db').valid, false);
   });
+
+  it('installs atomicity artifacts by default', async () => {
+    const root = prismaApp();
+    const { answers } = await runInit(root);
+    assert.ok(answers.install.hooks.includes('atomicity'));
+    assert.ok(existsSync(join(root, '.claude/hooks/atomicity.mjs')));
+    assert.ok(existsSync(join(root, '.claude/atomicity.json')));
+    assert.ok(existsSync(join(root, '.claude/danger/.gitkeep')));
+  });
+
+  it('ships system-prompts as a discoverable referenced skill', () => {
+    const skill = skillCatalog().find((s) => s.id === 'system-prompts');
+    assert.ok(skill);
+    assert.equal(skill.main, 'system-prompts/SKILL.md');
+    const content = readFileSync(new URL('../skills/system-prompts/SKILL.md', import.meta.url), 'utf8');
+    assert.match(content, /https:\/\//);
+    const prompts = readFileSync(new URL('../skills/prompts/SKILL.md', import.meta.url), 'utf8');
+    assert.match(prompts, /system-prompts/);
+  });
 });
 
 describe('devcontainers', () => {
@@ -785,10 +806,10 @@ describe('complexity hook install', () => {
 });
 
 describe('defaults', () => {
-  it('selects only the non-blocking core hooks by default; gates and logging are opt-in', async () => {
+  it('selects core guardrails and atomicity by default; other gates and logging are opt-in', async () => {
     const { answers } = await runInit(nextApp());
-    for (const id of ['access_guard', 'naming', 'format']) assert.ok(answers.install.hooks.includes(id), id);
-    for (const id of ['history', 'testing', 'atomicity', 'four-d', 'complexity', 'graph']) {
+    for (const id of ['access_guard', 'naming', 'format', 'atomicity']) assert.ok(answers.install.hooks.includes(id), id);
+    for (const id of ['history', 'testing', 'four-d', 'complexity', 'graph']) {
       assert.ok(!answers.install.hooks.includes(id), `${id} is opt-in`);
     }
   });
@@ -796,6 +817,7 @@ describe('defaults', () => {
   it('marks opt-in hooks in the catalog so the interview can say so', () => {
     const byId = Object.fromEntries(hookCatalog().map((h) => [h.id, h]));
     assert.equal(byId.access_guard.default, true);
+    assert.equal(byId.atomicity.default, true);
     assert.equal(byId.history.default, false);
   });
 

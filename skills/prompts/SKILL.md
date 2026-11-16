@@ -11,6 +11,8 @@ metadata:
 
 A prompt in an application is code. It has inputs, an output contract, and failure cases, and it regresses just as code does. Write it so a capable new colleague would understand the task from the prompt alone. Keep it in version control, and change it only with an evaluation run (see the golden-set skill).
 
+For persistent system or developer instructions that define an assistant's operating rules, use the complementary `system-prompts` skill. This guide focuses on application-owned prompt templates and individual model calls.
+
 ## Quick reference
 
 | Concern | Do | Instead of |

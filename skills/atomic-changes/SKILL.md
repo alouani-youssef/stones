@@ -20,6 +20,16 @@ One purpose per commit, branch and pull request. Database, dependency and extern
 
 **REQUIRED SUB-SKILLS:** `creating-branches` for naming, splitting and stacking branches; `opening-pull-requests` for PR order and description.
 
+## Before every commit
+
+1. Confirm the commit represents one outcome and one purpose. Split independent work into separate commits, including ordinary code-only changes: the hook classifies files and cannot infer whether two code files serve unrelated tasks.
+2. Run `git status --short` and inspect the staged patch with `git diff --cached`. Stage only files needed for this outcome; unstage unrelated files before proceeding.
+3. Run the checks relevant to the change and review their results. A commit should build and pass its relevant tests on its own.
+4. Check the branch and spec requirements for any danger-zone files. Let the hook enforce its R1–R4 rules; do not work around a block.
+5. Commit the reviewed staged set. Recheck status and commit contents if the command staged via `-a`, a pathspec, or a chained command.
+
+The `atomicity` hook is installed by default by ai-stones, but can be deselected. Its R1–R4 enforcement covers detectable file zones and danger-zone branch/spec rules; this checklist also covers semantic splits that cannot be inferred from file paths alone.
+
 ## Danger zones
 
 Each changed file gets one class. Precedence: `db` > `packages` > `network` > `neutral` > `code`.

@@ -31,7 +31,7 @@ const HOOK_HINTS = {
   format: 'formats files after edits with the project formatter',
   complexity: 'flags functions an edit pushed over SonarQube\'s cognitive-complexity limit (Python, JS/TS, Go)',
   testing: 'requires clear test scenarios and guards spec/test edits unless expected behavior changes',
-  atomicity: 'blocks mixed commits/branches and requires dedicated, specced branches for db, packages and network changes',
+  atomicity: 'enforces single-zone commits and specced danger-zone branches; guards generated migrations',
   'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
   devcontainer: 'regenerates .devcontainer/devcontainer.json whenever its Dockerfile is edited',
   history: 'logs prompts and replies per session to a local, git-ignored SQLite db (.claude/history.db)',
@@ -39,11 +39,9 @@ const HOOK_HINTS = {
 
 const HOOK_REQUIRES = { 'block-rm': ['jq'] };
 
-// Selected by default: guardrails that never get in the way of normal work.
-// The rest block common actions until a process is followed (testing,
-// atomicity, complexity), add context to every prompt or read (four-d, graph)
-// or record every prompt and reply (history), so a project opts in to them.
-const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer']);
+// Atomicity protects commits and danger-zone changes by default. Other
+// process gates, context injection and session logging remain opt-in.
+const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer', 'atomicity']);
 
 function firstComment(file) {
   const text = readFileSync(file, 'utf8');

@@ -74,9 +74,10 @@ preview the planned changes without writing files.
 - **Relevant context, loaded when needed.** `CLAUDE.md` imports a short
   `AGENT.md` brief. Guides are installed as Claude Code skills, so their full
   instructions load when a task matches.
-- **Useful defaults, optional process gates.** Lightweight guardrails are
-  selected by default. Hooks that block work or add context to every prompt
-  are opt-in, as are history recording and the code graph.
+- **Useful defaults, optional process gates.** Lightweight guardrails and
+  atomic commit protection are selected by default. Other process gates and
+  context added to every prompt are opt-in, as are history recording and the
+  code graph.
 - **Settings based on the actual project.** Permissions and sandbox domains
   follow detected commands and ecosystems. Framework plugins and pattern
   skills are offered only when relevant.
