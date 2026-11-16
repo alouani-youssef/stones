@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -58,10 +58,13 @@ function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
     .replace(/TODO: Describe the behavior[^\n]*/, 'Logins are rate limited per IP.')
     .replace(/- Scenario: TODO[^\n]*/, '- Scenario: sixth login attempt within a minute. Expected: rate limited response with retry header.')
     .replace(/^Spec: .*$/m, `Spec: ${SPEC}`)
-    .replace(/^Plan: .*$/m, `Plan: ${PLAN}`);
+    .replace(/^Plan: .*$/m, `Plan: ${PLAN}`)
+    .replace(/^TODO: Describe the test levels[^\n]*/m, 'Use focused unit tests for the rate-limit rule and an integration test for the login endpoint response.')
+    .replace(/- Case: TODO[^\n]*/m, '- Case: sixth login attempt within a minute. Expected: rate limited response with retry header.')
+    .replace(/- Scenario: TODO[^\n]*/, '- Scenario: sixth login attempt within a minute. Expected: rate limited response with retry header.');
   write(root, task.path, text);
-  write(root, SPEC, '# Login rate limit design\n');
-  write(root, PLAN, '# Login rate limit plan\n');
+  write(root, SPEC, '# Login rate limit design\n\n## Test Strategy\n\nUse unit tests for the limit rule and an integration test for the endpoint.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: request is rate limited.\n');
+  write(root, PLAN, '# Login rate limit plan\n\n## Test Strategy\n\nRun focused unit and integration tests.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: focused test fails before implementation and passes after.\n');
 }
 
 describe('task board', () => {
@@ -74,15 +77,96 @@ describe('task board', () => {
     assert.equal(task.status, 'next');
     assert.equal(task.scope, 'src/**');
     assert.match(task.text, /## Spec and plan\n\nSpec: TODO: [^\n]*superpowers:brainstorming[^\n]*\nPlan: TODO: [^\n]*superpowers:writing-plans/);
+    assert.match(task.text, /## Test Strategy/);
+    assert.match(task.text, /## Test Cases/);
     assert.equal(boardEntries(root, 'next').length, 1);
     for (const s of ['current', 'blocked', 'done']) assert.equal(boardEntries(root, s).length, 0);
     assert.equal(addTask(root, 'Second').id, '0002');
+  });
+
+  it('refuses to start an incomplete task without changing board state', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'First');
+    const before = read(root, task.path);
+    await assert.rejects(cli(root, 'start', '1'), /Expected behavior/i);
+    assert.equal(currentTaskOf(root), null);
+    assert.equal(findTask(root, '1').status, 'next');
+    assert.equal(findTask(root, '1').branch, '');
+    assert.equal(findTask(root, '1').base, '');
+    assert.equal(read(root, task.path), before);
+    assert.equal(boardEntries(root, 'next').length, 1);
+  });
+
+  it('requires a test strategy and expected test cases in the note, spec, and plan', async () => {
+    const failures = [
+      (text) => text.replace(/## Test Strategy[\s\S]*?(?=\n## )/, ''),
+      (text) => text.replace(/(## Test Strategy\n\n)[^\n]*/, '$1unit tests'),
+      (text) => text.replace(/## Test Cases[\s\S]*/, ''),
+      (text) => text.replace(/(- Case:[^\n]*Expected:) [^\n]*/, '$1 TODO'),
+      (text) => text.replace(/(- Case:)[^\n]*Expected:[^\n]*/, '$1 x. Expected: y.'),
+    ];
+    for (const [failureIndex, mutate] of failures.entries()) {
+      for (const artifact of ['note', 'spec', 'plan']) {
+        const { root } = repo();
+        const task = addTask(root, 'First');
+        fillTask(root, task);
+        const path = artifact === 'note' ? task.path : artifact === 'spec' ? SPEC : PLAN;
+        write(root, path, mutate(read(root, path)));
+        await assert.rejects(cli(root, 'start', '1'), /test strategy|test case/i, `${artifact} failure ${failureIndex} should fail readiness`);
+        assert.equal(currentTaskOf(root), null);
+      }
+    }
+  });
+
+  it('requires existing spec and plan links before task start', async () => {
+    for (const label of ['Spec', 'Plan']) {
+      const { root } = repo();
+      const task = addTask(root, 'First');
+      fillTask(root, task);
+      write(root, task.path, read(root, task.path).replace(new RegExp(`^${label}: .*`, 'm'), `${label}: TODO`));
+      await assert.rejects(cli(root, 'start', '1'), new RegExp(`create the ${label.toLowerCase()}`));
+      assert.equal(currentTaskOf(root), null);
+    }
+    const { root } = repo();
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    write(root, PLAN, '# Plan file missing\n');
+    await assert.rejects(cli(root, 'start', '1'), /Test Strategy.*plan/i);
+    assert.equal(currentTaskOf(root), null);
+  });
+
+  it('rejects linked design documents outside the project', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    write(root, task.path, read(root, task.path).replace(SPEC, '../../outside.md'));
+    await assert.rejects(cli(root, 'start', '1'), /inside the project/i);
+    assert.equal(currentTaskOf(root), null);
+  });
+
+  it('rejects a design-document symlink that resolves outside the project', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    const linkedSpec = 'docs/superpowers/specs/linked.md';
+    const outside = join(root, '..', `stones-outside-${process.pid}.md`);
+    writeFileSync(outside, read(root, SPEC));
+    rmSync(join(root, SPEC));
+    symlinkSync(outside, join(root, linkedSpec));
+    write(root, task.path, read(root, task.path).replace(SPEC, linkedSpec));
+    try {
+      await assert.rejects(cli(root, 'start', '1'), /resolve inside the project/i);
+      assert.equal(currentTaskOf(root), null);
+    } finally {
+      rmSync(outside, { force: true });
+    }
   });
 
   it('starts one task at a time and points the testing hook at it', async () => {
     const { root } = repo();
     const a = addTask(root, 'First');
     addTask(root, 'Second');
+    fillTask(root, a);
     assert.equal((await cli(root, 'start', '1')).code, 0);
     assert.equal(currentTaskOf(root).id, a.id);
     assert.equal(boardEntries(root, 'next').length, 1);
@@ -91,15 +175,13 @@ describe('task board', () => {
     await assert.rejects(cli(root, 'start', '2'), /0001 is in progress/);
 
     assert.equal(currentTask(root).path, a.path);
-    // The template still has TODOs, so the testing hook blocks test runs.
-    assert.equal(testingGuard({ tool_name: 'Bash', tool_input: { command: 'npm test' } }, { projectDir: root }).block, true);
-    fillTask(root, a);
     assert.equal(testingGuard({ tool_name: 'Bash', tool_input: { command: 'npm test' } }, { projectDir: root }).block, false);
   });
 
   it('opens a Claude Code session loaded with the started task', async () => {
     const { root } = repo();
     const task = addTask(root, 'Add login rate limit');
+    fillTask(root, task);
     const fake = fakeClaude({ code: 4 });
     const out = [];
     const code = await main(['start', '1'], { root, log: (l) => out.push(l), session: true, claude: 'claude-x', run: fake.run });
@@ -111,15 +193,16 @@ describe('task board', () => {
     assert.equal(opts.stdio, 'inherit');
     assert.match(args[0], /Work on task 0001 "Add login rate limit"\. It is now the current task on the board \(branch main, base [0-9a-f]{7}\)/);
     assert.ok(args[0].includes(read(root, task.path).trim()));
-    assert.match(args[0], /still has TODOs/);
-    assert.match(args[0], /superpowers:brainstorming[\s\S]*superpowers:writing-plans[\s\S]*superpowers:test-driven-development/);
+    assert.doesNotMatch(args[0], /still has TODOs/);
+    assert.match(args[0], /superpowers:subagent-driven-development[\s\S]*superpowers:test-driven-development[\s\S]*superpowers:verification-before-completion/);
     assert.match(args[0], /tasks\.mjs done 0001/);
     assert.equal(currentTaskOf(root).id, '0001');
   });
 
   it('skips the session with --no-session or when one cannot open, and forces it with --session', async () => {
     const { root } = repo();
-    addTask(root, 'First');
+    const task = addTask(root, 'First');
+    fillTask(root, task);
     const fake = fakeClaude();
     assert.equal(await main(['start', '1', '--no-session'], { root, log: () => {}, session: true, run: fake.run }), 0);
     assert.equal(await main(['start', '1'], { root, log: () => {}, session: false, run: fake.run }), 0);
@@ -130,7 +213,8 @@ describe('task board', () => {
 
   it('keeps the task started when claude is missing', async () => {
     const { root } = repo();
-    addTask(root, 'First');
+    const task = addTask(root, 'First');
+    fillTask(root, task);
     const out = [];
     const fake = fakeClaude({ error: Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }) });
     assert.equal(await main(['start', '1'], { root, log: (l) => out.push(l), session: true, run: fake.run }), 0);
@@ -140,7 +224,8 @@ describe('task board', () => {
 
   it('tells a resumed session why the task was blocked', async () => {
     const { root } = repo();
-    addTask(root, 'First');
+    const task = addTask(root, 'First');
+    fillTask(root, task);
     await cli(root, 'start', '1');
     await cli(root, 'block', '1', 'waiting for API keys');
     const fake = fakeClaude();
@@ -156,6 +241,7 @@ describe('task board', () => {
     addTask(root, 'Third');
     assert.match((await cli(root, 'current')).out, /^no task is in progress[\s\S]*next \(3\)/);
 
+    fillTask(root, findTask(root, '1'), { scope: 'src/a/**' });
     await cli(root, 'start', '1');
     await cli(root, 'block', '3', 'waiting for API keys');
     const current = (await cli(root, 'current')).out;
@@ -166,7 +252,7 @@ describe('task board', () => {
     assert.equal(next.code, 0);
     assert.match(next.out, /^next \(1\)\n  1\. 0002 Second\n     note has TODOs$/);
     assert.match((await cli(root, 'blocked')).out, /^blocked \(1\)\n  0003 Third\n     waiting for API keys · note has TODOs$/);
-    assert.match((await cli(root, 'list', 'current')).out, /0001 First\n     scope src\/a\/\*\* · branch main · note has TODOs/);
+    assert.match((await cli(root, 'list', 'current')).out, /0001 First\n     scope src\/a\/\*\* · branch main/);
     assert.equal((await cli(root, 'list', 'done')).out, 'done: none');
     await assert.rejects(cli(root, 'list', 'later'), /unknown state later/);
   });
@@ -181,12 +267,19 @@ describe('task board', () => {
 
   it('moves a task to blocked with its reason and resumes it with the same base', async () => {
     const { root, run } = repo();
-    addTask(root, 'First');
+    const task = addTask(root, 'First');
+    fillTask(root, task);
     await cli(root, 'start', '1');
     const base = findTask(root, '1').base;
     await cli(root, 'block', '1', 'waiting', 'for', 'API', 'keys');
     assert.equal(currentTaskOf(root), null);
     assert.match(boardEntries(root, 'blocked')[0], /· waiting for API keys$/);
+    write(root, PLAN, '# Incomplete plan\n');
+    await assert.rejects(cli(root, 'start', '1'), /Test Strategy.*plan/i);
+    assert.equal(currentTaskOf(root), null);
+    assert.equal(findTask(root, '1').status, 'blocked');
+    assert.equal(findTask(root, '1').base, base);
+    fillTask(root, findTask(root, '1'));
     write(root, 'src/a.js', 'x\n');
     run('add', '.');
     run('commit', '-qm', 'more');
@@ -197,7 +290,8 @@ describe('task board', () => {
 
   it('marks a task done only when its tests pass', async () => {
     const { root } = repo();
-    addTask(root, 'First');
+    const task = addTask(root, 'First');
+    fillTask(root, task);
     await cli(root, 'start', '1');
     const failed = await cli(root, 'done', '1', '--', 'node', '-e', '"process.exit(3)"');
     assert.equal(failed.code, 3);
@@ -216,8 +310,8 @@ describe('task review', () => {
   it('is ready when the task is complete, in scope, tested and passing', async () => {
     const { root, run } = repo();
     const task = addTask(root, 'Add login rate limit');
-    await cli(root, 'start', '1');
     fillTask(root, task);
+    await cli(root, 'start', '1');
     write(root, 'src/rate.js', 'export const limit = 5;\n');
     write(root, 'test/rate.test.js', "it('returns a rate limited response with a retry header on the sixth login attempt', () => {});\n");
     run('add', '.');
@@ -234,8 +328,8 @@ describe('task review', () => {
   it('reports failing tests, missing tests, scope creep and mixed change kinds', async () => {
     const { root, run } = repo();
     const task = addTask(root, 'Add login rate limit');
-    await cli(root, 'start', '1');
     fillTask(root, task);
+    await cli(root, 'start', '1');
     write(root, 'src/rate.js', 'export const limit = 5;\n');
     write(root, 'package.json', '{"dependencies": {"left-pad": "1"}}\n');
     run('add', '.');
@@ -254,8 +348,8 @@ describe('task review', () => {
   it('flags commits made after the recorded test run', async () => {
     const { root, run } = repo();
     const task = addTask(root, 'Feature');
-    await cli(root, 'start', '1');
     fillTask(root, task);
+    await cli(root, 'start', '1');
     write(root, 'src/a.js', 'a\n');
     write(root, 'test/a.test.js', "it('sixth login attempt rate limited response retry header', () => {});\n");
     run('add', '.');

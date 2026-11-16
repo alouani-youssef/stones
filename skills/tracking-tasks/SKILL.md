@@ -24,8 +24,9 @@ context/tasks/
 
 The board is the source of truth for **task state and traceability**: what is
 in scope, the expected behavior and scenarios, status, branch and base,
-blockers, and review evidence. Superpowers is the source of truth for **how to
-do the work**: exploring the problem, shaping a design, planning,
+blockers, and review evidence. It also enforces that task readiness artifacts
+exist before a task can become current. Superpowers is the source of truth for
+**how to do the work**: exploring the problem, shaping a design, planning,
 implementing, debugging, and verifying.
 
 Use the board to find, start, resume, block, finish, and review a task. Use
@@ -52,18 +53,13 @@ node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes .claude/revi
 ## Workflow
 
 1. **Session start:** run `current`. If a task is in progress, continue it; do not start another. Otherwise `next` shows what to pick up.
-2. **New work:** `add` the task, then fill its file in `list/`: **Expected behavior**, at least one `- Scenario: <condition>. Expected: <outcome>.`, **Contract change** (`none` or `behavior changed: <reason>`), and a **Scope** of globs for the files it may touch. Ask the user when the expected behavior is unclear.
-3. **Start:** `start <id>` before editing code. One task is current at a time; finish or block the current one first. Run from a terminal, `start` opens a Claude Code session whose first prompt is the task note, the superpowers steps below, and the old block reason when resuming. Inside Claude Code it only updates the board (`--session` forces one, `--no-session` skips it).
-4. **Work with Superpowers:** use the relevant Superpowers skills to design, plan, implement, and verify the task. For a task that needs a spec and plan:
-   1. Use `superpowers:brainstorming` with the task note as the starting context. It writes `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Copy the settled expected behavior, scenarios, and contract change into the task note, then link the spec under `## Spec and plan` as `Spec: <path>`.
-   2. Use `superpowers:writing-plans` on that spec. Link its plan under `## Spec and plan` as `Plan: <path>`.
-   3. Implement by following the plan with `superpowers:subagent-driven-development` or `superpowers:executing-plans`, and use `superpowers:test-driven-development` when implementing behavior.
-   4. Use `superpowers:verification-before-completion` before marking the board task done.
-
-   The task note remains the board's concise contract and status record; the linked spec and plan hold the design and implementation detail. The testing hook blocks test runs and test edits until the note is complete, including both links pointing to files that exist. `review` reports a missing spec or plan as an incomplete note, and counts the linked files as in scope. Notes written before `## Spec and plan` existed are not checked for it.
-5. **Blocked:** `block <id> "<reason>"` names what it waits on. `start` resumes it later with its original base commit, so the review still covers all of its work.
-6. **Finish:** commit the work, then `done <id>`. It runs the project's test command (or the one after `--`) and moves the task to done only when it passes. On failure, fix the source and run it again; never edit the task or the tests to get a pass.
-7. **Review:** `review <id> --run-tests` before handing off or opening a pull request.
+2. **Define the task:** run `add`, then complete its note in `list/`: **Expected behavior**, at least one `- Scenario: <condition>. Expected: <outcome>.`, **Contract change** (`none` or `behavior changed: <reason>`), and **Scope** globs. Also fill in **Test Strategy** and at least one **Test Cases** bullet in the format `- Case: <condition>. Expected: <observable outcome>.` Ask the user when expected behavior is unclear.
+3. **Design and plan before starting:** use [`superpowers:brainstorming`](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md) with the task note as input; save the spec under `docs/superpowers/specs/` and link it as `Spec: <path>`. The spec must have non-placeholder `## Test Strategy` and `## Test Cases` sections, with at least one `- Case: <condition>. Expected: <observable outcome>.` bullet. Then use [`superpowers:writing-plans`](https://github.com/obra/superpowers/blob/main/skills/writing-plans/SKILL.md) on the spec; save the plan under `docs/superpowers/plans/` and link it as `Plan: <path>`. The plan must also have non-placeholder `## Test Strategy` and `## Test Cases` sections with expected outcomes, and map cases to test-first implementation and verification steps. **Do not run `start` until the note, spec, and plan meet these requirements.**
+4. **Start:** run `start <id>` only after the readiness artifacts exist. The task tool checks the note, links, files, test strategy, and cases before changing task status, branch/base metadata, or board state. If validation fails, fix the named item and retry. One task is current at a time; finish or block the current one first. Starting a blocked task applies the same gate and retains its original base. From a terminal, `start` opens a Claude Code session with the note and implementation workflow; inside Claude Code it only updates the board (`--session` forces one, `--no-session` skips it).
+5. **Build and verify:** follow the linked plan with [`superpowers:subagent-driven-development`](https://github.com/obra/superpowers/blob/main/skills/subagent-driven-development/SKILL.md) or [`superpowers:executing-plans`](https://github.com/obra/superpowers/blob/main/skills/executing-plans/SKILL.md), and use [`superpowers:test-driven-development`](https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md) when implementing behavior. Use [`superpowers:verification-before-completion`](https://github.com/obra/superpowers/blob/main/skills/verification-before-completion/SKILL.md) before marking the task done. Keep the board note as the concise contract and status record; the linked spec and plan contain design and execution detail.
+6. **Blocked:** `block <id> "<reason>"` names what it waits on. `start` resumes it later with its original base commit, after readiness validation.
+7. **Finish:** commit the work, then `done <id>`. It runs the project's test command (or the one after `--`) and moves the task to done only when it passes. On failure, fix the source and run it again; never edit the task or tests to get a pass.
+8. **Review:** `review <id> --run-tests` before handing off or opening a pull request. It reports missing specs/plans and checks the changed work against the task's scenarios.
 
 ## Reviewing a task
 

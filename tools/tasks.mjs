@@ -11,8 +11,8 @@
 // only when its tests pass. `review` builds one file a reviewer reads to judge
 // the task against what it promised.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { reviewTask } from './review.mjs';
@@ -48,6 +48,14 @@ TODO: Describe the behavior the source should provide.
 ## Contract change
 
 none
+
+## Test Strategy
+
+TODO: Describe the test levels and checks that give confidence for this task.
+
+## Test Cases
+
+- Case: TODO: describe an input or condition. Expected: TODO: describe the observable result.
 
 ## Spec and plan
 
@@ -185,6 +193,85 @@ export function currentTaskOf(root) {
   return file && existsSync(join(root, LIST_DIR, file)) ? readTask(root, file) : null;
 }
 
+function markdownSection(text, heading) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
+  if (start < 0) return '';
+  const end = lines.findIndex((line, index) => index > start && /^##\s/.test(line));
+  return lines.slice(start + 1, end < 0 ? lines.length : end).join('\n').trim();
+}
+
+const PLACEHOLDER = /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i;
+
+function hasExpectedCase(section) {
+  return section.split(/\r?\n/).some((line) => {
+    const match = /^\s*[-*]\s+(?:Case|Test case):\s*(.+?)\s+Expected:\s*(.+)$/i.exec(line);
+    return match && match[1].trim().length >= 8 && match[2].trim().length >= 8 && !PLACEHOLDER.test(line);
+  });
+}
+
+function validateTestSections(text, label, task) {
+  const strategy = markdownSection(text, 'Test Strategy');
+  if (!strategy || strategy.trim().length < 20 || PLACEHOLDER.test(strategy)) {
+    fail(`${task.id} is not ready to start: add a meaningful ## Test Strategy section to the ${label}; describe which checks and test levels cover the task's risks.`);
+  }
+  const cases = markdownSection(text, 'Test Cases');
+  if (!hasExpectedCase(cases)) {
+    fail(`${task.id} is not ready to start: add at least one concrete Case with an Expected outcome under ## Test Cases in the ${label}.`);
+  }
+}
+
+function linkedDocument(root, task, label, folder, skill) {
+  const links = markdownSection(task.text, 'Spec and plan');
+  const path = new RegExp(`^${label}:[ \\t]*(.*)$`, 'm').exec(links)?.[1].trim() ?? '';
+  if (!path || PLACEHOLDER.test(path)) {
+    fail(`${task.id} is not ready to start: create the ${label.toLowerCase()} with ${skill} and link it under ## Spec and plan in ${task.path}.`);
+  }
+  const rootPath = realpathSync(root);
+  const target = resolve(rootPath, path);
+  const relativePath = relative(rootPath, target);
+  if (isAbsolute(path) || relativePath === '..' || relativePath.startsWith(`..${sep}`)) {
+    fail(`${task.id} is not ready to start: the ${label.toLowerCase()} path must stay inside the project.`);
+  }
+  if (!path.startsWith(folder) || !path.endsWith('.md')) {
+    fail(`${task.id} is not ready to start: link the ${label.toLowerCase()} under ${folder} as a Markdown file.`);
+  }
+  if (!existsSync(target)) {
+    fail(`${task.id} is not ready to start: ${path} does not exist; create the ${label.toLowerCase()} with ${skill}.`);
+  }
+  const realTarget = realpathSync(target);
+  const realRelative = relative(rootPath, realTarget);
+  if (realRelative === '..' || realRelative.startsWith(`..${sep}`)) {
+    fail(`${task.id} is not ready to start: the ${label.toLowerCase()} must resolve inside the project.`);
+  }
+  if (!statSync(realTarget).isFile()) {
+    fail(`${task.id} is not ready to start: ${path} must link to a Markdown file.`);
+  }
+  const content = readFileSync(realTarget, 'utf8');
+  validateTestSections(content, label === 'Spec' ? 'spec' : 'plan', task);
+}
+
+export function validateTaskReadiness(root, task) {
+  const behavior = markdownSection(task.text, 'Expected behavior');
+  if (!behavior || PLACEHOLDER.test(behavior)) {
+    fail(`${task.id} is not ready to start: complete ## Expected behavior in ${task.path}.`);
+  }
+  const scenarios = markdownSection(task.text, 'Scenarios');
+  if (!scenarios.split(/\r?\n/).some((line) =>
+    /^\s*[-*]\s+.+?\bExpected:\s*\S.+$/i.test(line) && !PLACEHOLDER.test(line))) {
+    fail(`${task.id} is not ready to start: add a Scenario with an Expected outcome in ${task.path}.`);
+  }
+  const contract = markdownSection(task.text, 'Contract change');
+  const unchanged = /^(?:none|no|unchanged|no contract change)\.?$/i.test(contract);
+  const changed = /^behavior changed:\s*\S.{7,}$/i.test(contract) && !PLACEHOLDER.test(contract);
+  if (!unchanged && !changed) {
+    fail(`${task.id} is not ready to start: set ## Contract change to "none" or "behavior changed: <reason>" in ${task.path}.`);
+  }
+  validateTestSections(task.text, 'task note', task);
+  linkedDocument(root, task, 'Spec', 'docs/superpowers/specs/', 'superpowers:brainstorming');
+  linkedDocument(root, task, 'Plan', 'docs/superpowers/plans/', 'superpowers:writing-plans');
+}
+
 export function startTask(root, ref) {
   const task = findTask(root, ref);
   const current = currentTaskOf(root);
@@ -192,6 +279,7 @@ export function startTask(root, ref) {
     fail(`${current.id} is in progress: finish it (done) or block it before starting ${task.id}`);
   }
   if (task.status === 'done') fail(`${task.id} is already done`);
+  validateTaskReadiness(root, task);
   const head = git(root, ['rev-parse', 'HEAD']);
   const branch = git(root, ['branch', '--show-current']).out;
   // Resuming a blocked task keeps its original base, so the review covers all of it.
@@ -204,13 +292,11 @@ export function startTask(root, ref) {
   return updated;
 }
 
-// Every task is designed and built with the superpowers skills, in this order.
+// After readiness validation, Superpowers guides implementation and verification.
 export const SUPERPOWERS_WORKFLOW = [
-  'Build it with the superpowers skills, in order:',
-  '1. Spec: unless "Spec:" under ## Spec and plan already links an existing file, use superpowers:brainstorming with this task as its input. Copy the expected behavior, scenarios and contract change it settles into the task note, and link the spec file it writes as "Spec: <path>".',
-  '2. Plan: unless "Plan:" already links an existing file, use superpowers:writing-plans on that spec and link the plan as "Plan: <path>".',
-  '3. Build: carry out the plan with superpowers:subagent-driven-development (or superpowers:executing-plans when working inline), test first with superpowers:test-driven-development.',
-  '4. Finish: use superpowers:verification-before-completion before claiming it works.',
+  'The board has already checked that the task note, spec, and plan are complete before this task was started. Read the linked spec and plan first; keep their behavior, scenarios, test strategy, and test cases aligned with the task note.',
+  'Build: carry out the plan with superpowers:subagent-driven-development (or superpowers:executing-plans when working inline), test first with superpowers:test-driven-development.',
+  'Finish: use superpowers:verification-before-completion before claiming it works.',
 ].join('\n');
 
 // The opening prompt of a task's session: the task note plus how to work it.
@@ -225,7 +311,7 @@ export function taskPrompt(task, { blockedReason = '' } = {}) {
     task.text.trim(),
     '</task>',
     todo
-      ? 'The note still has TODOs: fill them in before writing code, asking me when the expected behavior is unclear. The testing hook blocks test runs until it is complete.'
+      ? 'The note still has TODOs: fill them in before writing code, asking me when the expected behavior is unclear. Task start and the testing hook both enforce the required task details.'
       : '',
     SUPERPOWERS_WORKFLOW,
     `Only change files inside its Scope. Commit the work, then finish with \`node .claude/tools/tasks.mjs done ${task.id}\``
@@ -348,8 +434,8 @@ const USAGE = `usage: tasks <command>
   next                                the queued tasks, in order
   blocked                             the blocked tasks, with their reasons
   show [id]                           print a task (default: the current one)
-  start <id> [--no-session]           make it current (records branch and base commit) and
-                                      open a Claude Code session loaded with the task
+  start <id> [--no-session]           validate the note, spec and plan, then make it current
+                                      and open its Claude Code session
   block <id> <reason>                 move it to blocked.md
   done <id> [-- test command]         run the tests; on success move it to done.md
   review [id] [--run-tests]           write the review package to ${REVIEWS_DIR}/<id>.md; exit 1 if not ready`;
@@ -413,7 +499,7 @@ export async function main(argv, { root = projectRoot(), log = console.log, sess
     case 'add': {
       const scope = option(rest, '--scope') ?? '';
       const task = addTask(root, rest.join(' '), { scope });
-      log(`added ${task.path} (queued in ${STATE_DIR}/next.md); fill in its expected behavior and scenarios`);
+      log(`added ${task.path} (queued in ${STATE_DIR}/next.md); complete the behavior, scenarios, test strategy and cases, create the spec and plan, then start it`);
       return 0;
     }
     case 'list':

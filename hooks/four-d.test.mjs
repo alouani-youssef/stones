@@ -210,7 +210,21 @@ function contextProject() {
     '# Logs are plain text\n\nStatus: accepted\n\nThe four-d log is plain text so it can be tailed.\n');
   const task = addTask(root, 'Inject project context', { scope: 'hooks/**' });
   const file = join(root, task.path);
-  writeFileSync(file, readFileSync(file, 'utf8').replace('TODO: Describe the behavior the source should provide.', 'The 4D block lists the current task, roadmap and decisions.'));
+  const spec = 'docs/superpowers/specs/2026-11-16-inject-project-context-design.md';
+  const plan = 'docs/superpowers/plans/2026-11-16-inject-project-context.md';
+  const note = readFileSync(file, 'utf8')
+    .replace('TODO: Describe the behavior the source should provide.', 'The 4D block lists the current task, roadmap and decisions.')
+    .replace('- Scenario: TODO: describe an input or condition. Expected: TODO: describe the observable result.', '- Scenario: a prompt names the current task. Expected: the 4D block includes the task title.')
+    .replace('TODO: Describe the test levels and checks that give confidence for this task.', 'Use unit tests for task context formatting and hook integration tests for prompt injection.')
+    .replace('- Case: TODO: describe an input or condition. Expected: TODO: describe the observable result.', '- Case: the current task has a title. Expected: the prompt context includes that title.')
+    .replace(/^Spec: .*$/m, `Spec: ${spec}`)
+    .replace(/^Plan: .*$/m, `Plan: ${plan}`);
+  writeFileSync(file, note);
+  mkdirSync(join(root, 'docs/superpowers/specs'), { recursive: true });
+  mkdirSync(join(root, 'docs/superpowers/plans'), { recursive: true });
+  const checks = '## Test Strategy\n\nUse focused unit tests and a hook integration test.\n\n## Test Cases\n\n- Case: a task is current. Expected: its title appears in prompt context.\n';
+  writeFileSync(join(root, spec), `# Design\n\n${checks}`);
+  writeFileSync(join(root, plan), `# Plan\n\n${checks}`);
   startTask(root, task.id);
   addTask(root, 'Document the four-d context');
   addTask(root, 'Add a CI workflow');

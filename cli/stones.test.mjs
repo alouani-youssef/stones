@@ -288,15 +288,23 @@ describe('skills', () => {
     }
   });
 
-  it('links only to files that exist in the same skill', () => {
+  it('links local references only to files that exist in the same skill', () => {
     for (const skill of skills) {
       for (const rel of skill.files.filter((f) => f.endsWith('.md'))) {
         const text = readFileSync(new URL(`../skills/${rel}`, import.meta.url), 'utf8');
         for (const [, target] of text.matchAll(/\]\(([^)#\s]+\.md)\)/g)) {
+          if (/^https?:\/\//i.test(target)) continue;
           const resolved = join(dirname(rel), target);
           assert.ok(skill.files.includes(resolved), `${rel} -> ${target}`);
         }
       }
+    }
+  });
+
+  it('links the task workflow to each upstream Superpowers skill it invokes', () => {
+    const text = readFileSync(new URL('../skills/tracking-tasks/SKILL.md', import.meta.url), 'utf8');
+    for (const skill of ['brainstorming', 'writing-plans', 'subagent-driven-development', 'executing-plans', 'test-driven-development', 'verification-before-completion']) {
+      assert.match(text, new RegExp(`github\\.com/obra/superpowers/blob/main/skills/${skill}/SKILL\\.md`), skill);
     }
   });
 
