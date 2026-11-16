@@ -20,6 +20,20 @@ context/tasks/
     └── done.md         finished tasks, with their commit range and test result
 ```
 
+## How the board and Superpowers fit together
+
+The board is the source of truth for **task state and traceability**: what is
+in scope, the expected behavior and scenarios, status, branch and base,
+blockers, and review evidence. Superpowers is the source of truth for **how to
+do the work**: exploring the problem, shaping a design, planning,
+implementing, debugging, and verifying.
+
+Use the board to find, start, resume, block, finish, and review a task. Use
+the relevant Superpowers skills to carry out each phase. Keep the task note
+focused on the task contract and links to its spec and plan; do not copy the
+full Superpowers procedures into the note. The board records task status and
+review outcomes, while Superpowers guides the work that produces them.
+
 Always change the board through the tool, never by hand-editing the state files:
 
 ```sh
@@ -40,13 +54,13 @@ node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes .claude/revi
 1. **Session start:** run `current`. If a task is in progress, continue it; do not start another. Otherwise `next` shows what to pick up.
 2. **New work:** `add` the task, then fill its file in `list/`: **Expected behavior**, at least one `- Scenario: <condition>. Expected: <outcome>.`, **Contract change** (`none` or `behavior changed: <reason>`), and a **Scope** of globs for the files it may touch. Ask the user when the expected behavior is unclear.
 3. **Start:** `start <id>` before editing code. One task is current at a time; finish or block the current one first. Run from a terminal, `start` opens a Claude Code session whose first prompt is the task note, the superpowers steps below, and the old block reason when resuming. Inside Claude Code it only updates the board (`--session` forces one, `--no-session` skips it).
-4. **Spec and plan, with superpowers:** every task is designed and built with the superpowers skills, in this order:
-   1. **Spec:** `superpowers:brainstorming`, with the task note as its input. It writes `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Copy the expected behavior, scenarios and contract change it settles into the note, and link the file as `Spec: <path>` under `## Spec and plan`.
-   2. **Plan:** `superpowers:writing-plans` on that spec. It writes `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`. Link it as `Plan: <path>`.
-   3. **Build:** `superpowers:subagent-driven-development` (or `superpowers:executing-plans` inline), test first with `superpowers:test-driven-development`.
-   4. **Verify:** `superpowers:verification-before-completion` before `done`.
+4. **Work with Superpowers:** use the relevant Superpowers skills to design, plan, implement, and verify the task. For a task that needs a spec and plan:
+   1. Use `superpowers:brainstorming` with the task note as the starting context. It writes `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Copy the settled expected behavior, scenarios, and contract change into the task note, then link the spec under `## Spec and plan` as `Spec: <path>`.
+   2. Use `superpowers:writing-plans` on that spec. Link its plan under `## Spec and plan` as `Plan: <path>`.
+   3. Implement by following the plan with `superpowers:subagent-driven-development` or `superpowers:executing-plans`, and use `superpowers:test-driven-development` when implementing behavior.
+   4. Use `superpowers:verification-before-completion` before marking the board task done.
 
-   The testing hook blocks test runs and test edits until the note is complete, including both links pointing to files that exist. `review` reports a missing spec or plan as an incomplete note, and counts the linked files as in scope. Notes written before `## Spec and plan` existed are not checked for it.
+   The task note remains the board's concise contract and status record; the linked spec and plan hold the design and implementation detail. The testing hook blocks test runs and test edits until the note is complete, including both links pointing to files that exist. `review` reports a missing spec or plan as an incomplete note, and counts the linked files as in scope. Notes written before `## Spec and plan` existed are not checked for it.
 5. **Blocked:** `block <id> "<reason>"` names what it waits on. `start` resumes it later with its original base commit, so the review still covers all of its work.
 6. **Finish:** commit the work, then `done <id>`. It runs the project's test command (or the one after `--`) and moves the task to done only when it passes. On failure, fix the source and run it again; never edit the task or the tests to get a pass.
 7. **Review:** `review <id> --run-tests` before handing off or opening a pull request.
