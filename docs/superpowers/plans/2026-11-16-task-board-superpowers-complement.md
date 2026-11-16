@@ -32,6 +32,6 @@
 - Consumes: the board task note and current Superpowers workflow references.
 - Produces: documented responsibility boundaries and handoffs.
 
-- [ ] **Step 1: Add a concise responsibilities section** stating that the board owns task state and traceability while Superpowers owns execution guidance.
-- [ ] **Step 2: Clarify the workflow handoff** so task notes link to Superpowers artifacts and the board remains the record for status and review outcomes.
-- [ ] **Step 3: Review the full skill** to confirm commands and lifecycle requirements are preserved and no Superpowers instructions are duplicated.
+- [x] **Step 1: Add a concise responsibilities section** stating that the board owns task state and traceability while Superpowers owns execution guidance.
+- [x] **Step 2: Clarify the workflow handoff** so task notes link to Superpowers artifacts and the board remains the record for status and review outcomes.
+- [x] **Step 3: Review the full skill** to confirm commands and lifecycle requirements are preserved and no Superpowers instructions are duplicated.

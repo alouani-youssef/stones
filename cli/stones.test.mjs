@@ -248,6 +248,17 @@ describe('framework skills', () => {
     assert.ok((await defaults(['Anthropic SDK'])).includes('prompts'));
   });
 
+  it('matches skills against detected tools as well as frameworks', async () => {
+    const base = detect(nextApp());
+    const pick = async (tools) => (await interview(createScriptedPrompter({}), { ...base, tools })).install.skills;
+    const withActions = await pick(['GitHub Actions']);
+    assert.ok(withActions.includes('github-actions'));
+    assert.ok(withActions.includes('ci-cd'));
+    const without = await pick([]);
+    assert.ok(!without.includes('github-actions'));
+    assert.ok(without.includes('ci-cd'), 'CI/CD practices apply to every project');
+  });
+
   it('gives every framework skill a references section with links', () => {
     for (const s of skillCatalog().filter((sk) => sk.frameworks.length)) {
       const text = readFileSync(join(PACKAGE_ROOT, 'skills', s.main), 'utf8');
