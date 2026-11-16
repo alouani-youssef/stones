@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -9,7 +9,7 @@ import { currentTask, evaluate as testingGuard } from '../hooks/testing.mjs';
 import { coverage, globMatcher } from './review.mjs';
 import { EventEmitter } from 'node:events';
 
-import { addTask, boardEntries, currentTaskOf, findTask, main, taskPrompt } from './tasks.mjs';
+import { addTask, currentTaskOf, findTask, main, migrateBoard, tasksIn, taskPrompt } from './tasks.mjs';
 
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'stones-tasks-'));
@@ -68,7 +68,7 @@ function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
 }
 
 describe('task board', () => {
-  it('adds tasks to list/ and queues them in next.md', async () => {
+  it('adds tasks to list/ with Status: next and lists them in next.md', async () => {
     const { root } = repo();
     const { code, out } = await cli(root, 'add', 'Add login rate limit', '--scope', 'src/**');
     assert.equal(code, 0);
@@ -79,8 +79,9 @@ describe('task board', () => {
     assert.match(task.text, /## Spec and plan\n\nSpec: TODO: [^\n]*superpowers:brainstorming[^\n]*\nPlan: TODO: [^\n]*superpowers:writing-plans/);
     assert.match(task.text, /## Test Strategy/);
     assert.match(task.text, /## Test Cases/);
-    assert.equal(boardEntries(root, 'next').length, 1);
-    for (const s of ['current', 'blocked', 'done']) assert.equal(boardEntries(root, s).length, 0);
+    assert.equal(tasksIn(root, 'next').length, 1);
+    for (const s of ['current', 'blocked', 'done']) assert.equal(tasksIn(root, s).length, 0);
+    assert.match(read(root, 'context/tasks/state/next.md'), /^- \[0001 Add login rate limit\]\(\.\.\/list\/0001-add-login-rate-limit\.md\)$/m);
     assert.equal(addTask(root, 'Second').id, '0002');
   });
 
@@ -94,7 +95,7 @@ describe('task board', () => {
     assert.equal(findTask(root, '1').branch, '');
     assert.equal(findTask(root, '1').base, '');
     assert.equal(read(root, task.path), before);
-    assert.equal(boardEntries(root, 'next').length, 1);
+    assert.equal(tasksIn(root, 'next').length, 1);
   });
 
   it('requires a test strategy and expected test cases in the note, spec, and plan', async () => {
@@ -169,7 +170,7 @@ describe('task board', () => {
     fillTask(root, a);
     assert.equal((await cli(root, 'start', '1')).code, 0);
     assert.equal(currentTaskOf(root).id, a.id);
-    assert.equal(boardEntries(root, 'next').length, 1);
+    assert.equal(tasksIn(root, 'next').length, 1);
     assert.match(findTask(root, '1').base, /^[0-9a-f]{40}$/);
     assert.equal(findTask(root, '1').branch, 'main');
     await assert.rejects(cli(root, 'start', '2'), /0001 is in progress/);
@@ -273,7 +274,8 @@ describe('task board', () => {
     const base = findTask(root, '1').base;
     await cli(root, 'block', '1', 'waiting', 'for', 'API', 'keys');
     assert.equal(currentTaskOf(root), null);
-    assert.match(boardEntries(root, 'blocked')[0], /· waiting for API keys$/);
+    assert.equal(tasksIn(root, 'blocked')[0].extra, 'waiting for API keys');
+    assert.match(read(root, task.path), /^Blocked: waiting for API keys$/m);
     write(root, PLAN, '# Incomplete plan\n');
     await assert.rejects(cli(root, 'start', '1'), /Test Strategy.*plan/i);
     assert.equal(currentTaskOf(root), null);
@@ -285,7 +287,8 @@ describe('task board', () => {
     run('commit', '-qm', 'more');
     await cli(root, 'start', '1');
     assert.equal(findTask(root, '1').base, base);
-    assert.equal(boardEntries(root, 'blocked').length, 0);
+    assert.equal(tasksIn(root, 'blocked').length, 0);
+    assert.doesNotMatch(read(root, task.path), /^Blocked:/m);
   });
 
   it('marks a task done only when its tests pass', async () => {
@@ -301,8 +304,223 @@ describe('task board', () => {
     const passed = await cli(root, 'done', '--', 'node', '-e', '"console.log(\'5 passing\')"');
     assert.equal(passed.code, 0);
     assert.equal(currentTaskOf(root), null);
-    assert.match(boardEntries(root, 'done')[0], /commits [0-9a-f]{7}\.\.[0-9a-f]{7} · tests: node -e .* → 5 passing/);
+    assert.match(findTask(root, '1').result, /^commits [0-9a-f]{7}\.\.[0-9a-f]{7} · tests: node -e .* → 5 passing$/);
+    assert.match((await cli(root, 'list')).out, /done \(1\)\n  \[0001 First\] · commits/);
     assert.equal(findTask(root, '1').status, 'done');
+  });
+});
+
+describe('task state in the notes', () => {
+  const PASS = ['--', 'node', '-e', '0'];
+
+  it('starts the next ready task when one is done, skipping tasks that are not ready', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    addTask(root, 'Draft');
+    fillTask(root, addTask(root, 'Third'));
+    await cli(root, 'start', '1');
+    const r = await cli(root, 'done', ...PASS);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /done 0001 First/);
+    assert.match(r.out, /skipped 0002 Draft: complete ## Expected behavior/);
+    assert.match(r.out, /started 0003 Third/);
+    assert.equal(findTask(root, '1').status, 'done');
+    assert.equal(findTask(root, '2').status, 'next');
+    assert.equal(currentTaskOf(root).id, '0003');
+    assert.match(findTask(root, '3').base, /^[0-9a-f]{40}$/);
+    assert.equal(currentTask(root).path, findTask(root, '3').path);
+  });
+
+  it('stops after closing the task with --no-advance, or when nothing is queued or ready', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    fillTask(root, addTask(root, 'Second'));
+    addTask(root, 'Draft');
+    await cli(root, 'start', '1');
+    const kept = await cli(root, 'done', '1', '--no-advance', ...PASS);
+    assert.equal(kept.code, 0);
+    assert.doesNotMatch(kept.out, /started/);
+    assert.equal(currentTaskOf(root), null);
+
+    await cli(root, 'start', '2');
+    const none = await cli(root, 'done', ...PASS);
+    assert.match(none.out, /skipped 0003 Draft[\s\S]*no queued task is ready to start/);
+    assert.equal(currentTaskOf(root), null);
+
+    const { root: empty } = repo();
+    fillTask(empty, addTask(empty, 'Only'));
+    await cli(empty, 'start', '1');
+    assert.match((await cli(empty, 'done', ...PASS)).out, /no queued tasks left/);
+  });
+
+  it('does not advance when tests fail', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    fillTask(root, addTask(root, 'Second'));
+    await cli(root, 'start', '1');
+    const r = await cli(root, 'done', '--', 'node', '-e', '"process.exit(2)"');
+    assert.equal(r.code, 2);
+    assert.equal(currentTaskOf(root).id, '0001');
+    assert.equal(findTask(root, '2').status, 'next');
+  });
+
+  it('opens the next task\'s session from a terminal', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    fillTask(root, addTask(root, 'Second'));
+    await cli(root, 'start', '1');
+    const fake = fakeClaude();
+    const code = await main(['done', ...PASS], { root, log: () => {}, session: true, run: fake.run });
+    assert.equal(code, 0);
+    assert.equal(fake.calls.length, 1);
+    assert.match(fake.calls[0].args[0], /Work on task 0002 "Second"/);
+  });
+
+  it('merges branches that finish different tasks without conflicts', async () => {
+    const { root, run } = repo();
+    write(root, '.gitignore', 'context/tasks/state/\n.claude/\n');
+    fillTask(root, addTask(root, 'First'));
+    fillTask(root, addTask(root, 'Second'));
+    run('add', '.');
+    run('commit', '-qm', 'tasks');
+    for (const [branch, id] of [['a', '1'], ['b', '2']]) {
+      run('checkout', '-q', '-b', branch, 'main');
+      await cli(root, 'start', id);
+      write(root, `src/${branch}.js`, `${branch}\n`);
+      run('add', '.');
+      run('commit', '-qm', branch);
+      assert.equal((await cli(root, 'done', id, '--no-advance', '--no-pr', ...PASS)).code, 0);
+      run('add', '.');
+      run('commit', '-qm', `close ${id}`);
+    }
+    run('checkout', '-q', 'main');
+    run('merge', '-q', '--no-edit', 'a');
+    run('merge', '-q', '--no-edit', 'b');
+    assert.deepEqual(tasksIn(root, 'done').map((t) => t.id), ['0001', '0002']);
+    assert.equal(currentTaskOf(root), null);
+    // The state files were never committed; sync rebuilds this checkout's copy from the merged notes.
+    assert.equal(execFileSync('git', ['ls-files', 'context/tasks/state'], { cwd: root, encoding: 'utf8' }), '');
+    assert.match((await cli(root, 'sync')).out, /rewrote context\/tasks\/state\/done\.md/);
+    assert.equal(read(root, 'context/tasks/state/next.md').match(/^- \[/gm), null);
+    assert.equal(read(root, 'context/tasks/state/done.md').match(/^- \[/gm).length, 2);
+    assert.match((await cli(root, 'sync')).out, /already matches the notes/);
+  });
+
+  it('copies blocked reasons and test results that only old state files kept into the notes', async () => {
+    const { root } = repo();
+    const a = addTask(root, 'First');
+    const b = addTask(root, 'Second');
+    const c = addTask(root, 'Third');
+    for (const [t, status] of [[a, 'current'], [b, 'blocked'], [c, 'done']]) {
+      write(root, t.path, read(root, t.path).replace(/^Status: next$/m, `Status: ${status}`));
+    }
+    const line = (t, extra) => `- [${t.id} ${t.title}](../list/${t.file})${extra ? ` · ${extra}` : ''}`;
+    write(root, 'context/tasks/state/blocked.md', `# Blocked\n\n${line(b, 'waiting for keys')}\n`);
+    write(root, 'context/tasks/state/done.md', `# Done\n\n${line(c, 'commits abc1234..def5678 · tests: npm test → ok')}\n`);
+    assert.equal(currentTask(root).path, a.path);
+
+    const out = (await cli(root, 'list')).out;
+    assert.equal(findTask(root, '2').blocked, 'waiting for keys');
+    assert.equal(findTask(root, '3').result, 'commits abc1234..def5678 · tests: npm test → ok');
+    assert.match(out, /current \(1\)\n  \[0001 First\]/);
+    assert.match(out, /blocked \(1\)\n  \[0002 Second\] · waiting for keys/);
+    assert.match(read(root, 'context/tasks/state/current.md'), /^- \[0001 First\]\(\.\.\/list\/0001-first\.md\)$/m);
+    assert.match(read(root, 'context/tasks/state/done.md'), /· commits abc1234\.\.def5678 · tests: npm test → ok$/m);
+    assert.deepEqual(migrateBoard(root), []);
+  });
+
+  it('keeps the state files in step with the notes, even after a hand edit', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    await cli(root, 'start', '1');
+    assert.match(read(root, 'context/tasks/state/current.md'), /^- \[0001 First\]\(\.\.\/list\/0001-first\.md\) · branch main$/m);
+    write(root, 'context/tasks/state/current.md', '# Current\n');
+    assert.equal(currentTaskOf(root).id, '0001', 'the note decides');
+    await cli(root, 'list');
+    assert.match(read(root, 'context/tasks/state/current.md'), /0001 First/);
+    await cli(root, 'block', '1', 'waiting');
+    assert.equal(read(root, 'context/tasks/state/current.md').match(/^- \[/gm), null);
+    assert.match(read(root, 'context/tasks/state/blocked.md'), /0001 First\]\(\.\.\/list\/0001-first\.md\) · waiting$/m);
+  });
+
+  it('starts queued tasks in the order of next.md', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    fillTask(root, addTask(root, 'Second'));
+    fillTask(root, addTask(root, 'Third'));
+    const next = read(root, 'context/tasks/state/next.md').split('\n');
+    const [one, two, three] = next.filter((l) => l.startsWith('- ['));
+    write(root, 'context/tasks/state/next.md', next.map((l) => (l === one ? three : l === three ? one : l)).join('\n'));
+    assert.deepEqual(tasksIn(root, 'next').map((t) => t.id), ['0003', '0002', '0001']);
+    await cli(root, 'start', '2');
+    assert.match((await cli(root, 'done', '--no-pr', ...PASS)).out, /started 0003 Third/);
+    assert.match((await cli(root, 'next')).out, /1\. 0001 First/);
+    assert.ok(two);
+  });
+
+  it('keeps the meta lines together at the top of the note', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'First', { scope: 'src/**' });
+    await cli(root, 'block', '1', 'waiting');
+    assert.match(read(root, task.path), /^# 0001 First\n\nStatus: blocked\nBranch:\nBase:\nScope: src\/\*\*\nBlocked: waiting\n\n## Expected behavior/);
+  });
+
+  it('writes a complete PR draft for the finished task and prints the commands that open it', async () => {
+    const { root, run } = repo();
+    const remote = mkdtempSync(join(tmpdir(), 'stones-remote-'));
+    execFileSync('git', ['init', '-q', '--bare', remote]);
+    run('remote', 'add', 'origin', remote);
+    run('push', '-q', 'origin', 'main');
+    run('checkout', '-q', '-b', 'feat/login-rate-limit');
+    fillTask(root, addTask(root, 'Add login rate limit'));
+    await cli(root, 'start', '1');
+    write(root, 'src/rate.js', 'export const limit = 5;\n');
+    run('add', '.');
+    run('commit', '-qm', 'feat: rate limit logins');
+
+    const r = await cli(root, 'done', ...PASS);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /PR draft: \.claude\/pr\.md \(complete\)\nopen the PR with:\n  git add context\/tasks && git commit -m 'chore\(tasks\): close 0001 Add login rate limit'\n  git push -u origin feat\/login-rate-limit\n  node \.claude\/tools\/create-pr\.mjs create --body-file \.claude\/pr\.md --base main$/m);
+    const draft = read(root, '.claude/pr.md');
+    assert.match(draft, /^<!-- title: feat: rate limit logins \| base: main \| zone: none -->/);
+    assert.match(draft, /^## Summary\nAdd login rate limit: Logins are rate limited per IP\.\n\nTask: \[0001 Add login rate limit\]\(context\/tasks\/list\/0001-add-login-rate-limit\.md\)/m);
+    assert.match(draft, /Scenarios:\n- Scenario: sixth login attempt within a minute\./);
+    assert.match(draft, /^## Risk\nNo contract change: .*\(src\/\*\*, test\/\*\*\)\.$/m);
+    assert.match(draft, /^## Rollback\nRevert this PR/m);
+    assert.match(draft, /^## Verification\n- task 0001 tests: commits [0-9a-f]{7}\.\.[0-9a-f]{7} · tests: node -e 0/m);
+    assert.doesNotMatch(draft, /TODO/);
+  });
+
+  it('skips the PR draft on the default branch or with --no-pr', async () => {
+    const { root } = repo();
+    fillTask(root, addTask(root, 'First'));
+    fillTask(root, addTask(root, 'Second'));
+    await cli(root, 'start', '1');
+    assert.match((await cli(root, 'done', ...PASS)).out, /no PR draft: you are on main/);
+    const r = await cli(root, 'done', '--no-pr', ...PASS);
+    assert.doesNotMatch(r.out, /PR draft/);
+    assert.equal(existsSync(join(root, '.claude/pr.md')), false);
+  });
+
+  it('tells boards that still commit state/ how to stop tracking it', async () => {
+    const { root, run } = repo();
+    addTask(root, 'First');
+    run('add', '.');
+    run('commit', '-qm', 'board');
+    assert.match((await cli(root, 'list')).out, /context\/tasks\/state\/ is committed[\s\S]*git rm -r --cached context\/tasks\/state/);
+    run('rm', '-r', '-q', '--cached', 'context/tasks/state');
+    write(root, '.gitignore', 'context/tasks/state/\n');
+    run('add', '.');
+    run('commit', '-qm', 'untrack');
+    assert.doesNotMatch((await cli(root, 'list')).out, /is committed/);
+  });
+
+  it('warns when a merge leaves two current tasks', async () => {
+    const { root } = repo();
+    for (const t of [addTask(root, 'First'), addTask(root, 'Second')]) {
+      write(root, t.path, read(root, t.path).replace(/^Status: next$/m, 'Status: current'));
+    }
+    assert.match((await cli(root, 'list')).out, /warning: 2 tasks have Status: current \(0001, 0002\)/);
   });
 });
 

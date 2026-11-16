@@ -391,7 +391,7 @@ describe('init', () => {
     const settings = JSON.parse(read(withBoard, '.claude/settings.json'));
     assert.ok(read(withBoard, '.claude/hooks/testing.mjs').length > 0);
     assert.match(JSON.stringify(settings.hooks.PreToolUse), /testing\.mjs/);
-    for (const state of ['current', 'next', 'blocked', 'done']) assert.ok(existsSync(join(withBoard, `context/tasks/state/${state}.md`)), state);
+    assert.match(read(withBoard, '.gitignore'), /^context\/tasks\/state\/$/m);
     assert.ok(existsSync(join(withBoard, 'context/tasks/list/.gitkeep')));
     assert.ok(read(withBoard, '.claude/tools/tasks.mjs').length > 0);
     assert.ok(read(withBoard, '.claude/tools/review.mjs').length > 0);
@@ -405,6 +405,7 @@ describe('init', () => {
     // The installed tool runs from .claude/tools and reaches the installed hooks.
     const out = execFileSync('node', ['.claude/tools/tasks.mjs', 'add', 'First task'], { cwd: withBoard, encoding: 'utf8' });
     assert.match(out, /context\/tasks\/list\/0001-first-task\.md/);
+    assert.match(read(withBoard, 'context/tasks/state/next.md'), /0001 First task/);
 
     const legacy = nextApp();
     await runInit(legacy, { 'install.hooks': ['testing'], 'install.skills': ['writing-tests'] });

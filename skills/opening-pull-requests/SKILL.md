@@ -36,6 +36,9 @@ Without `--base`, a feature stacked on an unmerged `deps/` branch looks like it 
 
 ## Description
 
+Don't write it by hand: `node .claude/tools/create-pr.mjs draft --write` (or `tasks done` for a board task) saves the draft to `.claude/pr.md` with these sections filled from the commits, the task note and the last test runs, and prints the commands that push the branch and open the PR. Fill any TODO it reports.
+
+
 Fill every section:
 
 ```markdown

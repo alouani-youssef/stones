@@ -102,20 +102,21 @@ async function checkTaskNote(root, task, findings) {
   if (!status.valid) findings.push(`task note incomplete: ${status.reason}`);
 }
 
-function checkTests({ tests, doneLine, head }, findings) {
+// `recorded` is the Result line `tasks done` wrote: `commits a..b · tests: <cmd> → <last line>`.
+function checkTests({ tests, recorded, head }, findings) {
   if (tests) {
     if (!tests.ok) findings.push(`tests fail: \`${tests.command}\` exited ${tests.status} (see ${tests.log})`);
     return tests.ok ? `passed now: \`${tests.command}\` → ${tests.last}` : `failed now: \`${tests.command}\``;
   }
-  if (!doneLine) {
+  if (!recorded) {
     findings.push('no passing test run recorded: close the task with `tasks done` or review with `--run-tests`');
     return 'not run';
   }
-  const recordedHead = /commits [0-9a-f]+\.\.([0-9a-f]+)/.exec(doneLine)?.[1];
+  const recordedHead = /commits [0-9a-f]+\.\.([0-9a-f]+)/.exec(recorded)?.[1];
   if (recordedHead && head && !head.startsWith(recordedHead)) {
     findings.push(`commits were added after the tests passed (recorded at ${recordedHead}, HEAD is ${head.slice(0, 7)}): rerun with --run-tests`);
   }
-  return `recorded: ${doneLine.split(' · ').slice(1).join(' · ')}`;
+  return `recorded: ${recorded}`;
 }
 
 async function checkAtomicity(root, base, findings, notes) {
@@ -154,7 +155,7 @@ async function checkComplexity(root, base, files, findings, notes) {
   if (missing.size) notes.push(`no complexity analyzer for ${[...missing].join(', ')}`);
 }
 
-export async function reviewTask(root, task, { tests = null, doneLine } = {}) {
+export async function reviewTask(root, task, { tests = null, recorded = '' } = {}) {
   const findings = [];
   const notes = [];
   const head = git(root, ['rev-parse', 'HEAD']);
@@ -170,7 +171,7 @@ export async function reviewTask(root, task, { tests = null, doneLine } = {}) {
   if (base && commits.length === 0) findings.push('no commits since the task started');
   if (dirty.length) findings.push(`uncommitted changes are not part of the review: ${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ', …' : ''}`);
 
-  const testsLine = checkTests({ tests, doneLine, head }, findings);
+  const testsLine = checkTests({ tests, recorded, head }, findings);
 
   const scopeGlobs = task.scope ? task.scope.split(',').map((s) => s.trim()).filter(Boolean) : [];
   if (scopeGlobs.length) {

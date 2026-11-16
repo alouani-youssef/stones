@@ -14,13 +14,13 @@ import { renderAgentDoc } from './agent-doc.mjs';
 import { commandCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT, skillCatalog } from './catalog.mjs';
 import { shippedDockerfile } from './devcontainer.mjs';
 import { composeSettings, mergeSettings } from './settings.mjs';
-import { LIST_DIR, STATE_DIR, STATE_HEADERS, STATES } from '../tools/tasks.mjs';
+import { LIST_DIR, STATE_GITIGNORE } from '../tools/tasks.mjs';
 
 export const MANIFEST = '.claude/stones.json';
 const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json', '.claude/quality/', '.claude/pr.md'];
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
-const TASKS_GITIGNORE = ['.claude/reviews/'];
+const TASKS_GITIGNORE = ['.claude/reviews/', STATE_GITIGNORE];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
 const ANALYZER_FILES = ['compose.yaml', 'analyzers.Dockerfile'];
 // Files in hooks/lib/ each hook imports.
@@ -134,7 +134,7 @@ function toolFiles(answers, pkg) {
   }));
   if (usesTaskBoard(answers)) {
     for (const tool of TASK_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
-    for (const state of STATES) files.push({ path: `${STATE_DIR}/${state}.md`, content: `${STATE_HEADERS[state]}\n`, kind: 'seed' });
+    // The state files are git-ignored and built from the notes by the task tool on its first run.
     files.push({ path: `${LIST_DIR}/.gitkeep`, content: '', kind: 'seed' });
   } else if (answers.install.hooks.includes('testing')) {
     files.push({ path: 'context/tasks/active.md', content: LEGACY_TASK_NOTE, kind: 'managed' });

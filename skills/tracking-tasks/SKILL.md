@@ -3,7 +3,7 @@ name: tracking-tasks
 description: Use when starting, resuming, blocking, finishing or reviewing a task, when asked what to work on next or what is in progress, when the testing hook says no task is in progress, or before handing work off for review.
 metadata:
   title: Task Board
-  summary: One file per task in context/tasks/list/, a board in context/tasks/state/, and a review package that checks the work against what the task promised.
+  summary: One file per task in context/tasks/list/ that holds the task's state, a board in context/tasks/state/ rewritten from those notes, and a review package that checks the work against what the task promised.
 ---
 
 # Task Board
@@ -12,13 +12,33 @@ Tasks live in the repository, next to the code they change:
 
 ```
 context/tasks/
-├── list/NNNN-slug.md   one task: Status, Branch, Base, Scope, expected behavior, scenarios, contract change
-└── state/
-    ├── current.md      the task in progress (the testing hook reads the task linked here)
-    ├── next.md         queued tasks, in order
+├── list/NNNN-slug.md   one task: Status, Branch, Base, Scope, Blocked, Result,
+│                       expected behavior, scenarios, contract change
+└── state/              the board, rebuilt from the notes by every command (git-ignored)
+    ├── current.md      the task in progress
+    ├── next.md         queued tasks, in the order `done` starts them
     ├── blocked.md      waiting tasks, with the reason
     └── done.md         finished tasks, with their commit range and test result
 ```
+
+The notes are the source of truth; each holds its task's state:
+
+| Line | Set by | Meaning |
+| --- | --- | --- |
+| `Status: next\|current\|blocked\|done` | `add`, `start`, `block`, `done` | where the task is on the board |
+| `Branch:` / `Base:` | `start` | the branch and commit the task started from |
+| `Blocked: <reason>` | `block` (cleared by `start`) | what a blocked task waits on |
+| `Result: commits a..b · tests: <cmd> → <last line>` | `done` | the passing test run the task closed with |
+
+Every command changes the note of the task it acts on, then rebuilds
+`state/*.md` from the notes, so the two never disagree. The notes are
+committed; `context/tasks/state/` is in `.gitignore`, so the state files never
+reach a commit and task branches never conflict over them. After a checkout,
+pull or merge, run `sync` (or any command) to rebuild them; the testing hook
+reads the notes, so it is right even before that. Don't edit the state files
+by hand, with one exception: move lines in `next.md` to reorder your local
+queue (that order is not shared through git). If `list` reports that
+`state/` is still committed, follow its hint to stop tracking it.
 
 ## How the board and Superpowers fit together
 
@@ -35,7 +55,7 @@ focused on the task contract and links to its spec and plan; do not copy the
 full Superpowers procedures into the note. The board records task status and
 review outcomes, while Superpowers guides the work that produces them.
 
-Always change the board through the tool, never by hand-editing the state files:
+Change task state through the tool, never by hand-editing the Status, Blocked or Result lines:
 
 ```sh
 node .claude/tools/tasks.mjs list [current|next|blocked|done]  # the board, or one state of it
@@ -46,8 +66,11 @@ node .claude/tools/tasks.mjs add "Rate limit logins" --scope "src/auth/**,tests/
 node .claude/tools/tasks.mjs start 7 [--no-session]        # records branch and base commit; from a terminal, opens a Claude Code session loaded with the task
 node .claude/tools/tasks.mjs show                          # the current task
 node .claude/tools/tasks.mjs block 7 "waiting for API keys"
-node .claude/tools/tasks.mjs done 7 [-- <test command>]    # moves to done only if tests pass
+node .claude/tools/tasks.mjs done 7 [-- <test command>]    # done only if tests pass, then starts the next ready task
+node .claude/tools/tasks.mjs done 7 --no-advance          # done, without starting the next task
+node .claude/tools/tasks.mjs done 7 --no-pr               # done, without writing the PR draft
 node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes .claude/reviews/0007.md
+node .claude/tools/tasks.mjs sync                          # rewrite state/*.md from the notes, e.g. after a merge
 ```
 
 ## Workflow
@@ -58,8 +81,8 @@ node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes .claude/revi
 4. **Start:** run `start <id>` only after the readiness artifacts exist. The task tool checks the note, links, files, test strategy, and cases before changing task status, branch/base metadata, or board state. If validation fails, fix the named item and retry. One task is current at a time; finish or block the current one first. Starting a blocked task applies the same gate and retains its original base. From a terminal, `start` opens a Claude Code session with the note and implementation workflow; inside Claude Code it only updates the board (`--session` forces one, `--no-session` skips it).
 5. **Build and verify:** follow the linked plan with [`superpowers:subagent-driven-development`](https://github.com/obra/superpowers/blob/main/skills/subagent-driven-development/SKILL.md) or [`superpowers:executing-plans`](https://github.com/obra/superpowers/blob/main/skills/executing-plans/SKILL.md), and use [`superpowers:test-driven-development`](https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md) when implementing behavior. Use [`superpowers:verification-before-completion`](https://github.com/obra/superpowers/blob/main/skills/verification-before-completion/SKILL.md) before marking the task done. Keep the board note as the concise contract and status record; the linked spec and plan contain design and execution detail.
 6. **Blocked:** `block <id> "<reason>"` names what it waits on. `start` resumes it later with its original base commit, after readiness validation.
-7. **Finish:** commit the work, then `done <id>`. It runs the project's test command (or the one after `--`) and moves the task to done only when it passes. On failure, fix the source and run it again; never edit the task or tests to get a pass.
-8. **Review:** `review <id> --run-tests` before handing off or opening a pull request. It reports missing specs/plans and checks the changed work against the task's scenarios.
+7. **Review:** commit the work, then `review <id> --run-tests`. It reports missing specs/plans and checks the changed work against the task's scenarios. Fix every finding before finishing.
+8. **Finish and move on:** `done <id>` runs the project's test command (or the one after `--`) and sets the task done only when it passes, recording the commit range and test result in its `Result:` line. It writes the pull request draft to `.claude/pr.md` from the task (summary, scenarios, risk from its contract change, rollback, test result and review verdict; a `## Risk` or `## Rollback` section in the note overrides the defaults) and prints the commands that open it: commit the task bookkeeping, push, then `create-pr.mjs create`. Run them in order, after filling any TODOs it reports; opening the PR stays an explicit step. It then starts the next queued task (in `next.md` order) that passes the readiness gate, skipping and naming any queued task that is not ready, and prints the new current task; continue with it (`current` shows its note). From a terminal it opens that task's Claude Code session. Pass `--no-advance` to stop after closing the task, e.g. when tasks are worked on in parallel branches. On test failure, fix the source and run it again; never edit the task or tests to get a pass.
 
 ## Reviewing a task
 
