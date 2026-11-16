@@ -49,6 +49,11 @@ TODO: Describe the behavior the source should provide.
 
 none
 
+## Spec and plan
+
+Spec: TODO: the spec written with superpowers:brainstorming (docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md)
+Plan: TODO: the plan written with superpowers:writing-plans (docs/superpowers/plans/YYYY-MM-DD-<feature>.md)
+
 ## Notes
 `;
 
@@ -199,6 +204,15 @@ export function startTask(root, ref) {
   return updated;
 }
 
+// Every task is designed and built with the superpowers skills, in this order.
+export const SUPERPOWERS_WORKFLOW = [
+  'Build it with the superpowers skills, in order:',
+  '1. Spec: unless "Spec:" under ## Spec and plan already links an existing file, use superpowers:brainstorming with this task as its input. Copy the expected behavior, scenarios and contract change it settles into the task note, and link the spec file it writes as "Spec: <path>".',
+  '2. Plan: unless "Plan:" already links an existing file, use superpowers:writing-plans on that spec and link the plan as "Plan: <path>".',
+  '3. Build: carry out the plan with superpowers:subagent-driven-development (or superpowers:executing-plans when working inline), test first with superpowers:test-driven-development.',
+  '4. Finish: use superpowers:verification-before-completion before claiming it works.',
+].join('\n');
+
 // The opening prompt of a task's session: the task note plus how to work it.
 export function taskPrompt(task, { blockedReason = '' } = {}) {
   const todo = /TODO:/.test(task.text);
@@ -211,12 +225,13 @@ export function taskPrompt(task, { blockedReason = '' } = {}) {
     task.text.trim(),
     '</task>',
     todo
-      ? 'The note still has TODOs: fill in its expected behavior, scenarios, contract change and scope first, asking me when the expected behavior is unclear. The testing hook blocks test runs until it is complete.'
+      ? 'The note still has TODOs: fill them in before writing code, asking me when the expected behavior is unclear. The testing hook blocks test runs until it is complete.'
       : '',
+    SUPERPOWERS_WORKFLOW,
     `Only change files inside its Scope. Commit the work, then finish with \`node .claude/tools/tasks.mjs done ${task.id}\``
       + ` and check it with \`node .claude/tools/tasks.mjs review ${task.id} --run-tests\`.`
       + ` If it cannot be finished, \`node .claude/tools/tasks.mjs block ${task.id} "<reason>"\`.`,
-    'Start by summarizing the task and your plan.',
+    'Start by summarizing the task, then follow the steps above in order.',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -290,6 +305,30 @@ export function finishTask(root, ref, command) {
   return { task: updated, tests, finished: true };
 }
 
+// The tasks in one state file, in board order, with the text after `·` on their line.
+export function tasksIn(root, state) {
+  return boardEntries(root, state).flatMap((line) => {
+    const file = /\]\(\.\.\/list\/([^)]+)\)/.exec(line)?.[1];
+    if (!file || !existsSync(join(root, LIST_DIR, file))) return [];
+    return [{ ...readTask(root, file), extra: line.split(' · ').slice(1).join(' · ') }];
+  });
+}
+
+const DRAFT = /TODO:/;
+
+// One state as text: each task's id, title, scope, what its board line says,
+// and whether its note still has TODOs.
+export function stateText(root, state) {
+  const tasks = tasksIn(root, state);
+  if (!tasks.length) return `${state}: none`;
+  const rows = tasks.map((t, i) => {
+    const order = state === 'next' ? `${i + 1}. ` : '';
+    const details = [t.scope && `scope ${t.scope}`, t.extra, state !== 'done' && DRAFT.test(t.text) && 'note has TODOs'].filter(Boolean);
+    return `  ${order}${t.id} ${t.title}${details.length ? `\n     ${details.join(' · ')}` : ''}`;
+  });
+  return [`${state} (${tasks.length})`, ...rows].join('\n');
+}
+
 export function boardText(root) {
   const out = [];
   for (const state of ['current', 'next', 'blocked', 'done']) {
@@ -304,7 +343,10 @@ export function boardText(root) {
 
 const USAGE = `usage: tasks <command>
   add <title> [--scope "glob,glob"]   create a task in list/ and queue it in next.md
-  list                                show the board
+  list [current|next|blocked|done]    show the board, or one state of it
+  current                             print the task in progress (its note and board line)
+  next                                the queued tasks, in order
+  blocked                             the blocked tasks, with their reasons
   show [id]                           print a task (default: the current one)
   start <id> [--no-session]           make it current (records branch and base commit) and
                                       open a Claude Code session loaded with the task
@@ -317,6 +359,47 @@ function option(args, name) {
   if (i < 0) return undefined;
   const [, value] = args.splice(i, 2);
   return value ?? '';
+}
+
+async function handleStart(root, rest, { log, session, claude, run }) {
+  const noSession = rest.includes('--no-session');
+  const forceSession = rest.includes('--session');
+  const ref = rest.find((a) => !a.startsWith('--')) ?? fail('usage: tasks start <id> [--no-session]');
+  const blocked = boardEntries(root, 'blocked').find((l) => isEntryFor(l, findTask(root, ref)));
+  const task = startTask(root, ref);
+  log(`started ${task.id} ${task.title}\nbase: ${task.base}\nbranch: ${task.branch}\nfile: ${task.path}`);
+  if (noSession || !(session || forceSession)) return 0;
+  const blockedReason = blocked?.split(' · ').slice(1).join(' · ') ?? '';
+  log(`opening a Claude Code session for ${task.id}`);
+  const result = await startSession(root, task, { blockedReason, ...(claude && { claude }), ...(run && { run }) });
+  if (!result.started) log(`no session: ${result.message}`);
+  return result.started ? result.code : 0;
+}
+
+function handleDone(root, rest, after, { log, refOrCurrent }) {
+  const { task, tests, finished } = finishTask(root, refOrCurrent(rest[0]), after);
+  log(tests.tail);
+  if (!finished) {
+    log(`tests failed (exit ${tests.status}); ${task.id} NOT done. Full output: ${tests.log}`);
+    return tests.status || 1;
+  }
+  log(`done ${task.id} ${task.title}`);
+  return 0;
+}
+
+async function handleReview(root, rest, after, { log, refOrCurrent }) {
+  const runTestsFlag = rest.includes('--run-tests');
+  const ref = refOrCurrent(rest.find((a) => !a.startsWith('--')));
+  const task = findTask(root, ref);
+  const tests = runTestsFlag ? runTests(root, task, after) : null;
+  const result = await reviewTask(root, task, { tests, doneLine: boardEntries(root, 'done').find((l) => isEntryFor(l, task)) });
+  mkdirSync(join(root, REVIEWS_DIR), { recursive: true });
+  const out = `${REVIEWS_DIR}/${task.id}.md`;
+  writeFileSync(join(root, out), result.markdown);
+  log(`${result.ready ? 'READY' : 'NOT READY'}: ${task.id} ${task.title}`);
+  for (const f of result.findings) log(`- ${f}`);
+  log(`review package: ${out}`);
+  return result.ready ? 0 : 1;
 }
 
 export async function main(argv, { root = projectRoot(), log = console.log, session = canOpenSession(), claude, run } = {}) {
@@ -334,56 +417,42 @@ export async function main(argv, { root = projectRoot(), log = console.log, sess
       return 0;
     }
     case 'list':
-    case 'board':
+    case 'board': {
       ensureBoard(root);
-      log(boardText(root));
+      const state = rest[0];
+      if (state && !STATES.includes(state)) fail(`unknown state ${state}: use ${STATES.join(', ')}`);
+      log(state ? stateText(root, state) : boardText(root));
+      return 0;
+    }
+    case 'current': {
+      ensureBoard(root);
+      const [task] = tasksIn(root, 'current');
+      if (!task) {
+        log(`no task is in progress; start one with \`tasks start <id>\`\n\n${stateText(root, 'next')}`);
+        return 0;
+      }
+      log(`current: ${task.id} ${task.title}${task.extra ? ` · ${task.extra}` : ''}\nfile: ${task.path}\n\n${task.text.trim()}`);
+      return 0;
+    }
+    case 'next':
+    case 'blocked':
+      ensureBoard(root);
+      log(stateText(root, command));
       return 0;
     case 'show':
       log(findTask(root, refOrCurrent(rest[0])).text);
       return 0;
-    case 'start': {
-      const noSession = rest.includes('--no-session');
-      const forceSession = rest.includes('--session');
-      const ref = rest.find((a) => !a.startsWith('--')) ?? fail('usage: tasks start <id> [--no-session]');
-      const blocked = boardEntries(root, 'blocked').find((l) => isEntryFor(l, findTask(root, ref)));
-      const task = startTask(root, ref);
-      log(`started ${task.id} ${task.title}\nbase: ${task.base}\nbranch: ${task.branch}\nfile: ${task.path}`);
-      if (noSession || !(session || forceSession)) return 0;
-      const blockedReason = blocked?.split(' · ').slice(1).join(' · ') ?? '';
-      log(`opening a Claude Code session for ${task.id}`);
-      const result = await startSession(root, task, { blockedReason, ...(claude && { claude }), ...(run && { run }) });
-      if (!result.started) log(`no session: ${result.message}`);
-      return result.started ? result.code : 0;
-    }
+    case 'start':
+      return handleStart(root, rest, { log, session, claude, run });
     case 'block': {
       const task = blockTask(root, rest[0] ?? fail('usage: tasks block <id> <reason>'), rest.slice(1).join(' '));
       log(`blocked ${task.id}`);
       return 0;
     }
-    case 'done': {
-      const { task, tests, finished } = finishTask(root, refOrCurrent(rest[0]), after);
-      log(tests.tail);
-      if (!finished) {
-        log(`tests failed (exit ${tests.status}); ${task.id} NOT done. Full output: ${tests.log}`);
-        return tests.status || 1;
-      }
-      log(`done ${task.id} ${task.title}`);
-      return 0;
-    }
-    case 'review': {
-      const runTestsFlag = rest.includes('--run-tests');
-      const ref = refOrCurrent(rest.find((a) => !a.startsWith('--')));
-      const task = findTask(root, ref);
-      const tests = runTestsFlag ? runTests(root, task, after) : null;
-      const result = await reviewTask(root, task, { tests, doneLine: boardEntries(root, 'done').find((l) => isEntryFor(l, task)) });
-      mkdirSync(join(root, REVIEWS_DIR), { recursive: true });
-      const out = `${REVIEWS_DIR}/${task.id}.md`;
-      writeFileSync(join(root, out), result.markdown);
-      log(`${result.ready ? 'READY' : 'NOT READY'}: ${task.id} ${task.title}`);
-      for (const f of result.findings) log(`- ${f}`);
-      log(`review package: ${out}`);
-      return result.ready ? 0 : 1;
-    }
+    case 'done':
+      return handleDone(root, rest, after, { log, refOrCurrent });
+    case 'review':
+      return handleReview(root, rest, after, { log, refOrCurrent });
     default:
       log(USAGE);
       return command && command !== 'help' ? 2 : 0;

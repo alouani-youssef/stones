@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -53,7 +53,29 @@ export function currentTask(project) {
   return { path, text: readText(resolve(project, path)) };
 }
 
-export function inspectTaskNote(text, TASK_NOTE = LEGACY_NOTE, { idle = false } = {}) {
+// Tasks created from the current template link the superpowers spec and plan
+// they are built from; notes written before that section existed are not checked.
+const DESIGN_DOCS = [
+  ['Spec', 'superpowers:brainstorming', 'docs/superpowers/specs/'],
+  ['Plan', 'superpowers:writing-plans', 'docs/superpowers/plans/'],
+];
+
+function inspectDesignDocs(text, TASK_NOTE, project) {
+  const links = section(text, 'Spec and plan');
+  if (!links && !/^## Spec and plan\s*$/m.test(text)) return null;
+  for (const [label, skill, dir] of DESIGN_DOCS) {
+    const path = new RegExp(`^${label}:[ \\t]*(.*)$`, 'm').exec(links)?.[1].trim() ?? '';
+    if (!path || isPlaceholder(path)) {
+      return `Write the ${label.toLowerCase()} with the ${skill} skill (it saves to ${dir}) and link it as "${label}: <path>" under ## Spec and plan in ${TASK_NOTE}.`;
+    }
+    if (project && !existsSync(resolve(project, path))) {
+      return `${path} does not exist: write the ${label.toLowerCase()} with the ${skill} skill, or fix the "${label}:" link in ${TASK_NOTE}.`;
+    }
+  }
+  return null;
+}
+
+export function inspectTaskNote(text, TASK_NOTE = LEGACY_NOTE, { idle = false, project } = {}) {
   if (idle) return { valid: false, reason: `No task is in progress in ${CURRENT}: ${START_HINT}.` };
   if (typeof text !== 'string') return { valid: false, reason: `Create ${TASK_NOTE} before running tests or editing test/spec files.` };
 
@@ -75,6 +97,9 @@ export function inspectTaskNote(text, TASK_NOTE = LEGACY_NOTE, { idle = false } 
   if (!unchanged && !changed) {
     return { valid: false, reason: `Set ## Contract change to "none" or "behavior changed: <reason>" in ${TASK_NOTE}.` };
   }
+
+  const design = inspectDesignDocs(text, TASK_NOTE, project);
+  if (design) return { valid: false, reason: design };
   return { valid: true, changed };
 }
 
@@ -98,6 +123,8 @@ export function isTestOrSpecFile(file) {
   const normalized = file.split(sep).join('/');
   const parts = normalized.split('/');
   const basename = parts.at(-1) ?? '';
+  // superpowers design specs and plans are written before the task note is complete.
+  if (/(?:^|\/)docs\/superpowers\/(?:specs|plans)\/[^/]+\.md$/i.test(normalized)) return false;
   if (/\.(?:feature|snap)$/i.test(basename)) return true;
   if (parts.some((part) => /^(?:__tests__|__snapshots__|tests?|specs?|features)$/i.test(part))) return true;
   if (/(?:^|\/)openspec\/(?:specs|changes\/[^/]+\/specs)\//i.test(normalized)) return true;
@@ -117,7 +144,7 @@ function isInsideProject(project, file) {
 
 function inspectCurrent(project) {
   const task = currentTask(project);
-  return { ...inspectTaskNote(task.text, task.path, task), path: task.path };
+  return { ...inspectTaskNote(task.text, task.path, { ...task, project }), path: task.path };
 }
 
 function guardTestFile(project, rel) {

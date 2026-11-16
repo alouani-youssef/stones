@@ -49,12 +49,19 @@ function fakeClaude({ code = 0, error } = {}) {
   return { calls, run };
 }
 
+const SPEC = 'docs/superpowers/specs/2026-11-16-login-rate-limit-design.md';
+const PLAN = 'docs/superpowers/plans/2026-11-16-login-rate-limit.md';
+
 function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
   const text = read(root, task.path)
     .replace(/^Scope:.*$/m, `Scope: ${scope}`)
     .replace(/TODO: Describe the behavior[^\n]*/, 'Logins are rate limited per IP.')
-    .replace(/- Scenario: TODO[^\n]*/, '- Scenario: sixth login attempt within a minute. Expected: rate limited response with retry header.');
+    .replace(/- Scenario: TODO[^\n]*/, '- Scenario: sixth login attempt within a minute. Expected: rate limited response with retry header.')
+    .replace(/^Spec: .*$/m, `Spec: ${SPEC}`)
+    .replace(/^Plan: .*$/m, `Plan: ${PLAN}`);
   write(root, task.path, text);
+  write(root, SPEC, '# Login rate limit design\n');
+  write(root, PLAN, '# Login rate limit plan\n');
 }
 
 describe('task board', () => {
@@ -66,6 +73,7 @@ describe('task board', () => {
     const task = findTask(root, '1');
     assert.equal(task.status, 'next');
     assert.equal(task.scope, 'src/**');
+    assert.match(task.text, /## Spec and plan\n\nSpec: TODO: [^\n]*superpowers:brainstorming[^\n]*\nPlan: TODO: [^\n]*superpowers:writing-plans/);
     assert.equal(boardEntries(root, 'next').length, 1);
     for (const s of ['current', 'blocked', 'done']) assert.equal(boardEntries(root, s).length, 0);
     assert.equal(addTask(root, 'Second').id, '0002');
@@ -104,6 +112,7 @@ describe('task board', () => {
     assert.match(args[0], /Work on task 0001 "Add login rate limit"\. It is now the current task on the board \(branch main, base [0-9a-f]{7}\)/);
     assert.ok(args[0].includes(read(root, task.path).trim()));
     assert.match(args[0], /still has TODOs/);
+    assert.match(args[0], /superpowers:brainstorming[\s\S]*superpowers:writing-plans[\s\S]*superpowers:test-driven-development/);
     assert.match(args[0], /tasks\.mjs done 0001/);
     assert.equal(currentTaskOf(root).id, '0001');
   });
@@ -138,6 +147,28 @@ describe('task board', () => {
     await main(['start', '1'], { root, log: () => {}, session: true, run: fake.run });
     assert.match(fake.calls[0].args[0], /It was blocked before: waiting for API keys\./);
     assert.doesNotMatch(taskPrompt(findTask(root, '1')), /blocked before/);
+  });
+
+  it('views one state at a time without passing ids', async () => {
+    const { root } = repo();
+    addTask(root, 'First', { scope: 'src/a/**' });
+    addTask(root, 'Second');
+    addTask(root, 'Third');
+    assert.match((await cli(root, 'current')).out, /^no task is in progress[\s\S]*next \(3\)/);
+
+    await cli(root, 'start', '1');
+    await cli(root, 'block', '3', 'waiting for API keys');
+    const current = (await cli(root, 'current')).out;
+    assert.match(current, /^current: 0001 First · branch main\nfile: context\/tasks\/list\/0001-first\.md\n\n# 0001 First/);
+    assert.match(current, /## Scenarios/);
+
+    const next = await cli(root, 'next');
+    assert.equal(next.code, 0);
+    assert.match(next.out, /^next \(1\)\n  1\. 0002 Second\n     note has TODOs$/);
+    assert.match((await cli(root, 'blocked')).out, /^blocked \(1\)\n  0003 Third\n     waiting for API keys · note has TODOs$/);
+    assert.match((await cli(root, 'list', 'current')).out, /0001 First\n     scope src\/a\/\*\* · branch main · note has TODOs/);
+    assert.equal((await cli(root, 'list', 'done')).out, 'done: none');
+    await assert.rejects(cli(root, 'list', 'later'), /unknown state later/);
   });
 
   it('blocks the test guard when no task is in progress', async () => {

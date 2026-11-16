@@ -57,6 +57,35 @@ describe('testing hook', () => {
     assert.equal(result.block, true);
   });
 
+  it('blocks test runs until the spec and plan the note links to exist', () => {
+    const spec = 'docs/superpowers/specs/2026-11-16-tokens-design.md';
+    const plan = 'docs/superpowers/plans/2026-11-16-tokens.md';
+    const linked = (specLine, planLine) => `${note()}\n## Spec and plan\n\nSpec: ${specLine}\nPlan: ${planLine}\n`;
+
+    const placeholder = evaluate(bash('npm test'), { projectDir: project(linked('TODO: superpowers:brainstorming spec', 'TODO: superpowers:writing-plans plan')) });
+    assert.equal(placeholder.block, true);
+    assert.match(placeholder.reason, /superpowers:brainstorming/);
+
+    const root = project(linked(spec, plan));
+    const missing = evaluate(bash('npm test'), { projectDir: root });
+    assert.equal(missing.block, true);
+    assert.match(missing.reason, /docs\/superpowers\/specs\/2026-11-16-tokens-design\.md does not exist/);
+
+    for (const file of [spec, plan]) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), '# doc\n');
+    }
+    assert.deepEqual(evaluate(bash('npm test'), { projectDir: root }), { block: false });
+  });
+
+  it('lets the superpowers spec and plan be written before the note is complete', () => {
+    const root = project();
+    for (const file of ['docs/superpowers/specs/2026-11-16-tokens-design.md', 'docs/superpowers/plans/2026-11-16-tokens.md']) {
+      assert.deepEqual(evaluate(edit(join(root, file)), { projectDir: root }), { block: false }, file);
+    }
+    assert.equal(evaluate(edit(join(root, 'docs/specs/tokens.spec.md')), { projectDir: root }).block, true);
+  });
+
   it('allows test runs with expected behavior, a concrete scenario, and an explicit contract status', () => {
     const result = evaluate(bash('node --test hooks/testing.test.mjs'), {
       projectDir: project(note()),

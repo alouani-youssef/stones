@@ -95,10 +95,10 @@ export function globMatcher(globs) {
   return (file) => res.some((re) => re.test(file));
 }
 
-async function checkTaskNote(task, findings) {
+async function checkTaskNote(root, task, findings) {
   const testing = await hook('testing');
   if (!testing?.inspectTaskNote) return;
-  const status = testing.inspectTaskNote(task.text, task.path);
+  const status = testing.inspectTaskNote(task.text, task.path, { project: root });
   if (!status.valid) findings.push(`task note incomplete: ${status.reason}`);
 }
 
@@ -161,7 +161,7 @@ export async function reviewTask(root, task, { tests = null, doneLine } = {}) {
   const base = task.base && git(root, ['rev-parse', '--verify', '--quiet', `${task.base}^{commit}`]) ? task.base : null;
   if (!base) findings.push('no base commit recorded: start the task with `tasks start` so its changes can be found');
 
-  await checkTaskNote(task, findings);
+  await checkTaskNote(root, task, findings);
 
   const range = base ? `${base}..HEAD` : null;
   const commits = range ? lines(git(root, ['log', '--oneline', '--no-decorate', range])) : [];
@@ -175,7 +175,9 @@ export async function reviewTask(root, task, { tests = null, doneLine } = {}) {
   const scopeGlobs = task.scope ? task.scope.split(',').map((s) => s.trim()).filter(Boolean) : [];
   if (scopeGlobs.length) {
     const inScope = globMatcher(scopeGlobs);
-    const outside = files.filter((f) => !inScope(f));
+    // The spec and plan the task links are part of its work wherever they live.
+    const designDocs = new Set([...task.text.matchAll(/^(?:Spec|Plan):[ \t]*(\S+)/gm)].map((m) => m[1]));
+    const outside = files.filter((f) => !inScope(f) && !designDocs.has(f));
     if (outside.length) findings.push(`changes outside the task's scope (${scopeGlobs.join(', ')}): ${outside.join(', ')}`);
   } else {
     notes.push('no Scope set in the task: scope not checked');
