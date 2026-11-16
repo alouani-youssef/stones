@@ -92,6 +92,11 @@ describe('detect', () => {
     const py = detect(project({ 'pyproject.toml': 'name = "api"\ndependencies = ["fastapi", "pytest", "ruff"]\n', 'uv.lock': '' }));
     assert.deepEqual([py.name, py.packageManagers[0], py.commands.test, py.commands.lint], ['api', 'uv', 'uv run pytest', 'uv run ruff check .']);
     assert.ok(py.frameworks.includes('FastAPI'));
+    const llm = detect(project({ 'requirements.txt': 'langchain-anthropic\nlanggraph\nanthropic\n' }));
+    for (const f of ['LangChain', 'LangGraph', 'Anthropic SDK']) assert.ok(llm.frameworks.includes(f), f);
+    assert.ok(!llm.frameworks.includes('OpenAI SDK'));
+    const js = detect(project({ 'package.json': JSON.stringify({ dependencies: { '@langchain/langgraph': '1', openai: '5' } }) }));
+    for (const f of ['LangGraph', 'OpenAI SDK']) assert.ok(js.frameworks.includes(f), f);
     assert.equal(detect(project({ 'go.mod': 'module github.com/me/tool\n' })).name, 'tool');
     assert.equal(detect(project({ 'Cargo.toml': '[package]\nname = "crab"\n' })).commands.test, 'cargo test');
   });
@@ -235,6 +240,19 @@ describe('framework skills', () => {
     const api = await defaults(['FastAPI', 'Pydantic']);
     assert.ok(api.includes('fastapi'));
     assert.ok(api.includes('writing-tests'), 'skills without frameworks stay selected');
+    for (const s of ['prompts', 'golden-set', 'langchain', 'langgraph']) assert.ok(!api.includes(s), s);
+
+    const agent = await defaults(['LangGraph']);
+    for (const s of ['prompts', 'golden-set', 'langgraph']) assert.ok(agent.includes(s), s);
+    assert.ok(!agent.includes('langchain'), 'a LangGraph-only project gets no LangChain skill');
+    assert.ok((await defaults(['Anthropic SDK'])).includes('prompts'));
+  });
+
+  it('gives every framework skill a references section with links', () => {
+    for (const s of skillCatalog().filter((sk) => sk.frameworks.length)) {
+      const text = readFileSync(join(PACKAGE_ROOT, 'skills', s.main), 'utf8');
+      assert.match(text, /^## References\n[\s\S]*\]\(https:\/\//m, s.id);
+    }
   });
 });
 

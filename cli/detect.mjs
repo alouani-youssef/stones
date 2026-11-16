@@ -46,6 +46,8 @@ const NODE_FRAMEWORKS = {
   '@sveltejs/kit': 'SvelteKit', '@angular/core': 'Angular', '@nestjs/core': 'NestJS',
   express: 'Express', fastify: 'Fastify', hono: 'Hono', '@remix-run/react': 'Remix',
   astro: 'Astro', electron: 'Electron', 'react-native': 'React Native',
+  langchain: 'LangChain', '@langchain/core': 'LangChain', '@langchain/langgraph': 'LangGraph',
+  '@anthropic-ai/sdk': 'Anthropic SDK', openai: 'OpenAI SDK',
   prisma: 'Prisma', 'drizzle-orm': 'Drizzle', vitest: 'Vitest', jest: 'Jest',
   '@playwright/test': 'Playwright', cypress: 'Cypress', tailwindcss: 'Tailwind CSS',
   '@supabase/supabase-js': 'Supabase', mongodb: 'MongoDB', mongoose: 'MongoDB',
@@ -56,6 +58,7 @@ const NODE_FRAMEWORKS = {
 const PY_FRAMEWORKS = {
   django: 'Django', fastapi: 'FastAPI', flask: 'Flask', sqlalchemy: 'SQLAlchemy',
   pydantic: 'Pydantic', pytest: 'pytest', celery: 'Celery',
+  langchain: 'LangChain', langgraph: 'LangGraph', anthropic: 'Anthropic SDK', openai: 'OpenAI SDK',
   supabase: 'Supabase', pymongo: 'MongoDB', motor: 'MongoDB', 'firebase-admin': 'Firebase', redis: 'Redis',
 };
 
@@ -64,6 +67,33 @@ const GO_FRAMEWORKS = {
   'github.com/gin-gonic/gin': 'Gin', 'github.com/labstack/echo': 'Echo',
   'github.com/gofiber/fiber': 'Fiber', 'github.com/go-chi/chi': 'Chi',
 };
+
+function nodePackageManager(root) {
+  if (has(root, 'pnpm-lock.yaml')) return 'pnpm';
+  if (has(root, 'yarn.lock')) return 'yarn';
+  if (has(root, 'bun.lockb', 'bun.lock')) return 'bun';
+  return 'npm';
+}
+
+const TYPECHECK_ALIASES = ['typecheck', 'typecheck:all', 'type-check'];
+const SCRIPT_TASKS = ['test', 'lint', 'typecheck', 'build', 'format', 'dev'];
+
+function nodeScriptCommands(scripts, pm) {
+  const commands = {};
+  for (const task of SCRIPT_TASKS) {
+    const candidates = task === 'typecheck' ? TYPECHECK_ALIASES : [task, `${task}:all`];
+    const name = candidates.find((n) => n in scripts);
+    if (name) commands[task] = `${pm} run ${name}`;
+  }
+  return commands;
+}
+
+function nodeMonorepo(root, pkg) {
+  if (has(root, 'nx.json')) return 'nx';
+  if (has(root, 'turbo.json')) return 'turborepo';
+  if (has(root, 'pnpm-workspace.yaml') || pkg.workspaces) return 'workspaces';
+  return null;
+}
 
 function nodeStack(root, stack) {
   const pkg = readJson(root, 'package.json');
@@ -74,25 +104,20 @@ function nodeStack(root, stack) {
   stack.description ||= pkg.description ?? '';
   for (const [dep, label] of Object.entries(NODE_FRAMEWORKS)) if (dep in deps) stack.frameworks.push(label);
 
-  const pm = has(root, 'pnpm-lock.yaml') ? 'pnpm'
-    : has(root, 'yarn.lock') ? 'yarn'
-      : has(root, 'bun.lockb', 'bun.lock') ? 'bun' : 'npm';
+  const pm = nodePackageManager(root);
   stack.packageManagers.push(pm);
   stack.ecosystems.push('node');
 
-  const scripts = pkg.scripts ?? {};
-  for (const task of ['test', 'lint', 'typecheck', 'build', 'format', 'dev']) {
-    const name = [task, `${task}:all`, task === 'typecheck' ? 'type-check' : null]
-      .find((n) => n && n in scripts);
-    if (name) stack.commands[task] ??= `${pm} run ${name}`;
-  }
+  const scriptCmds = nodeScriptCommands(pkg.scripts ?? {}, pm);
+  for (const [task, cmd] of Object.entries(scriptCmds)) stack.commands[task] ??= cmd;
+
   if (deps.prettier || has(root, '.prettierrc', '.prettierrc.json', 'prettier.config.js', 'prettier.config.mjs')) {
     stack.formatters.push('prettier');
   }
   if (deps.eslint || deps['@biomejs/biome']) stack.linters.push(deps.eslint ? 'eslint' : 'biome');
-  if (has(root, 'nx.json')) stack.monorepo = 'nx';
-  else if (has(root, 'turbo.json')) stack.monorepo = 'turborepo';
-  else if (has(root, 'pnpm-workspace.yaml') || pkg.workspaces) stack.monorepo = 'workspaces';
+
+  const monorepo = nodeMonorepo(root, pkg);
+  if (monorepo) stack.monorepo = monorepo;
 }
 
 function pythonStack(root, stack) {

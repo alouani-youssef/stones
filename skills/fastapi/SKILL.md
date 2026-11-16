@@ -156,3 +156,21 @@ FastAPI runs a `def` route in a threadpool, but runs an `async def` route direct
 | Startup code runs twice or never cleans up | `@app.on_event` or module-level setup | `lifespan` context manager |
 
 Test-first rules for these endpoints are in the writing-tests and test-first-development skills: write the failing `TestClient` test for the scenario, then the route.
+
+## References
+
+Official FastAPI documentation. Check these when a detail here disagrees with the installed version.
+
+- [Bigger Applications – Multiple Files](https://fastapi.tiangolo.com/tutorial/bigger-applications/): routers, prefixes, tags, router-level dependencies
+- [Response Model – Return Type](https://fastapi.tiangolo.com/tutorial/response-model/): output schemas, filtering fields, `response_model_exclude_unset`
+- [Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/): `Depends`, `Annotated` aliases, sub-dependencies, `yield` dependencies
+- [Settings and Environment Variables](https://fastapi.tiangolo.com/advanced/settings/): `pydantic-settings` with an `lru_cache` dependency
+- [Lifespan Events](https://fastapi.tiangolo.com/advanced/events/): the `lifespan` context manager that replaces `on_event`
+- [Concurrency and async / await](https://fastapi.tiangolo.com/async/): when to use `async def` and when to use `def`
+- [Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/): `HTTPException` and custom exception handlers
+- [Security – OAuth2 with Password and JWT](https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/): auth dependencies and password hashing
+- [CORS](https://fastapi.tiangolo.com/tutorial/cors/): `CORSMiddleware` configuration
+- [Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/): what `BackgroundTasks` is for, and its limits
+- [Testing](https://fastapi.tiangolo.com/tutorial/testing/) and [Testing Dependencies with Overrides](https://fastapi.tiangolo.com/advanced/testing-dependencies/): `TestClient` and `dependency_overrides`
+- [Deployment](https://fastapi.tiangolo.com/deployment/): `fastapi run`, workers, proxies, containers
+- [Pydantic documentation](https://docs.pydantic.dev/latest/): models, `Field` constraints, `model_dump`, `ConfigDict`
