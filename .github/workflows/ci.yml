@@ -29,8 +29,12 @@ jobs:
       - name: Syntax, JSON, license, secrets, paths
         run: npm run check
 
+      # GitHub's runner ships shellcheck; act's runner image does not.
       - name: Shell scripts (shellcheck)
-        run: shellcheck hooks/*.sh setup.bash
+        run: |
+          # A stale third-party PPA in the image can fail `apt-get update`; shellcheck comes from Ubuntu's own archive.
+          command -v shellcheck >/dev/null || { sudo apt-get update -qq || true; sudo apt-get install -y -qq shellcheck; }
+          shellcheck hooks/*.sh setup.bash
 
       - name: Workflows (actionlint)
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
@@ -45,6 +49,8 @@ jobs:
       - name: Package contents
         run: |
           npm pack --dry-run --json > pack.json
+          # The single-quoted argument is JavaScript; ${...} is a template literal, not shell.
+          # shellcheck disable=SC2016
           node -e '
             const files = JSON.parse(require("fs").readFileSync("pack.json", "utf8"))[0].files.map((f) => f.path);
             const bad = files.filter((f) => /\.test\.|^settings\/settings\.json$|^scripts\/|^\.github\//.test(f));
@@ -56,7 +62,9 @@ jobs:
 
       - name: Pack
         run: npm pack
+      # act's artifact server does not speak the v7 protocol; under act the smoke job packs its own copy.
       - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
         with:
           name: package
           path: '*.tgz'
@@ -99,8 +107,12 @@ jobs:
         with:
           node-version: '22.13'
       - uses: actions/download-artifact@v8
+        if: ${{ !env.ACT }}
         with:
           name: package
+      - name: Pack (local act run)
+        if: ${{ env.ACT }}
+        run: npm pack
       - name: Unpack
         run: mkdir pkg && tar -xzf ./*.tgz -C pkg
       - name: setup.bash runs the packaged CLI
@@ -146,6 +158,10 @@ jobs:
       - name: Container logs
         if: failure()
         run: docker compose -f analyzers/compose.yaml logs
+      # act shares the host's Docker engine, so the container would outlive a local run.
+      - name: Stop the analyzer container (local act run)
+        if: ${{ always() && env.ACT }}
+        run: docker compose -f analyzers/compose.yaml down
 
   ci-ok:
     name: CI passed

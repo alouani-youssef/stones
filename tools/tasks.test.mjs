@@ -400,7 +400,7 @@ describe('task state in the notes', () => {
     assert.equal(currentTaskOf(root), null);
     // The state files were never committed; sync rebuilds this checkout's copy from the merged notes.
     assert.equal(execFileSync('git', ['ls-files', 'context/tasks/state'], { cwd: root, encoding: 'utf8' }), '');
-    assert.match((await cli(root, 'sync')).out, /rewrote context\/tasks\/state\/done\.md/);
+    assert.match((await cli(root, 'sync')).out, /rewrote (?:\S+, )*context\/tasks\/state\/done\.md/);
     assert.equal(read(root, 'context/tasks/state/next.md').match(/^- \[/gm), null);
     assert.equal(read(root, 'context/tasks/state/done.md').match(/^- \[/gm).length, 2);
     assert.match((await cli(root, 'sync')).out, /already matches the notes/);

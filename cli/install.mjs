@@ -17,21 +17,22 @@ import { composeSettings, mergeSettings } from './settings.mjs';
 import { LIST_DIR, STATE_GITIGNORE } from '../tools/tasks.mjs';
 
 export const MANIFEST = '.claude/stones.json';
-const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json', '.claude/quality/', '.claude/pr.md'];
+const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json', '.claude/quality/', '.claude/pr.md', '.claude/workflows-run.json', '.act/'];
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
 const TASKS_GITIGNORE = ['.claude/reviews/', STATE_GITIGNORE];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
 const ANALYZER_FILES = ['compose.yaml', 'analyzers.Dockerfile'];
 // Files in hooks/lib/ each hook imports.
-const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'], 'four-d': ['python.mjs'] };
-// Installed in every project. All but create-pr are allowed in settings.json;
-// create-pr opens a pull request on GitHub, so Claude asks before running it.
+const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'], workflows: ['shell.mjs'], 'four-d': ['python.mjs'] };
+// Installed in every project. All but create-pr and workflows are allowed in
+// settings.json: create-pr opens a pull request on GitHub and workflows runs
+// containers, so Claude asks before running them (workflows list/status are allowed).
 export const PROJECT_TOOLS = [
   'list-packages.mjs', 'git-comments.mjs', 'worktree-history.mjs',
-  'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs', 'create-pr.mjs',
+  'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs', 'create-pr.mjs', 'workflows.mjs',
 ];
-const ASK_FIRST_TOOLS = new Set(['create-pr.mjs']);
+const ASK_FIRST_TOOLS = new Set(['create-pr.mjs', 'workflows.mjs']);
 // The single task note for projects without the task board.
 const LEGACY_TASK_NOTE = `# Active task
 
@@ -164,6 +165,8 @@ function skillFiles(answers, root, pkg) {
 function settingsFile(answers, stack, root) {
   const extraAllow = [
     ...PROJECT_TOOLS.filter((tool) => !ASK_FIRST_TOOLS.has(tool)).map((tool) => `Bash(node .claude/tools/${tool}:*)`),
+    'Bash(node .claude/tools/workflows.mjs list:*)',
+    'Bash(node .claude/tools/workflows.mjs status:*)',
     ...(usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : []),
   ];
   const settings = composeSettings({
