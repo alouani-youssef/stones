@@ -13,3 +13,8 @@ node_modules/
 .package-lock.json
 .npmrc
 .superpowers/ssd
+# Local GitHub Actions runs (act)
+.secrets
+.vars
+.act/
+.claude/workflows-run.json

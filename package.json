@@ -1,6 +1,6 @@
 {
   "name": "ai-stones",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Generate a tailored Claude Code setup (.claude/, AGENT.md, ROADMAP.md) for any project",
   "repository": {
     "type": "git",
@@ -36,12 +36,14 @@
     "setup.bash"
   ],
   "scripts": {
-    "test": "node --test hooks/ cli/ tools/",
-    "test:hooks": "node --test hooks/",
+    "test": "node --test \"hooks/*.test.mjs\" \"cli/*.test.mjs\" \"tools/*.test.mjs\"",
+    "test:hooks": "node --test \"hooks/*.test.mjs\"",
     "build:settings": "node settings/build-settings.mjs",
     "build:devcontainers": "node cli/devcontainer.mjs",
     "check": "node scripts/check-repo.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "ci:local": "node tools/workflows.mjs run",
+    "ci:local:list": "node tools/workflows.mjs list"
   },
   "engines": {
     "node": ">=22.13"

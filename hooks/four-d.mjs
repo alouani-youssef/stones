@@ -31,7 +31,7 @@
 //   }
 //
 // Project context is read from the files the stones tools write, each
-// optional: context/tasks/state/*.md (tasks.mjs), ROADMAP.md (roadmap.mjs,
+// optional: context/tasks/list/*.md (tasks.mjs), ROADMAP.md (roadmap.mjs,
 // /roadmap), context/decisions/*.md, and .claude/history.db (history hook).
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -420,11 +420,20 @@ const readFile = (project, path) => {
 const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 
-// `- [0001 Title](../list/0001-slug.md) · branch x` lines of a board state file.
+// The task notes in context/tasks/list/ whose Status line is `state`, in id
+// order; a note without a Status is queued (next).
 function boardTasks(project, state) {
-  return readFile(project, `context/tasks/state/${state}.md`).split('\n').flatMap((line) => {
-    const m = /^- \[(\d+) (.+?)\]\(\.\.\/list\/([^)]+)\)/.exec(line);
-    return m ? [{ id: m[1], title: m[2], file: m[3] }] : [];
+  let files;
+  try {
+    files = readdirSync(join(project, 'context/tasks/list')).filter((f) => /^\d+-.*\.md$/.test(f)).sort();
+  } catch {
+    return [];
+  }
+  return files.flatMap((file) => {
+    const text = readFile(project, `context/tasks/list/${file}`);
+    const status = /^Status:[ \t]*(\S*)/m.exec(text)?.[1] || 'next';
+    const title = /^#\s+\d+\s+(.*)$/m.exec(text)?.[1]?.trim() ?? file;
+    return status === state ? [{ id: /^(\d+)/.exec(file)[1], title, file }] : [];
   });
 }
 

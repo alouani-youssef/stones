@@ -1,10 +1,10 @@
 ---
 name: github-actions
-description: Use when writing, changing or reviewing a GitHub Actions workflow or reusable workflow in .github/workflows — CI checks, builds, releases, deployments, scheduled jobs — or when a workflow is slow, flaky, runs too often, leaks or needs secrets, uses pull_request_target, or fails actionlint or a security scan.
+description: Use when writing, changing or reviewing a GitHub Actions workflow or reusable workflow in .github/workflows — CI checks, builds, releases, deployments, scheduled jobs — or when a workflow is slow, flaky, runs too often, leaks or needs secrets, uses pull_request_target, or fails actionlint or a security scan, or needs to be run and debugged locally with act before pushing.
 metadata:
   title: GitHub Actions
   frameworks: GitHub Actions
-  summary: Least-privilege tokens, actions pinned by commit SHA, untrusted input kept out of scripts, OIDC instead of stored cloud keys, environments for deploys, and fast, cancellable, cached runs.
+  summary: Least-privilege tokens, actions pinned by commit SHA, untrusted input kept out of scripts, OIDC instead of stored cloud keys, environments for deploys, fast, cancellable, cached runs, and workflows tried locally with act before they are pushed.
 ---
 
 # GitHub Actions
@@ -29,6 +29,7 @@ For what the pipeline should contain (stages, gates, release strategy), see the 
 | Duplication | reusable workflows (`workflow_call`) and composite actions in the repo | copy-pasted jobs across workflows |
 | Matrix | `fail-fast: false` for test matrices; only the versions you support | a matrix that hides which combination failed |
 | Linting | `actionlint` on every change, and a security scanner (`zizmor`) | finding typos in YAML on the default branch |
+| Iterating on a workflow | run the job locally with `act -j <job>` before pushing | push-and-wait loops of "fix ci" commits |
 | Self-hosted runners | only for private repositories, ephemeral, one job per runner | persistent runners on a public repository |
 
 ## Example: CI, then a gated, credential-less deploy
@@ -96,6 +97,39 @@ jobs:
           DEPLOY_ENV: production
 ```
 
+## Run workflows locally with act
+
+[act](https://nektosact.com) reads `.github/workflows` and runs the jobs in Docker containers on your machine. Use it to try a workflow change, or to reproduce a failing job, without a push and a wait for each attempt. It needs a running Docker engine. Install it with `brew install act`, or as a GitHub CLI extension with `gh extension install nektos/gh-act`, which you then run as `gh act`.
+
+```sh
+act -l                              # list the jobs each event would trigger
+act -n                              # dry run: show the plan without running containers
+act -j test                         # run one job for the default `push` event
+act pull_request                    # run the jobs triggered by another event
+act workflow_dispatch --input env=staging
+act -W .github/workflows/ci.yml     # only this workflow
+act -e event.json                   # a custom event payload (PR number, labels, ref)
+```
+
+Keep the defaults for a repository in an `.actrc` file, one flag per line:
+
+```text
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+--matrix os:ubuntu-latest
+```
+
+A project `.actrc` may only set flags that do not reach host resources. Pass `--artifact-server-path` on the command line instead.
+
+- **Runner image.** On first run, act asks for an image size. The `micro` image has almost no tools. `catthehacker/ubuntu:act-latest` (medium) is close enough for most `setup-*` actions. The full image is the closest match to GitHub's runners, but it is many gigabytes. Map each `runs-on` label you use with `-P`.
+- **Apple Silicon.** Containers run natively as arm64. `--container-architecture linux/amd64` matches GitHub's runners, but under emulation it can break `setup-*` actions (tar fails with "Function not implemented"). Use it only for jobs that need amd64.
+- **Secrets and variables.** Pass them with `-s NAME` (act prompts for the value), or put them in `.secrets` and `.vars` files in dotenv format. Add both files to `.gitignore`. For `GITHUB_TOKEN`, use `-s GITHUB_TOKEN="$(gh auth token)"`. Never commit a real secret into `.actrc` or an event file.
+- **Artifacts.** Jobs that use `upload-artifact` or `download-artifact` need `--artifact-server-path`.
+- **Steps that only work on GitHub.** act sets `ACT=true` in the environment. Skip deploys, releases, OIDC logins and similar steps locally with `if: ${{ !env.ACT }}`, rather than letting a local run publish anything.
+
+In a project set up by ai-stones, use `node .claude/tools/workflows.mjs list` to show the workflows. Run them with `node .claude/tools/workflows.mjs run` only after the user confirms the plan, and pass `--yes` only then. The `workflows` hook blocks merges and publishes until a full run has passed for the current code.
+
+act runs Linux containers only. It does not reproduce everything GitHub does: `macos-*` and `windows-*` runners are not supported, OIDC tokens are not issued, environment protection rules and `concurrency` are not enforced, and the runner images differ from GitHub's in installed tools. A job that passes in act can still fail on GitHub, so CI on GitHub remains the gate. Use act to make the feedback loop shorter, not as a replacement for CI.
+
 ## Untrusted input
 
 Anything an outsider can set is untrusted. That includes PR titles, bodies and branch names, issue and comment text, commit messages, and artifacts produced by pull-request runs.
@@ -132,6 +166,7 @@ Anything an outsider can set is untrusted. That includes PR titles, bodies and b
 | Deploy ships something other than what was tested | deploy job rebuilds from source | build once, upload, then download the artifact in the deploy |
 | Action suddenly behaves differently | tag moved to new code | pin by SHA or lockfile; let Dependabot raise the update as a PR |
 | Workflow edit breaks on main only | YAML and expressions never linted | `actionlint` (and `zizmor`) in CI |
+| Job passes in act but fails on GitHub (or the reverse) | the local runner image lacks a tool, or the job depends on OIDC, environments or a non-Linux runner | use a fuller `-P` image; guard GitHub-only steps with `if: ${{ !env.ACT }}`; treat GitHub CI as the gate |
 
 ## References
 
@@ -147,3 +182,4 @@ Anything an outsider can set is untrusted. That includes PR titles, bodies and b
 - [Artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations): build provenance for what you ship
 - [actionlint](https://github.com/rhysd/actionlint): static checks for workflow files
 - [zizmor](https://github.com/zizmorcore/zizmor): security audit for workflows
+- [act](https://nektosact.com): run workflows locally in Docker — usage, runner images, secrets, `.actrc`

@@ -159,6 +159,32 @@ describe('create-pr', () => {
     assert.match(draftPr(root).body, /TODO: \.claude\/danger\/db-users\.md is missing/);
   });
 
+  it('fills the draft from the board task on the branch and ignores bookkeeping-only commits', () => {
+    const { root, git, commit } = repo(manifest({ test: 'echo ok' }));
+    git('checkout', '-qb', 'feat/export');
+    write(root, { 'context/tasks/list/0003-export-csv.md': '# 0003 Export CSV\n\nStatus: current\nBranch: feat/export\nScope: src/**\n\n## Expected behavior\n\nUsers download their orders as CSV.\n\n## Scenarios\n\n- Scenario: one order. Expected: a CSV with a header and one row.\n\n## Contract change\n\nbehavior changed: the orders page gains an export button\n\n## Rollback\n\nHide the export button with the EXPORT_CSV flag.\n' });
+    commit('src/export.js', 'feat: export orders as csv');
+    qualityCheck(root);
+    const note = join(root, 'context/tasks/list/0003-export-csv.md');
+    writeFileSync(note, readFileSync(note, 'utf8').replace('Status: current', 'Status: done'));
+    git('add', 'context/tasks');
+    git('commit', '-qm', 'chore(tasks): close 0003');
+
+    const pr = draftPr(root);
+    assert.equal(pr.task.id, '0003');
+    assert.equal(pr.task.status, 'done');
+    assert.match(pr.body, /^## Summary\nExport CSV: Users download their orders as CSV\.$/m);
+    assert.match(pr.body, /^## Risk\nbehavior changed: the orders page gains an export button: callers that rely on the old behavior are affected\. Changes stay within its scope \(src\/\*\*\)\.$/m);
+    assert.match(pr.body, /^## Rollback\nHide the export button with the EXPORT_CSV flag\.$/m);
+    assert.match(pr.body, /^## Verification\nquality-check:\n- `echo ok`: passed$/m);
+    assert.doesNotMatch(pr.body, /TODO/);
+
+    const out = capture(prCli, ['draft', '--write'], root).out;
+    assert.match(out, /^PR draft: \.claude\/pr\.md \(complete\)\nopen the PR with:\n  git push -u origin feat\/export\n  node \.claude\/tools\/create-pr\.mjs create --body-file \.claude\/pr\.md --base main$/);
+    assert.match(readFileSync(join(root, '.claude/pr.md'), 'utf8'), /^<!-- title: Export CSV \| base: main \| zone: none -->/);
+    assert.match(capture(prCli, ['draft', '--task', '9'], root).err, /no task 9/);
+  });
+
   it('opens the PR with gh only when the body is complete and the branch is pushed', () => {
     const { root, git, commit } = repo();
     const remote = realpathSync(mkdtempSync(join(tmpdir(), 'stones-remote-')));

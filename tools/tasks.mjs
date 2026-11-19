@@ -1,19 +1,27 @@
 #!/usr/bin/env node
 // Task board for Claude Code projects.
 //
-//   context/tasks/list/NNNN-slug.md   one file per task: goal, scenarios, scope
-//   context/tasks/state/current.md    the task in progress (the testing hook reads it)
-//   context/tasks/state/next.md       queued tasks, in order
-//   context/tasks/state/blocked.md    waiting tasks, with the reason
-//   context/tasks/state/done.md       finished tasks, with commits and test result
+//   context/tasks/list/NNNN-slug.md   one file per task: goal, scenarios, scope,
+//                                     and its state (Status, Blocked, Result)
+//   context/tasks/state/current.md    the board, written from the notes:
+//   context/tasks/state/next.md         the task in progress, the queue (in
+//   context/tasks/state/blocked.md      order; reorder it by moving lines),
+//   context/tasks/state/done.md         blocked tasks, finished tasks
 //
-// A task moves between the state files; only `done` moves it to done.md, and
-// only when its tests pass. `review` builds one file a reviewer reads to judge
-// the task against what it promised.
-import { spawnSync } from 'node:child_process';
+// The notes are the source of truth and are committed: every command changes
+// the note of the task it acts on, then rewrites the state files from the
+// notes, so they never disagree. The state files are a local view, kept out
+// of git (.gitignore), so branches that work on different tasks never
+// conflict over them; after a checkout or merge any command, or `sync`,
+// rebuilds them from the notes. Only `done`
+// sets Status: done, and only when the tests pass; it then starts the next
+// ready task in the queue.
+// `review` builds one file a reviewer reads to judge the task against what
+// it promised.
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { reviewTask } from './review.mjs';
 
@@ -22,12 +30,15 @@ export const LIST_DIR = `${TASKS_DIR}/list`;
 export const STATE_DIR = `${TASKS_DIR}/state`;
 export const REVIEWS_DIR = '.claude/reviews';
 export const STATES = ['current', 'next', 'blocked', 'done'];
+// The state files are rebuilt from the notes, so each checkout keeps its own copy out of git.
+export const STATE_GITIGNORE = `${STATE_DIR}/`;
 
+const GENERATED = 'Written by `node .claude/tools/tasks.mjs` from the Status lines in ../list/ (git-ignored; the notes are what is committed); do not edit by hand.';
 export const STATE_HEADERS = {
-  current: '# Current\n\nThe task in progress. The testing hook reads the task linked here.\n',
-  next: '# Next\n\nQueued tasks, in order. Start one with `node .claude/tools/tasks.mjs start <id>`.\n',
-  blocked: '# Blocked\n\nTasks waiting on something, with the reason.\n',
-  done: '# Done\n\nFinished tasks: their tests passed when they were closed.\n',
+  current: `# Current\n\nThe task in progress. ${GENERATED}\n`,
+  next: `# Next\n\nQueued tasks, in the order \`done\` starts them. ${GENERATED.replace('do not edit by hand', 'reorder by moving lines, nothing else')}\n`,
+  blocked: `# Blocked\n\nTasks waiting on something, with the reason. ${GENERATED}\n`,
+  done: `# Done\n\nFinished tasks: their tests passed when they were closed. ${GENERATED}\n`,
 };
 
 export const TASK_TEMPLATE = `# {{id}} {{title}}
@@ -65,7 +76,8 @@ Plan: TODO: the plan written with superpowers:writing-plans (docs/superpowers/pl
 ## Notes
 `;
 
-const META = ['Status', 'Branch', 'Base', 'Scope'];
+// Blocked: the reason a blocked task waits; Result: the commits and test run a done task closed with.
+const META = ['Status', 'Branch', 'Base', 'Scope', 'Blocked', 'Result'];
 
 const readText = (file) => {
   try {
@@ -95,11 +107,59 @@ const fail = (message) => {
 
 export function ensureBoard(root) {
   mkdirSync(join(root, LIST_DIR), { recursive: true });
-  mkdirSync(join(root, STATE_DIR), { recursive: true });
-  for (const state of STATES) {
-    const file = join(root, STATE_DIR, `${state}.md`);
-    if (!existsSync(file)) writeFileSync(file, `${STATE_HEADERS[state]}\n`);
+  migrateBoard(root);
+  return syncBoard(root);
+}
+
+// `- [0001 Title](../list/0001-slug.md) · extra` lines of one state file.
+function stateFileEntries(root, state) {
+  return (readText(join(root, STATE_DIR, `${state}.md`)) ?? '').split('\n').flatMap((line) => {
+    const file = /^- \[\d+ .*?\]\(\.\.\/list\/([^)]+)\)/.exec(line)?.[1];
+    return file ? [{ file, extra: line.split(' · ').slice(1).join(' · ').trim() }] : [];
+  });
+}
+
+// Boards from versions that kept the blocked reason and test result only in
+// the state files: copy them into the notes that lack them. The notes' Status
+// lines were always kept, so they stay as they are.
+export function migrateBoard(root) {
+  const moved = [];
+  for (const [state, key] of [['blocked', 'Blocked'], ['done', 'Result']]) {
+    for (const { file, extra } of stateFileEntries(root, state)) {
+      if (!extra || !existsSync(join(root, LIST_DIR, file))) continue;
+      const task = readTask(root, file);
+      if (task.status !== state || task[key.toLowerCase()]) continue;
+      writeMeta(root, task, { [key]: extra });
+      moved.push(file);
+    }
   }
+  return moved;
+}
+
+const entryLine = (task) => `- [${task.id} ${task.title}](../list/${task.file})${task.extra ? ` · ${task.extra}` : ''}`;
+
+// Boards installed before the state files were git-ignored still have them committed.
+export function trackedStateHint(root) {
+  const tracked = git(root, ['ls-files', '--', STATE_DIR]);
+  if (!tracked.ok || !tracked.out) return '';
+  return `note: ${STATE_DIR}/ is committed; it is rebuilt from the notes and causes merge conflicts.`
+    + ` Stop tracking it: add \`${STATE_GITIGNORE}\` to .gitignore, then \`git rm -r --cached ${STATE_DIR}\` and commit.`;
+}
+
+// Rewrites the state files from the notes; a file is written only when it changes.
+export function syncBoard(root) {
+  mkdirSync(join(root, STATE_DIR), { recursive: true });
+  const written = [];
+  for (const state of STATES) {
+    const path = join(root, STATE_DIR, `${state}.md`);
+    const tasks = tasksIn(root, state);
+    const text = `${STATE_HEADERS[state]}\n${tasks.map(entryLine).join('\n')}${tasks.length ? '\n' : ''}`;
+    if (readText(path) !== text) {
+      writeFileSync(path, text);
+      written.push(`${STATE_DIR}/${state}.md`);
+    }
+  }
+  return written;
 }
 
 const slugify = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'task';
@@ -130,46 +190,59 @@ export function findTask(root, ref) {
   return task ?? fail(`no task ${ref} in ${LIST_DIR}/`);
 }
 
+// Sets meta lines in the task's note, then rewrites the state files.
 function setMeta(root, task, values) {
+  const updated = writeMeta(root, task, values);
+  syncBoard(root);
+  return updated;
+}
+
+// Sets meta lines in the task's note; a null value removes the line. A new
+// line goes after the existing meta lines, so the header stays together.
+function writeMeta(root, task, values) {
   let text = readFileSync(join(root, task.path), 'utf8');
   for (const [key, value] of Object.entries(values)) {
-    const re = new RegExp(`^${key}:.*$`, 'm');
+    const re = new RegExp(`^${key}:.*(?:\\r?\\n|$)`, 'm');
+    if (value === null) {
+      text = text.replace(re, '');
+      continue;
+    }
     const line = `${key}: ${value}`.trimEnd();
-    text = re.test(text) ? text.replace(re, line) : text.replace(/^(#.*\n)/, `$1\n${line}\n`);
+    if (re.test(text)) {
+      text = text.replace(new RegExp(`^${key}:.*$`, 'm'), line);
+      continue;
+    }
+    const lines = text.split('\n');
+    const lastMeta = lines.findLastIndex((l) => new RegExp(`^(?:${META.join('|')}):`).test(l));
+    if (lastMeta >= 0) lines.splice(lastMeta + 1, 0, line);
+    else lines.splice(1, 0, '', line);
+    text = lines.join('\n');
   }
   writeFileSync(join(root, task.path), text);
   return readTask(root, task.file);
 }
 
-const entryLine = (task, extra) => `- [${task.id} ${task.title}](../list/${task.file})${extra ? ` · ${extra}` : ''}`;
-const isEntryFor = (line, task) => line.includes(`](../list/${task.file})`);
+// A note without a known Status is queued.
+const stateOfTask = (task) => (STATES.includes(task.status) ? task.status : 'next');
 
-export function stateOf(root, task) {
-  for (const state of STATES) {
-    const text = readText(join(root, STATE_DIR, `${state}.md`)) ?? '';
-    if (text.split('\n').some((l) => isEntryFor(l, task))) return state;
-  }
-  return null;
-}
+// What a task's board line shows after its title.
+const extraOf = (task) => ({
+  current: task.branch ? `branch ${task.branch}` : '',
+  next: '',
+  blocked: task.blocked,
+  done: task.result,
+})[stateOfTask(task)] ?? '';
 
-export function boardEntries(root, state) {
-  const text = readText(join(root, STATE_DIR, `${state}.md`)) ?? '';
-  return text.split('\n').filter((l) => /^- \[\d+ /.test(l));
-}
-
-// Removes the task from every state file, then adds it to `state`.
-function moveTo(root, task, state, extra) {
-  ensureBoard(root);
-  for (const s of STATES) {
-    const file = join(root, STATE_DIR, `${s}.md`);
-    const lines = readFileSync(file, 'utf8').split('\n');
-    const kept = lines.filter((l) => !isEntryFor(l, task));
-    if (s === state) {
-      while (kept.length && kept.at(-1) === '') kept.pop();
-      kept.push(entryLine(task, extra), '');
-    }
-    if (s === state || kept.length !== lines.length) writeFileSync(file, kept.join('\n'));
-  }
+// The tasks in one state, with the text their board line shows. Queued tasks
+// keep the order of next.md (moving lines there reorders the queue); tasks
+// not listed there yet follow, in id order. The other states are in id order.
+export function tasksIn(root, state) {
+  const tasks = listTasks(root).filter((t) => stateOfTask(t) === state).map((t) => ({ ...t, extra: extraOf(t) }));
+  if (state !== 'next') return tasks;
+  const order = new Map();
+  for (const { file } of stateFileEntries(root, 'next')) if (!order.has(file)) order.set(file, order.size);
+  const rank = (t) => order.get(t.file) ?? Number.MAX_SAFE_INTEGER;
+  return tasks.sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
 }
 
 // ---------------------------------------------------------------- commands
@@ -182,15 +255,12 @@ export function addTask(root, title, { scope = '' } = {}) {
   const file = `${id}-${slugify(title)}.md`;
   const text = TASK_TEMPLATE.replace('{{id}}', id).replace('{{title}}', title.trim()).replace('{{scope}}', scope).replace(/^Scope: $/m, 'Scope:');
   writeFileSync(join(root, LIST_DIR, file), text);
-  const task = readTask(root, file);
-  moveTo(root, task, 'next');
-  return task;
+  syncBoard(root);
+  return readTask(root, file);
 }
 
 export function currentTaskOf(root) {
-  const line = boardEntries(root, 'current')[0];
-  const file = line && /\]\(\.\.\/list\/([^)]+)\)/.exec(line)?.[1];
-  return file && existsSync(join(root, LIST_DIR, file)) ? readTask(root, file) : null;
+  return tasksIn(root, 'current')[0] ?? null;
 }
 
 function markdownSection(text, heading) {
@@ -283,13 +353,29 @@ export function startTask(root, ref) {
   const head = git(root, ['rev-parse', 'HEAD']);
   const branch = git(root, ['branch', '--show-current']).out;
   // Resuming a blocked task keeps its original base, so the review covers all of it.
-  const updated = setMeta(root, task, {
+  return setMeta(root, task, {
     Status: 'current',
     Branch: branch || task.branch,
     Base: task.base || (head.ok ? head.out : ''),
+    Blocked: null,
   });
-  moveTo(root, updated, 'current', branch ? `branch ${branch}` : '');
-  return updated;
+}
+
+// Starts the first queued task that passes the readiness gate. Queued tasks
+// that are not ready are skipped and returned with the reason.
+export function advance(root) {
+  const skipped = [];
+  for (const task of tasksIn(root, 'next')) {
+    try {
+      validateTaskReadiness(root, task);
+    } catch (error) {
+      if (!(error instanceof TaskError)) throw error;
+      skipped.push({ task, reason: error.message });
+      continue;
+    }
+    return { started: startTask(root, task.id), skipped };
+  }
+  return { started: null, skipped };
 }
 
 // After readiness validation, Superpowers guides implementation and verification.
@@ -314,8 +400,8 @@ export function taskPrompt(task, { blockedReason = '' } = {}) {
       ? 'The note still has TODOs: fill them in before writing code, asking me when the expected behavior is unclear. Task start and the testing hook both enforce the required task details.'
       : '',
     SUPERPOWERS_WORKFLOW,
-    `Only change files inside its Scope. Commit the work, then finish with \`node .claude/tools/tasks.mjs done ${task.id}\``
-      + ` and check it with \`node .claude/tools/tasks.mjs review ${task.id} --run-tests\`.`
+    `Only change files inside its Scope. Commit the work, check it with \`node .claude/tools/tasks.mjs review ${task.id} --run-tests\`,`
+      + ` then finish with \`node .claude/tools/tasks.mjs done ${task.id}\`; it marks the task done, writes the PR draft to .claude/pr.md with the commands that open it, and starts the next ready task on the board.`
       + ` If it cannot be finished, \`node .claude/tools/tasks.mjs block ${task.id} "<reason>"\`.`,
     'Start by summarizing the task, then follow the steps above in order.',
   ].filter(Boolean).join('\n\n');
@@ -342,9 +428,7 @@ export function startSession(root, task, { claude = process.env.STONES_CLAUDE ||
 
 export function blockTask(root, ref, reason) {
   if (!reason.trim()) fail('usage: tasks block <id> <reason>');
-  const task = setMeta(root, findTask(root, ref), { Status: 'blocked' });
-  moveTo(root, task, 'blocked', reason.trim());
-  return task;
+  return setMeta(root, findTask(root, ref), { Status: 'blocked', Blocked: reason.trim().replace(/\s+/g, ' ') });
 }
 
 // The project's test command: what `init` recorded, else the package.json script.
@@ -386,18 +470,9 @@ export function finishTask(root, ref, command) {
   if (!tests.ok) return { task, tests, finished: false };
   const head = git(root, ['rev-parse', 'HEAD']);
   const range = task.base && head.ok ? `commits ${short(root, task.base)}..${short(root, head.out)}` : 'no commits recorded';
-  const updated = setMeta(root, task, { Status: 'done' });
-  moveTo(root, updated, 'done', `${range} · tests: ${tests.command} → ${tests.last}`);
+  const result = `${range} · tests: ${tests.command} → ${tests.last}`.replace(/\s+/g, ' ');
+  const updated = setMeta(root, task, { Status: 'done', Blocked: null, Result: result });
   return { task: updated, tests, finished: true };
-}
-
-// The tasks in one state file, in board order, with the text after `·` on their line.
-export function tasksIn(root, state) {
-  return boardEntries(root, state).flatMap((line) => {
-    const file = /\]\(\.\.\/list\/([^)]+)\)/.exec(line)?.[1];
-    if (!file || !existsSync(join(root, LIST_DIR, file))) return [];
-    return [{ ...readTask(root, file), extra: line.split(' · ').slice(1).join(' · ') }];
-  });
 }
 
 const DRAFT = /TODO:/;
@@ -417,10 +492,15 @@ export function stateText(root, state) {
 
 export function boardText(root) {
   const out = [];
-  for (const state of ['current', 'next', 'blocked', 'done']) {
-    const entries = boardEntries(root, state);
-    out.push(`${state} (${entries.length})`);
-    for (const e of state === 'done' ? entries.slice(-5) : entries) out.push(`  ${e.replace(/^- /, '').replace(/\]\([^)]*\)/, ']')}`);
+  for (const state of STATES) {
+    const tasks = tasksIn(root, state);
+    out.push(`${state} (${tasks.length})`);
+    for (const t of state === 'done' ? tasks.slice(-5) : tasks) out.push(`  [${t.id} ${t.title}]${t.extra ? ` · ${t.extra}` : ''}`);
+  }
+  // Merging branches that each started a task can leave two current tasks.
+  const current = tasksIn(root, 'current');
+  if (current.length > 1) {
+    out.push(`warning: ${current.length} tasks have Status: current (${current.map((t) => t.id).join(', ')}); block or finish all but one`);
   }
   return out.join('\n');
 }
@@ -436,9 +516,18 @@ const USAGE = `usage: tasks <command>
   show [id]                           print a task (default: the current one)
   start <id> [--no-session]           validate the note, spec and plan, then make it current
                                       and open its Claude Code session
-  block <id> <reason>                 move it to blocked.md
-  done <id> [-- test command]         run the tests; on success move it to done.md
-  review [id] [--run-tests]           write the review package to ${REVIEWS_DIR}/<id>.md; exit 1 if not ready`;
+  block <id> <reason>                 set it blocked, with the reason
+  done [id] [--no-advance] [--no-pr] [-- test command]
+                                      run the tests; on success set it done, write the
+                                      PR draft to .claude/pr.md and print the commands
+                                      that open it, then start the next ready queued task
+  review [id] [--run-tests]           write the review package to ${REVIEWS_DIR}/<id>.md; exit 1 if not ready
+
+  sync                                rebuild ${STATE_DIR}/*.md from the notes (after a checkout or merge)
+
+Each task's state lives in its own note (Status, Blocked, Result lines), which
+is committed; every command rebuilds the git-ignored ${STATE_DIR}/*.md from the
+notes. Reorder your local queue by moving lines in next.md.`;
 
 function option(args, name) {
   const i = args.indexOf(name);
@@ -451,26 +540,65 @@ async function handleStart(root, rest, { log, session, claude, run }) {
   const noSession = rest.includes('--no-session');
   const forceSession = rest.includes('--session');
   const ref = rest.find((a) => !a.startsWith('--')) ?? fail('usage: tasks start <id> [--no-session]');
-  const blocked = boardEntries(root, 'blocked').find((l) => isEntryFor(l, findTask(root, ref)));
+  const before = findTask(root, ref);
+  const blockedReason = before.status === 'blocked' ? before.blocked : '';
   const task = startTask(root, ref);
   log(`started ${task.id} ${task.title}\nbase: ${task.base}\nbranch: ${task.branch}\nfile: ${task.path}`);
   if (noSession || !(session || forceSession)) return 0;
-  const blockedReason = blocked?.split(' · ').slice(1).join(' · ') ?? '';
+  return openSession(root, task, { log, blockedReason, claude, run });
+}
+
+async function openSession(root, task, { log, blockedReason = '', claude, run }) {
   log(`opening a Claude Code session for ${task.id}`);
   const result = await startSession(root, task, { blockedReason, ...(claude && { claude }), ...(run && { run }) });
   if (!result.started) log(`no session: ${result.message}`);
   return result.started ? result.code : 0;
 }
 
-function handleDone(root, rest, after, { log, refOrCurrent }) {
-  const { task, tests, finished } = finishTask(root, refOrCurrent(rest[0]), after);
+async function handleDone(root, rest, after, { log, refOrCurrent, session, claude, run }) {
+  const noAdvance = rest.includes('--no-advance');
+  const ref = refOrCurrent(rest.find((a) => !a.startsWith('--')));
+  const { task, tests, finished } = finishTask(root, ref, after);
   log(tests.tail);
   if (!finished) {
     log(`tests failed (exit ${tests.status}); ${task.id} NOT done. Full output: ${tests.log}`);
     return tests.status || 1;
   }
   log(`done ${task.id} ${task.title}`);
-  return 0;
+  if (!rest.includes('--no-pr')) log(await draftPullRequest(root, task));
+  if (noAdvance) return 0;
+  // Another task may already be current (e.g. `done` on a task that was not the current one).
+  const current = currentTaskOf(root);
+  if (current) {
+    log(`${current.id} ${current.title} is still in progress; not starting another task`);
+    return 0;
+  }
+  const { started, skipped } = advance(root);
+  for (const s of skipped) log(`skipped ${s.task.id} ${s.task.title}: ${s.reason.replace(/^\d+ is not ready to start: /, '')}`);
+  if (!started) {
+    log(skipped.length ? 'no queued task is ready to start; complete one, then `tasks start <id>`' : 'no queued tasks left');
+    return 0;
+  }
+  log(`started ${started.id} ${started.title}\nbase: ${started.base}\nbranch: ${started.branch}\nfile: ${started.path}`);
+  if (!session) {
+    log(`read it with \`node .claude/tools/tasks.mjs current\` and continue with that task`);
+    return 0;
+  }
+  return openSession(root, started, { log, claude, run });
+}
+
+// Writes the PR draft for a finished task with the create-pr tool installed
+// next to this one, and returns what to tell the user: where the draft is and
+// the commands that open the PR. It never pushes or opens anything itself.
+export async function draftPullRequest(root, task) {
+  const tool = join(dirname(fileURLToPath(import.meta.url)), 'create-pr.mjs');
+  if (!existsSync(tool)) return 'no PR draft: create-pr.mjs is not installed next to tasks.mjs';
+  const pr = await import(pathToFileURL(tool).href);
+  try {
+    return pr.draftReport(pr.writeDraft(root, pr.draftPr(root, { task: pr.taskFor(root, { ref: task.id }) })));
+  } catch (error) {
+    return `no PR draft: ${error.message}`;
+  }
 }
 
 async function handleReview(root, rest, after, { log, refOrCurrent }) {
@@ -478,7 +606,7 @@ async function handleReview(root, rest, after, { log, refOrCurrent }) {
   const ref = refOrCurrent(rest.find((a) => !a.startsWith('--')));
   const task = findTask(root, ref);
   const tests = runTestsFlag ? runTests(root, task, after) : null;
-  const result = await reviewTask(root, task, { tests, doneLine: boardEntries(root, 'done').find((l) => isEntryFor(l, task)) });
+  const result = await reviewTask(root, task, { tests, recorded: task.status === 'done' ? task.result : '' });
   mkdirSync(join(root, REVIEWS_DIR), { recursive: true });
   const out = `${REVIEWS_DIR}/${task.id}.md`;
   writeFileSync(join(root, out), result.markdown);
@@ -494,24 +622,25 @@ export async function main(argv, { root = projectRoot(), log = console.log, sess
   const after = sep < 0 ? '' : argv.slice(sep + 1).join(' ');
   const [command, ...rest] = args;
   const refOrCurrent = (ref) => ref ?? currentTaskOf(root)?.id ?? fail('no task is in progress; pass an id');
+  const synced = command && command !== 'help' ? ensureBoard(root) : [];
 
   switch (command) {
     case 'add': {
       const scope = option(rest, '--scope') ?? '';
       const task = addTask(root, rest.join(' '), { scope });
-      log(`added ${task.path} (queued in ${STATE_DIR}/next.md); complete the behavior, scenarios, test strategy and cases, create the spec and plan, then start it`);
+      log(`added ${task.path} (Status: next); complete the behavior, scenarios, test strategy and cases, create the spec and plan, then start it`);
       return 0;
     }
     case 'list':
     case 'board': {
-      ensureBoard(root);
       const state = rest[0];
       if (state && !STATES.includes(state)) fail(`unknown state ${state}: use ${STATES.join(', ')}`);
       log(state ? stateText(root, state) : boardText(root));
+      const hint = trackedStateHint(root);
+      if (hint) log(hint);
       return 0;
     }
     case 'current': {
-      ensureBoard(root);
       const [task] = tasksIn(root, 'current');
       if (!task) {
         log(`no task is in progress; start one with \`tasks start <id>\`\n\n${stateText(root, 'next')}`);
@@ -520,9 +649,14 @@ export async function main(argv, { root = projectRoot(), log = console.log, sess
       log(`current: ${task.id} ${task.title}${task.extra ? ` · ${task.extra}` : ''}\nfile: ${task.path}\n\n${task.text.trim()}`);
       return 0;
     }
+    case 'sync': {
+      log(synced.length ? `rewrote ${synced.join(', ')} from the notes` : `${STATE_DIR}/ already matches the notes`);
+      const hint = trackedStateHint(root);
+      if (hint) log(hint);
+      return 0;
+    }
     case 'next':
     case 'blocked':
-      ensureBoard(root);
       log(stateText(root, command));
       return 0;
     case 'show':
@@ -536,7 +670,7 @@ export async function main(argv, { root = projectRoot(), log = console.log, sess
       return 0;
     }
     case 'done':
-      return handleDone(root, rest, after, { log, refOrCurrent });
+      return handleDone(root, rest, after, { log, refOrCurrent, session, claude, run });
     case 'review':
       return handleReview(root, rest, after, { log, refOrCurrent });
     default:

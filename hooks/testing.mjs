@@ -1,11 +1,13 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// The task in progress: context/tasks/state/current.md links to its file in
-// context/tasks/list/. Projects set up before the task board keep using the
-// single note at context/tasks/active.md.
-export const CURRENT = 'context/tasks/state/current.md';
+// The task in progress: the note in context/tasks/list/ whose Status is
+// current. tools/tasks.mjs keeps each task's state in its own note and writes
+// context/tasks/state/*.md from them; the notes are read here because they
+// stay right even before the state files are rewritten after a merge.
+// Projects set up before the task board use the single note at context/tasks/active.md.
+export const LIST = 'context/tasks/list';
 const LEGACY_NOTE = 'context/tasks/active.md';
 const START_HINT = 'start one with `node .claude/tools/tasks.mjs start <id>`';
 const isPlaceholder = (text) =>
@@ -45,12 +47,18 @@ const readText = (file) => {
 
 // { path, text } of the current task note; text is undefined when missing.
 export function currentTask(project) {
-  const board = readText(resolve(project, CURRENT));
-  if (board === undefined) return { path: LEGACY_NOTE, text: readText(resolve(project, LEGACY_NOTE)) };
-  const link = /\]\(([^)\s]+\.md)\)/.exec(board)?.[1];
-  if (!link) return { path: CURRENT, text: undefined, idle: true };
-  const path = relative(project, resolve(project, dirname(CURRENT), link)).split(sep).join('/');
-  return { path, text: readText(resolve(project, path)) };
+  let files;
+  try {
+    files = readdirSync(resolve(project, LIST)).filter((f) => /^\d+-.*\.md$/.test(f)).sort();
+  } catch {
+    return { path: LEGACY_NOTE, text: readText(resolve(project, LEGACY_NOTE)) };
+  }
+  for (const file of files) {
+    const path = `${LIST}/${file}`;
+    const text = readText(resolve(project, path));
+    if (text !== undefined && /^Status:[ \t]*current[ \t]*$/m.test(text)) return { path, text };
+  }
+  return { path: LIST, text: undefined, idle: true };
 }
 
 // Tasks created from the current template link the superpowers spec and plan
@@ -76,7 +84,7 @@ function inspectDesignDocs(text, TASK_NOTE, project) {
 }
 
 export function inspectTaskNote(text, TASK_NOTE = LEGACY_NOTE, { idle = false, project } = {}) {
-  if (idle) return { valid: false, reason: `No task is in progress in ${CURRENT}: ${START_HINT}.` };
+  if (idle) return { valid: false, reason: `No task is in progress (no note in ${LIST}/ has Status: current): ${START_HINT}.` };
   if (typeof text !== 'string') return { valid: false, reason: `Create ${TASK_NOTE} before running tests or editing test/spec files.` };
 
   const behavior = section(text, 'Expected behavior');

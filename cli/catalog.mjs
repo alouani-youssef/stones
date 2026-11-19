@@ -34,6 +34,7 @@ const HOOK_HINTS = {
   atomicity: 'enforces single-zone commits and specced danger-zone branches; guards generated migrations',
   'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
   devcontainer: 'regenerates .devcontainer/devcontainer.json whenever its Dockerfile is edited',
+  workflows: 'blocks merges and publishes until the GitHub Actions workflows pass locally with act',
   history: 'logs prompts and replies per session to a local, git-ignored SQLite db (.claude/history.db)',
 };
 
@@ -41,7 +42,7 @@ const HOOK_REQUIRES = { 'block-rm': ['jq'] };
 
 // Atomicity protects commits and danger-zone changes by default. Other
 // process gates, context injection and session logging remain opt-in.
-const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer', 'atomicity']);
+const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer', 'atomicity', 'workflows']);
 
 function firstComment(file) {
   const text = readFileSync(file, 'utf8');

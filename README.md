@@ -157,6 +157,33 @@ node .claude/tools/list-packages.mjs --grep redis
 node .claude/tools/list-packages.mjs --json
 ```
 
+### Run GitHub Actions workflows before a merge or publish
+
+In projects with `.github/workflows`, the workflows tool lists them and runs
+them locally with [act](https://nektosact.com) in Docker. It runs only after
+you confirm. In a terminal it asks y/N. When Claude runs it, Claude shows you
+the plan first and passes `--yes` only after you agree.
+
+```sh
+node .claude/tools/workflows.mjs list                       # workflows, jobs and their events
+node .claude/tools/workflows.mjs run                        # every workflow that runs on pull requests
+node .claude/tools/workflows.mjs run --workflow ci.yml --job test
+node .claude/tools/workflows.mjs status                     # does the current code have a passing run?
+```
+
+The `workflows` hook is selected by default. It blocks these commands until a
+full run has passed for the current code, meaning `HEAD` plus any uncommitted
+changes:
+
+- `gh pr merge`, and `git merge` on the default branch
+- package publishes: `npm`, `pnpm`, `yarn` and `bun publish`, `cargo publish`,
+  `poetry` and `uv publish`, `twine upload`, `gem push`
+- `gh release create` and tag pushes
+
+Any later edit makes the recorded run stale. A run of a single job or a single
+workflow is recorded, but it doesn't unlock the gate. The tool needs act
+(`brew install act`) and a running Docker engine.
+
 ## Repository development
 
 The repository contains the CLI, setup catalogs, hooks, skills, plugins,
@@ -171,6 +198,29 @@ npm run smoke     # exercise commands on throwaway projects
 The CI workflow checks generated files and package contents, runs tests on
 Linux and macOS, and smoke-tests the packed package against sample projects.
 Releases are versioned from `package.json` and tagged as `v<version>`.
+
+### Run the CI workflow locally
+
+[act](https://nektosact.com) runs the GitHub Actions jobs in Docker on your
+machine. It needs a running Docker engine. Install it with
+`brew install act` or `gh extension install nektos/gh-act`, then:
+
+```sh
+npm run ci:local:list                       # list workflows, jobs and events
+npm run ci:local                            # confirm, then run the pull-request workflows
+npm run ci:local -- --workflow ci.yml --job test
+```
+
+The shared flags are in `.actrc`:
+
+- the medium runner image, `catthehacker/ubuntu:act-latest`
+- only the `ubuntu-latest` matrix entries, because act cannot run macOS jobs
+
+Containers run natively. On Apple Silicon that means arm64, because amd64
+emulation breaks `actions/setup-node`. Artifacts go to `.act/artifacts`. If a job needs a secret, put it in
+`.secrets` (dotenv format). `.act/`, `.secrets` and `.vars` are gitignored.
+A local pass doesn't guarantee a pass on GitHub: the macOS matrix entries
+still run only on GitHub, so GitHub CI remains the gate.
 
 ## License
 
