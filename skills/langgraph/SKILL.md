@@ -111,9 +111,12 @@ These follow from the fact that a resumed node **starts again from its first lin
 
 ## Testing
 
+The `testing-llm-agents` skill sets the overall strategy and routes quality evals to `deepeval` or `giskard`.
+
 - **Nodes and routing functions are plain functions.** Unit-test them with a hand-built state dict, with no graph and no model.
 - **Test the graph's paths** by compiling with `InMemorySaver` and replacing the LLM-backed code with fakes (inject them, or patch your own `writer` module). Assert the order of nodes visited and the final state, including the interrupt and resume path.
-- **Test the LLM-backed steps** against a golden set with the real model (see the golden-set skill).
+- **Test the LLM-backed steps** against a golden set with the real model (see the golden-set skill), scored with DeepEval metrics or Giskard Checks in a separate eval job.
+- **Test multi-turn and resume behaviour** with a Giskard multi-turn `Scenario` against the compiled graph, and red-team it with a Giskard scan before release.
 
 ## Common mistakes
 

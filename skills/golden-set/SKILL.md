@@ -3,7 +3,7 @@ name: golden-set
 description: Use when building, extending or auditing the evaluation dataset for an LLM feature, prompt, chain, RAG pipeline or agent; before changing a prompt, model, retriever or tool and claiming it is better; or when eval scores look surprising, saturated, or disagree with what users see.
 metadata:
   title: Golden Set
-  frameworks: Anthropic SDK, OpenAI SDK, LangChain, LangGraph
+  frameworks: Anthropic SDK, OpenAI SDK, LangChain, LangGraph, DeepEval, Giskard
   summary: A versioned set of real, labelled cases with deterministic graders where possible, run on every change, so LLM changes are measured instead of eyeballed.
 ---
 
@@ -76,6 +76,8 @@ sys.exit(0 if pass_rate >= baseline - 0.02 else 1)  # CI fails on a regression b
 
 ## Building the set
 
+The `generating-golden-sets` skill covers producing cases at scale: coverage matrix, mining production traces, synthetic generation with DeepEval's Synthesizer or an LLM, adversarial cases, review and validation.
+
 1. **Write the success criteria first.** For each case, decide what "right" means in a way two people would agree on. If two careful experts could disagree about whether an output passes, the case measures opinion, not quality. Rewrite it or turn it into a rubric.
 2. **Seed from reality.** Take a sample of production inputs, bug reports and support escalations. Label them yourself, or have a domain expert label them. Record where each label came from.
 3. **Add the edges deliberately.** Include empty and huge inputs, other languages, ambiguous requests, prompt injection, out-of-scope requests, and cases where the right behaviour is to refuse, ask, or do nothing. Tag each case so the scores can be read per category.
@@ -90,6 +92,8 @@ sys.exit(0 if pass_rate >= baseline - 0.02 else 1)  # CI fails on a regression b
 - **Never** grade by similarity to one model's previous outputs. That rewards imitating that model, and makes a successor look worse for every harmless difference.
 
 ## Running it
+
+The runner can be a plain script like the one above, DeepEval (`deepeval` skill) or Giskard Checks (`giskard` skill). Where it fits among the other test layers is in `testing-llm-agents`.
 
 - Call the application's real entry point, with the production prompt, model, settings and tools. A re-implemented call measures something else.
 - Run each case several times, and treat differences smaller than the run-to-run spread as noise.

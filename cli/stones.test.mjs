@@ -97,6 +97,9 @@ describe('detect', () => {
     assert.ok(!llm.frameworks.includes('OpenAI SDK'));
     const js = detect(project({ 'package.json': JSON.stringify({ dependencies: { '@langchain/langgraph': '1', openai: '5' } }) }));
     for (const f of ['LangGraph', 'OpenAI SDK']) assert.ok(js.frameworks.includes(f), f);
+    const evals = detect(project({ 'pyproject.toml': 'name = "agent"\ndependencies = ["langgraph"]\n[dependency-groups]\ndev = ["deepeval>=3", "giskard-checks"]\n' }));
+    for (const f of ['DeepEval', 'Giskard']) assert.ok(evals.frameworks.includes(f), f);
+    assert.ok(!llm.frameworks.includes('DeepEval') && !llm.frameworks.includes('Giskard'));
     assert.equal(detect(project({ 'go.mod': 'module github.com/me/tool\n' })).name, 'tool');
     assert.equal(detect(project({ 'Cargo.toml': '[package]\nname = "crab"\n' })).commands.test, 'cargo test');
   });
@@ -240,14 +243,17 @@ describe('framework skills', () => {
     const api = await defaults(['FastAPI', 'Pydantic']);
     assert.ok(api.includes('fastapi'));
     assert.ok(api.includes('writing-tests'), 'skills without frameworks stay selected');
-    for (const s of ['prompts', 'golden-set', 'langchain', 'langgraph']) assert.ok(!api.includes(s), s);
+    for (const s of ['prompts', 'golden-set', 'langchain', 'langgraph', 'testing-llm-agents', 'generating-golden-sets', 'deepeval', 'giskard']) assert.ok(!api.includes(s), s);
     assert.ok(api.includes('system-prompts'), 'system-prompt guidance applies across frameworks');
 
     const agent = await defaults(['LangGraph']);
-    for (const s of ['prompts', 'golden-set', 'langgraph']) assert.ok(agent.includes(s), s);
+    for (const s of ['prompts', 'golden-set', 'langgraph', 'testing-llm-agents', 'generating-golden-sets']) assert.ok(agent.includes(s), s);
+    for (const s of ['deepeval', 'giskard']) assert.ok(!agent.includes(s), `${s} waits until the project uses it`);
     assert.ok(agent.includes('system-prompts'));
     assert.ok(!agent.includes('langchain'), 'a LangGraph-only project gets no LangChain skill');
     assert.ok((await defaults(['Anthropic SDK'])).includes('prompts'));
+    const evals = await defaults(['LangChain', 'DeepEval', 'Giskard']);
+    for (const s of ['langchain', 'testing-llm-agents', 'deepeval', 'giskard', 'golden-set']) assert.ok(evals.includes(s), s);
   });
 
   it('matches skills against detected tools as well as frameworks', async () => {

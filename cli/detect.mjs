@@ -59,6 +59,7 @@ const PY_FRAMEWORKS = {
   django: 'Django', fastapi: 'FastAPI', flask: 'Flask', sqlalchemy: 'SQLAlchemy',
   pydantic: 'Pydantic', pytest: 'pytest', celery: 'Celery',
   langchain: 'LangChain', langgraph: 'LangGraph', anthropic: 'Anthropic SDK', openai: 'OpenAI SDK',
+  deepeval: 'DeepEval', giskard: 'Giskard',
   supabase: 'Supabase', pymongo: 'MongoDB', motor: 'MongoDB', 'firebase-admin': 'Firebase', redis: 'Redis',
 };
 

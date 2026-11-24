@@ -100,9 +100,12 @@ The model chooses what to do from the tool names, docstrings and argument types 
 
 ## Testing
 
+The `testing-llm-agents` skill sets the overall strategy (unit, trajectory, quality-eval and safety layers) and routes to `deepeval` and `giskard`.
+
 - **Unit-test the code under the tools** like any other code. A tool can be called directly too: `find_order.invoke({"order_id": "4411"})`.
 - **Test the agent's behaviour** with a golden set: real questions, expected tool calls and expected answers, run against the real model (see the golden-set skill). For a test that does not call the model, swap in a fake chat model from `langchain_core`, or emulate tools with `LLMToolEmulator`.
 - **Check trajectories, not only final text.** Assert that the refund question led to `find_order` before `refund_order`, and that an off-topic question led to no tool calls.
+- **Score real runs** with DeepEval (`ToolCorrectnessMetric`, `GEval`) or Giskard Checks scenarios in a separate, marked eval job, and red-team with a Giskard scan before release.
 - **Trace every run** in LangSmith during development, so a wrong answer can be traced to the tool call or prompt that caused it.
 
 ## Common mistakes
@@ -127,5 +130,7 @@ The model chooses what to do from the tool names, docstrings and argument types 
 - [Human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop): interrupting on tool calls and resuming with decisions
 - [Short-term memory](https://docs.langchain.com/oss/python/langchain/short-term-memory): checkpointers and threads
 - [Testing](https://docs.langchain.com/oss/python/langchain/test): unit, integration and evaluation testing for agents
+- [Unit testing agents](https://docs.langchain.com/oss/python/langchain/test/unit-testing): fake chat models with scripted tool calls
+- [Agent evals](https://docs.langchain.com/oss/python/langchain/test/evals): trajectory-match evaluators with `agentevals`
 - [LangSmith observability](https://docs.langchain.com/langsmith/observability): tracing runs
 - [LangChain v1 migration guide](https://docs.langchain.com/oss/python/migrate/langchain-v1): moving from chains and `AgentExecutor`
