@@ -11,7 +11,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # The ci- prefix matters: when release.yml calls this workflow, github.workflow
+  # is the caller's name, and a matching group would cancel the release.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

@@ -11,7 +11,9 @@
 # engine; `status` only reads the recorded run.
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+# The project root is the folder that holds .claude/, two levels above this
+# script; it may be a subfolder of a larger repository.
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 sub=run
 case "${1:-}" in

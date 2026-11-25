@@ -22,15 +22,18 @@ const known = (ids) => ids.filter((id) => WORKFLOW_CATALOG.some((w) => w.value =
 /** Drops ids no longer in the catalog, so a stale saved selection is never passed on. */
 export const knownWorkflows = (ids = []) => known(Array.isArray(ids) ? ids : []);
 
-export function githubSetupPrompt(target, workflows = []) {
+// With askIfNone, an empty selection leaves the line blank so Claude asks:
+// used when the command is run directly rather than right after the interview.
+export function githubSetupPrompt(target, workflows = [], { askIfNone = false } = {}) {
   const installed = join(target, '.claude', 'commands', 'github-setup.md');
   const source = existsSync(installed) ? installed : join(PACKAGE_ROOT, 'commands', 'github-setup.md');
   const body = readFileSync(source, 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '').trim();
   const selected = knownWorkflows(workflows);
-  return body.replaceAll('$ARGUMENTS', selected.length ? selected.join(', ') : 'none selected');
+  const line = selected.length ? selected.join(', ') : askIfNone ? '' : 'none selected';
+  return body.replaceAll('$ARGUMENTS', line);
 }
 
-export function startGithubSetupSession(target, { workflows = [], claude = 'claude' } = {}) {
+export function startGithubSetupSession(target, { workflows = [], askIfNone = false, claude = 'claude' } = {}) {
   if (!onPath(claude)) {
     return Promise.resolve({
       started: false,
@@ -39,7 +42,7 @@ export function startGithubSetupSession(target, { workflows = [], claude = 'clau
         + '`npx ai-stones github-setup`, or open Claude Code here and type /github-setup.',
     });
   }
-  const prompt = githubSetupPrompt(target, workflows);
+  const prompt = githubSetupPrompt(target, workflows, { askIfNone });
   return new Promise((done) => {
     const child = spawn(claude, [prompt], { cwd: target, stdio: 'inherit' });
     child.on('exit', (code) => done({ started: true, code }));

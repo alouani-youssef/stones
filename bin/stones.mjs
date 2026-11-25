@@ -158,10 +158,10 @@ async function handleRoadmap(target, args) {
 async function handleGithubSetup(target, args) {
   const workflows = loadManifest(target).answers?.github?.workflows ?? [];
   if (args.printPrompt) {
-    console.log(githubSetupPrompt(target, workflows));
+    console.log(githubSetupPrompt(target, workflows, { askIfNone: true }));
     return;
   }
-  const result = await startGithubSetupSession(target, { workflows });
+  const result = await startGithubSetupSession(target, { workflows, askIfNone: true });
   if (!result.started) {
     console.error(result.message);
     process.exitCode = 1;

@@ -21,7 +21,7 @@ A hook that is slow gets bypassed with `--no-verify`, and a bypassed hook checks
 | `commit-msg` | Conventional Commits check, only when `conventions.commits` is `conventional` in `.claude/stones.json` | instant | `templates/githooks/commit-msg` |
 | `pre-push` | typecheck, then the test suite | under ~2 min | `templates/githooks/pre-push` |
 
-Use the project's own commands: the `workflow.commands` answers in `.claude/stones.json` (`format`, `lint`, `typecheck`, `test`), then the manifest scripts. A command the project doesn't have is left empty, and the hook skips that step. Don't invent tooling to fill a slot.
+Use the project's own commands: the `workflow.commands` answers in `.claude/stones.json` (`format`, `lint`, `typecheck`, `test`), then the manifest scripts. A command the project doesn't have is left empty, and the hook skips that step. Don't invent tooling to fill a slot. In `pre-commit`, set `FILE_PATTERN` to the files the tools handle (`\.go$`, `\.py$`), so a docs-only commit doesn't run `gofmt` on a README. A file with unstaged changes is formatted but not re-staged, and the hook says so.
 
 ## Choosing the mechanism
 

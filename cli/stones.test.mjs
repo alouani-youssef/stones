@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -403,6 +403,39 @@ describe('skills', () => {
     }
   });
 
+  it('keeps CI and release concurrency groups apart when release calls CI', () => {
+    const dir = join(PACKAGE_ROOT, 'skills/github-actions/templates/workflows');
+    for (const stack of ['node', 'python', 'go']) {
+      // In a called workflow github.workflow is the caller's name, and groups are case-insensitive.
+      assert.match(readFileSync(join(dir, `ci-${stack}.yml`), 'utf8'), /group: ci-\$\{\{ github\.workflow \}\}/, stack);
+    }
+  });
+
+  it('disables dependency caches in tag-triggered release templates', () => {
+    const dir = join(PACKAGE_ROOT, 'skills/github-actions/templates/workflows');
+    assert.match(readFileSync(join(dir, 'release-go.yml'), 'utf8'), /cache: false/);
+    assert.match(readFileSync(join(dir, 'release-python.yml'), 'utf8'), /enable-cache: false/);
+  });
+
+  it('formats only matching staged files and leaves partially staged files unstaged', () => {
+    const templates = join(PACKAGE_ROOT, 'skills/git-hooks/templates/githooks');
+    const root = project({ 'a.go': 'x\n', 'README.md': 'x\n', 'b.go': 'x\nkeep\n' });
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['add', '.'], { cwd: root });
+    writeFileSync(join(root, 'b.go'), 'x\nunstaged\n'); // b.go now has unstaged changes
+    const hook = readFileSync(join(templates, 'pre-commit'), 'utf8')
+      .replace('FILE_PATTERN=""', 'FILE_PATTERN="\\.go$"')
+      .replace('FORMAT_CMD=""', 'FORMAT_CMD="sed -i.bak s/x/y/"');
+    writeFileSync(join(root, 'pre-commit'), hook);
+    const run = spawnSync('bash', ['pre-commit'], { cwd: root, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const staged = (f) => execFileSync('git', ['show', `:${f}`], { cwd: root, encoding: 'utf8' });
+    assert.equal(staged('a.go'), 'y\n', 'matching file formatted and re-staged');
+    assert.equal(readFileSync(join(root, 'README.md'), 'utf8'), 'x\n', 'non-matching file untouched');
+    assert.equal(staged('b.go'), 'x\nkeep\n', 'partially staged file not re-added');
+    assert.match(run.stdout + run.stderr, /b\.go/, 'warns about the partially staged file');
+  });
+
   it('runs the hook templates: staged files formatted and re-staged, commit messages checked', () => {
     const templates = join(PACKAGE_ROOT, 'skills/git-hooks/templates/githooks');
     const root = project({ 'a.txt': 'x\n' });
@@ -706,6 +739,13 @@ describe('github-setup', () => {
 describe('github-setup command line', () => {
   const stones = (args, cwd) => spawnSync(process.execPath, [join(PACKAGE_ROOT, 'bin/stones.mjs'), ...args], { cwd, encoding: 'utf8' });
 
+  it('lets Claude ask when run directly with no saved selection', async () => {
+    const root = nextApp();
+    assert.match(stones(['github-setup', root, '--print-prompt']).stdout, /Workflows to generate: \n/);
+    await runInit(root);
+    assert.match(stones(['github-setup', root, '--print-prompt']).stdout, /Workflows to generate: \n/, 'init --yes picked nothing');
+  });
+
   it('lists the subcommand and its flag in --help', () => {
     const help = stones(['--help']).stdout;
     assert.match(help, /npx ai-stones github-setup \[dir\]/);
@@ -714,7 +754,6 @@ describe('github-setup command line', () => {
 
   it('prints the prompt with the saved workflow selection', async () => {
     const root = nextApp();
-    assert.match(stones(['github-setup', root, '--print-prompt']).stdout, /Workflows to generate: none selected/);
     await runInit(root, { 'github.workflows': ['ci'] });
     assert.match(stones(['github-setup', root, '--print-prompt']).stdout, /Workflows to generate: ci\n/);
   });
@@ -782,6 +821,21 @@ describe('ci-local script', () => {
     assert.match(run(root, [], PATH).stdout, /node \.claude\/tools\/workflows\.mjs run$/m);
     assert.match(run(root, ['--job', 'test'], PATH).stdout, /workflows\.mjs run --job test$/m);
     assert.match(run(root, ['list'], PATH).stdout, /workflows\.mjs list$/m);
+  });
+
+  it('runs from the folder that holds .claude, even inside a larger repository', async () => {
+    const repo = project();
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    const root = join(repo, 'packages/app');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app' }));
+    await runInit(root);
+    const PATH = fakePath({ node: 'echo "node $PWD $*"' });
+    const result = spawnSync('bash', [join(root, '.claude/scripts/ci-local.sh'), 'status'], { cwd: repo, encoding: 'utf8', env: { ...process.env, PATH } });
+    assert.equal(result.status, 0, result.stderr);
+    const [, cwd, rest] = result.stdout.trim().match(/^node (\S+) (.*)$/);
+    assert.equal(realpathSync(cwd), realpathSync(root));
+    assert.equal(rest, '.claude/tools/workflows.mjs status');
   });
 
   it('reads the run status without act or Docker', async () => {
