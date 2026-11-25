@@ -506,6 +506,45 @@ describe('init', () => {
     assert.ok(loadManifest(root).files['AGENT.md']);
   });
 
+  const EVAL_TOOLS = ['.claude/tools/evaluation.mjs', '.claude/tools/evaluation-registry.mjs'];
+  const EVAL_ALLOW = ['plan', 'check', 'suggest', 'record', 'score'].map((c) => `Bash(node .claude/tools/evaluation.mjs ${c}:*)`);
+
+  it('installs the evaluation tools with the task board and allows every subcommand but sign', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.skills': ['tracking-tasks', 'evaluating-outputs'] });
+    for (const tool of EVAL_TOOLS) assert.ok(read(root, tool).length > 0, tool);
+    assert.ok(read(root, '.claude/skills/evaluating-outputs/dimensions.json').length > 0);
+    assert.ok(read(root, '.claude/skills/evaluating-outputs/categories/caching.md').length > 0);
+    const allow = JSON.parse(read(root, '.claude/settings.json')).permissions.allow;
+    for (const rule of EVAL_ALLOW) assert.ok(allow.includes(rule), rule);
+    assert.ok(!allow.some((rule) => /evaluation\.mjs( sign)?:\*/.test(rule)), 'sign must ask first');
+    const out = execFileSync('node', ['.claude/tools/evaluation.mjs', 'suggest', 'AGENT.md'], { cwd: root, encoding: 'utf8' });
+    assert.match(out, /keyword hit/);
+  });
+
+  it('installs the evaluation tools with the skill alone, without the board', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.skills': ['evaluating-outputs'] });
+    for (const tool of EVAL_TOOLS) assert.ok(read(root, tool).length > 0, tool);
+    assert.equal(existsSync(join(root, '.claude/tools/tasks.mjs')), false);
+    const allow = JSON.parse(read(root, '.claude/settings.json')).permissions.allow;
+    assert.ok(allow.includes(EVAL_ALLOW[0]));
+  });
+
+  it('does not install the evaluation tools when neither is selected', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.skills': ['writing-tests'] });
+    for (const tool of EVAL_TOOLS) assert.equal(existsSync(join(root, tool)), false, tool);
+    const allow = JSON.parse(read(root, '.claude/settings.json')).permissions.allow;
+    assert.ok(!allow.some((rule) => rule.includes('evaluation.mjs')));
+  });
+
+  it('selects the evaluating-outputs skill by default', async () => {
+    const root = nextApp();
+    await runInit(root);
+    assert.ok(loadManifest(root).files['.claude/skills/evaluating-outputs/SKILL.md']);
+  });
+
   it('installs the testing hook with the task board, or the legacy note without it', async () => {
     const withBoard = nextApp();
     execFileSync('git', ['init', '-q'], { cwd: withBoard });

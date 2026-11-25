@@ -193,6 +193,22 @@ node .claude/tools/list-packages.mjs --grep redis
 node .claude/tools/list-packages.mjs --json
 ```
 
+### Evaluate task outputs against predefined KPIs
+
+The `evaluating-outputs` skill gives each task one category: `api`, `db-query`, `calculation-engine`, `caching`, `background-job`, `ui-component`, `page`, `llm-feature` or `general`. The category maps every evaluation dimension to KPIs with thresholds. The dimensions are correctness, consistency, latency, memory, Big O, failure recovery, exception handling, results, and task-specific KPIs.
+
+The KPIs are written into the plan before it is approved, then the built output is scored against them:
+
+```sh
+node .claude/tools/evaluation.mjs suggest docs/superpowers/specs/<spec>.md   # which category fits
+node .claude/tools/evaluation.mjs plan <plan.md> --category caching          # KPIs and cases into the plan
+node .claude/tools/evaluation.mjs record 7 caching.hit-ratio 0.94 \
+  --evidence "replay of prod-sample.har" --details results/hit-ratio.json     # a measured value with its full results
+node .claude/tools/evaluation.mjs score 7                                    # the scorecard; exit 0 only on PASS
+```
+
+The verdict comes from the measured KPIs. The user's sign-offs (`evaluation.mjs sign`, which always asks first) are listed on the scorecard as advisory. With the task board, `tasks.mjs done` refuses a categorised task until its scorecard is PASS. Dimensions and categories are a versioned registry, so new ones need no code change. Projects can override thresholds in `.claude/evaluation.json`.
+
 ### Run GitHub Actions workflows before a merge or publish
 
 In projects with `.github/workflows`, the workflows tool lists them and runs

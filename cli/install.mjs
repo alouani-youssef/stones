@@ -21,8 +21,12 @@ const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.j
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
 const TASKS_GITIGNORE = ['.claude/reviews/', STATE_GITIGNORE];
-// tasks.mjs and review.mjs import the evaluation tools (evaluating-outputs skill).
-export const TASK_TOOLS = ['tasks.mjs', 'review.mjs', 'evaluation.mjs', 'evaluation-registry.mjs'];
+export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
+// The evaluating-outputs tools. tasks.mjs and review.mjs import them, so they
+// ship with the task board as well as with the skill. `sign` records the
+// user's own answer, so it is left out of permissions.allow and always asks.
+export const EVALUATION_TOOLS = ['evaluation.mjs', 'evaluation-registry.mjs'];
+const EVALUATION_ALLOWED = ['plan', 'check', 'suggest', 'record', 'score'];
 const ANALYZER_FILES = ['compose.yaml', 'analyzers.Dockerfile'];
 // Files in hooks/lib/ each hook imports.
 const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'], workflows: ['shell.mjs'], 'four-d': ['python.mjs'] };
@@ -52,6 +56,7 @@ TODO: Describe the behavior the source should provide.
 none
 `;
 const usesTaskBoard = (answers) => answers.install.skills.includes('tracking-tasks');
+const usesEvaluation = (answers) => usesTaskBoard(answers) || answers.install.skills.includes('evaluating-outputs');
 
 const sha = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16);
 const readText = (file) => {
@@ -143,6 +148,9 @@ function toolFiles(answers, pkg) {
   } else if (answers.install.hooks.includes('testing')) {
     files.push({ path: 'context/tasks/active.md', content: LEGACY_TASK_NOTE, kind: 'managed' });
   }
+  if (usesEvaluation(answers)) {
+    for (const tool of EVALUATION_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
+  }
   return files;
 }
 
@@ -171,6 +179,7 @@ function settingsFile(answers, stack, root) {
     'Bash(node .claude/tools/workflows.mjs list:*)',
     'Bash(node .claude/tools/workflows.mjs status:*)',
     ...(usesTaskBoard(answers) ? ['Bash(node .claude/tools/tasks.mjs:*)'] : []),
+    ...(usesEvaluation(answers) ? EVALUATION_ALLOWED.map((c) => `Bash(node .claude/tools/evaluation.mjs ${c}:*)`) : []),
   ];
   const settings = composeSettings({
     hooks: answers.install.hooks,
