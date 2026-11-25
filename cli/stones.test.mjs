@@ -14,6 +14,7 @@ import { DEVCONTAINER_STACKS, devcontainerStack } from './devcontainer.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
 import { createPrompter, createScriptedPrompter } from './prompt.mjs';
 import { interview, suggestedPatterns } from './questions.mjs';
+import { githubSetupPrompt, startGithubSetupSession } from './github-setup.mjs';
 import { roadmapPrompt } from './roadmap.mjs';
 import { commandRule, composeSettings, mergeSettings } from './settings.mjs';
 import { PassThrough } from 'node:stream';
@@ -467,6 +468,7 @@ describe('init', () => {
     assert.equal(JSON.parse(read(root, '.mcp.json')).mcpServers.context7.command, 'npx');
     assert.ok(read(root, '.claude/hooks/access_guard.mjs').length > 0);
     assert.ok(read(root, '.claude/commands/roadmap.md').includes('ROADMAP.md'));
+    assert.ok(read(root, '.claude/commands/github-setup.md').includes('github-actions'));
     assert.ok(statSync(join(root, '.claude/hooks/block-rm.sh')).mode & 0o100);
     assert.ok(loadManifest(root).files['AGENT.md']);
   });
@@ -657,6 +659,33 @@ describe('roadmap', () => {
     assert.match(prompt, /Focus for this session: create the first roadmap/);
     assert.match(roadmapPrompt(project({ 'ROADMAP.md': '# Roadmap' }), ''), /review progress/);
     assert.match(roadmapPrompt(project(), 'plan Q3'), /Focus for this session: plan Q3/);
+  });
+});
+
+describe('github-setup', () => {
+  it('puts the selected workflows in the prompt', () => {
+    const prompt = githubSetupPrompt(project(), ['ci', 'security']);
+    assert.match(prompt, /Workflows to generate: ci, security/);
+    assert.doesNotMatch(prompt, /\$ARGUMENTS/);
+  });
+
+  it('says none were selected', () => {
+    assert.match(githubSetupPrompt(project(), []), /Workflows to generate: none selected/);
+  });
+
+  it('drops ids outside the catalog', () => {
+    assert.match(githubSetupPrompt(project(), ['ci', 'deploy']), /Workflows to generate: ci\n/);
+  });
+
+  it('covers hooks, templates and non-git folders', () => {
+    const prompt = githubSetupPrompt(project());
+    for (const word of ['git-hooks', 'github-actions', 'pull_request_template.md', 'ISSUE_TEMPLATE', 'not a git repository']) assert.ok(prompt.includes(word), word);
+  });
+
+  it('reports when Claude is not on PATH', async () => {
+    const result = await startGithubSetupSession(project(), { claude: 'no-such-claude-binary' });
+    assert.equal(result.started, false);
+    assert.match(result.message, /npx ai-stones github-setup/);
   });
 });
 
