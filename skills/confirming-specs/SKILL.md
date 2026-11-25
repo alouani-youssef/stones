@@ -1,18 +1,49 @@
 ---
 name: confirming-specs
-description: Use when a spec or plan is written and implementation or drafting is about to start — to check with a short multiple-choice quiz (QCM) that the user understands and approves what will be built — when the task board says a task needs an Approval, when a spec changed after approval, or when the user is about to approve a spec they may not have read.
+description: Use when writing a spec, before writing a plan, or before implementation or drafting starts — to have the user confirm or deny every assumption you made, then check with a short multiple-choice quiz (QCM) that they understand and approve what will be built — when the assumptions hook blocks a plan, when the task board says a task needs an Approval, or when a spec changed after approval.
 metadata:
   title: Confirming Specs
-  summary: A short multiple-choice quiz on the decisions in a spec and plan, answered by the user before any code is written, recorded and approved with a hash so a changed spec needs approval again.
+  summary: Every assumption in the spec confirmed or denied by the user before planning, then a short multiple-choice quiz on the spec and plan before any code is written, approved with a hash so a changed spec needs approval again.
 ---
 
 # Confirming Specs
 
 "Looks good" is not approval. A user who skims a spec approves the summary they expected, not the decisions it actually makes, and the difference turns up later as rework. Before implementing or drafting from a spec, ask the user a short multiple-choice quiz (QCM) about the decisions that are expensive to change. When an answer differs from the spec, you have found a misunderstanding or a disagreement before any code depends on it.
 
+It happens in two stages:
+
+1. **Before planning: every assumption confirmed or denied.** Each decision you made that the user did not state is listed in the spec and answered by the user. The plan is built only on decisions the user owns.
+2. **Before implementation: the quiz.** The user shows they understand the spec and plan as written.
+
 The quiz is not an exam for the user. A wrong answer is a finding about the spec or about how it was explained, never a failure of the user.
 
-## When
+## Stage 1: assumptions, before planning
+
+While brainstorming and writing the spec, write down every take you make that the user did not say: a default, a scope cut, an interpretation of a vague requirement, a technology choice, a behavior on failure, a limit or number, something left out. If you chose it, it is an assumption, however obvious it seems. Keep them in the spec:
+
+```markdown
+## Assumptions
+
+- A1: Limits apply per account and per IP, not per IP only. Status: open
+- A2: Accounts are locked after 5 failures. Status: open
+- A3: Existing sessions stay valid when the limit is reached. Status: open
+```
+
+Then, before invoking `superpowers:writing-plans`:
+
+1. **Ask about each open assumption** with AskUserQuestion, up to four per call: the assumption as the question, and the options "Confirm" and "Deny" (the user can pick Other to say what they want instead). Put the riskiest ones first. Don't bundle two decisions into one assumption.
+2. **Record each answer** on its line: `Status: confirmed`, or `Status: denied: <what the user decided instead>`.
+3. **Update the spec for every denial** so the body says what the user decided, not your original take. A denial that only changes the status line leaves the wrong decision in the spec.
+4. **New assumptions found while doing this** go in as `Status: open` and get asked too.
+5. **Check**: `node .claude/tools/spec-quiz.mjs assumptions <spec>` prints each assumption and exits 1 while any is open or a denial has no decision.
+
+The assumptions hook enforces this: it blocks writing a plan under `docs/superpowers/plans/` while the plan's spec has an open assumption, has a denial with no decision, or has no `## Assumptions` section. The plan's spec is the one the plan links, else the current task's `Spec:`, else the newest spec. `approve` refuses the quiz for the same reasons.
+
+Never mark an assumption confirmed yourself, and never mark it confirmed because the user approved the spec as a whole or said "sounds good". Each one needs its own answer.
+
+## Stage 2: the quiz, before implementation
+
+### When
 
 - After `superpowers:brainstorming` wrote the spec and `superpowers:writing-plans` wrote the plan, and before `tasks.mjs start`, `superpowers:executing-plans` or any implementation or drafting.
 - Again when the spec or plan changes after approval. `status` reports the quiz as stale.
@@ -20,7 +51,7 @@ The quiz is not an exam for the user. A wrong answer is a finding about the spec
 
 Skip it only for changes with nothing to misunderstand: typo fixes, mechanical renames, a one-line fix the user described exactly.
 
-## Workflow
+### Workflow
 
 1. **Create the quiz file** next to the docs it checks:
 
@@ -40,7 +71,7 @@ Skip it only for changes with nothing to misunderstand: typo fixes, mechanical r
 
 Tell the user the result in one line: how many answers matched, and what changed in the spec because of the others.
 
-## Writing good questions
+### Writing good questions
 
 Ask about decisions, not wording. Good topics, in rough order of how much they cost when wrong:
 
@@ -82,6 +113,9 @@ Resolution: spec updated: added "accounts are never locked; admins can only clea
 
 | Mistake | Fix |
 | --- | --- |
+| Writing the plan before every assumption is answered | ask each one first; the hook blocks the plan otherwise |
+| Marking assumptions confirmed because the user liked the spec | ask about each assumption on its own |
+| Recording a denial without changing the spec body | rewrite the decision in the spec, then record it |
 | Asking "Do you approve the spec?" | ask about the decisions; approval follows from the answers |
 | Questions the user can answer without reading the spec, or trivia from it | ask about the decisions that would cost the most to change |
 | Showing `Expected` or explaining before asking | ask first, explain only after a mismatch |

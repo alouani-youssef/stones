@@ -64,7 +64,7 @@ function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
     .replace(/- Case: TODO[^\n]*/m, '- Case: sixth login attempt within a minute. Expected: rate limited response with retry header.')
     .replace(/- Scenario: TODO[^\n]*/, '- Scenario: sixth login attempt within a minute. Expected: rate limited response with retry header.');
   write(root, task.path, text);
-  write(root, SPEC, '# Login rate limit design\n\n## Test Strategy\n\nUse unit tests for the limit rule and an integration test for the endpoint.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: request is rate limited.\n');
+  write(root, SPEC, '# Login rate limit design\n\n## Assumptions\n\n- A1: Limits are per account and IP. Status: confirmed\n\n## Test Strategy\n\nUse unit tests for the limit rule and an integration test for the endpoint.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: request is rate limited.\n');
   write(root, PLAN, '# Login rate limit plan\n\n## Test Strategy\n\nRun focused unit and integration tests.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: focused test fails before implementation and passes after.\n');
   write(root, QUIZ, quizText());
   approveQuiz(root, QUIZ);

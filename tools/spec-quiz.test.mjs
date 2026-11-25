@@ -12,7 +12,7 @@ const QUIZ = 'docs/superpowers/approvals/2026-11-25-limits.md';
 
 function project() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'stones-quiz-')));
-  write(root, SPEC, '# Login limits\n\nThe 6th attempt gets a 429.\n');
+  write(root, SPEC, '# Login limits\n\nThe 6th attempt gets a 429.\n\n## Assumptions\n\n- A1: Limits are per account and IP. Status: confirmed\n');
   write(root, PLAN, '# Plan\n\n1. Add the limiter.\n');
   return root;
 }
@@ -71,6 +71,22 @@ describe('spec quiz', () => {
     assert.match(r.out, /^Approved: \d{4}-\d{2}-\d{2} · 2\/3 matched the spec, 1 resolved · sha256:[0-9a-f]{16}$/);
     assert.match(readFileSync(join(root, QUIZ), 'utf8'), /^Approved: .*sha256:/m);
     assert.equal(cli(root, 'status', QUIZ).code, 0);
+  });
+
+  it('refuses approval while a spec assumption is open, and reports them', () => {
+    const root = project();
+    write(root, SPEC, '# Login limits\n\n## Assumptions\n\n- A1: Per IP. Status: confirmed\n- A2: Lock accounts. Status: open\n');
+    write(root, QUIZ, quiz('B', 'B', 'B'));
+    const r = cli(root, 'approve', QUIZ);
+    assert.equal(r.code, 1);
+    assert.match(r.out, /A2 is still open/);
+    const check = cli(root, 'assumptions', SPEC);
+    assert.equal(check.code, 1);
+    assert.match(check.out, /^A1 CONFIRMED +Per IP\.$/m);
+    assert.match(check.out, /NOT READY TO PLAN/);
+    write(root, SPEC, '# Login limits\n\n## Assumptions\n\n- A1: Per IP. Status: confirmed\n- A2: Lock accounts. Status: denied: never lock; return 429\n');
+    assert.match(cli(root, 'assumptions', SPEC).out, /A2 DENIED +Lock accounts\. → never lock; return 429\nREADY TO PLAN: 2 assumptions/);
+    assert.equal(cli(root, 'approve', QUIZ).code, 0);
   });
 
   it('goes stale when the spec or plan changes after approval', () => {

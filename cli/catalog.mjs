@@ -30,6 +30,7 @@ const HOOK_HINTS = {
   graph: 'gives Claude file summaries from OpenSpec and keeps the code graph',
   format: 'formats files after edits with the project formatter',
   complexity: 'flags functions an edit pushed over SonarQube\'s cognitive-complexity limit (Python, JS/TS, Go)',
+  assumptions: 'blocks writing a plan until the user has confirmed or denied every assumption in its spec',
   testing: 'requires clear test scenarios and guards spec/test edits unless expected behavior changes',
   atomicity: 'enforces single-zone commits and specced danger-zone branches; guards generated migrations',
   'four-d': 'injects 4D engineering guardrails matched to each prompt\'s task and risk',
@@ -40,9 +41,10 @@ const HOOK_HINTS = {
 
 const HOOK_REQUIRES = { 'block-rm': ['jq'] };
 
-// Atomicity protects commits and danger-zone changes by default. Other
+// Atomicity protects commits and danger-zone changes by default, and plans
+// wait for confirmed assumptions. Other
 // process gates, context injection and session logging remain opt-in.
-const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer', 'atomicity', 'workflows']);
+const DEFAULT_HOOKS = new Set(['access_guard', 'block-rm', 'format', 'naming', 'devcontainer', 'atomicity', 'workflows', 'assumptions']);
 
 function firstComment(file) {
   const text = readFileSync(file, 'utf8');

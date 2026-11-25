@@ -73,6 +73,15 @@
         ]
       },
       {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/assumptions.mjs\""
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|MultiEdit|Write",
         "hooks": [
           {

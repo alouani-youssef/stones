@@ -88,6 +88,47 @@ export function quizProblems(quiz) {
   return problems;
 }
 
+// The spec's `## Assumptions`: every decision the agent made that the user did
+// not state, each confirmed or denied by the user before a plan is written.
+//   - A1: Limits apply per account and IP. Status: confirmed
+//   - A2: Accounts lock after 5 failures. Status: denied: never lock; return 429 instead
+//   - A3: Existing sessions stay valid. Status: open
+export function parseAssumptions(text) {
+  const lines = normalize(text).split('\n');
+  const start = lines.findIndex((l) => /^##\s+Assumptions\s*$/i.test(l));
+  if (start < 0) return null;
+  const end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
+  return lines.slice(start + 1, end < 0 ? lines.length : end).flatMap((line) => {
+    const m = /^\s*[-*]\s+(A\d+)[:.]\s*(.+)$/.exec(line);
+    if (!m) return [];
+    const status = /\bStatus:\s*(confirmed|denied|open)\b[:.\s—-]*(.*)$/i.exec(m[2]);
+    return [{
+      id: m[1],
+      text: m[2].replace(/\s*\bStatus:.*$/i, '').trim(),
+      status: status ? status[1].toLowerCase() : 'open',
+      note: status ? status[2].trim() : '',
+    }];
+  });
+}
+
+export function assumptionProblems(text) {
+  const items = parseAssumptions(text);
+  const how = 'list every decision you made that the user did not state as "- A1: <assumption>. Status: open", then ask the user to confirm or deny each one';
+  if (items === null) return [`add a ## Assumptions section: ${how}`];
+  if (!items.length) return [`## Assumptions is empty: ${how}`];
+  const problems = [];
+  const seen = new Set();
+  for (const a of items) {
+    if (seen.has(a.id)) problems.push(`${a.id} is listed twice; number assumptions uniquely`);
+    seen.add(a.id);
+    if (a.status === 'open') problems.push(`${a.id} is still open: ask the user to confirm or deny "${a.text}"`);
+    if (a.status === 'denied' && (a.note.length < 3 || PLACEHOLDER.test(a.note))) {
+      problems.push(`${a.id} was denied: record what the user decided instead (Status: denied: <decision>) and update the spec`);
+    }
+  }
+  return problems;
+}
+
 const mismatches = (quiz) => quiz.questions.filter((q) => q.answerKey !== q.expected);
 
 export function quizStatus(root, quizPath) {
@@ -133,6 +174,8 @@ export function approveQuiz(root, quizPath, today = new Date().toISOString().sli
   const text = readFileSync(file, 'utf8');
   const quiz = parseQuiz(text);
   if (!quiz.spec) fail(`${quizPath}: add a Spec: line`);
+  const open = assumptionProblems(readDoc(root, quiz.spec, 'Spec'));
+  if (open.length) fail(`${quiz.spec} has assumptions the user has not confirmed or denied:\n  - ${open.join('\n  - ')}`);
   const problems = quizProblems(quiz);
   if (problems.length) fail(`${quizPath} is not ready to approve:\n  - ${problems.join('\n  - ')}`);
   const hash = docsHash(root, quiz.spec, quiz.plan || null);
@@ -149,6 +192,7 @@ Usage
   node .claude/tools/spec-quiz.mjs new <spec.md> [--plan <plan.md>] [--out <quiz.md>]
   node .claude/tools/spec-quiz.mjs approve <quiz.md>
   node .claude/tools/spec-quiz.mjs status <quiz.md> [--json]
+  node .claude/tools/spec-quiz.mjs assumptions <spec.md>          every assumption confirmed or denied?
 
 Quiz files live in ${QUIZ_DIR}/ by default. Link one from a task note as
 "Approval: <path>" and \`tasks.mjs start\` requires it to be approved and current.`;
@@ -179,6 +223,13 @@ function dispatch(command, target, { root, log, json, plan, out }) {
     const r = approveQuiz(root, target);
     log(r.line);
     return 0;
+  }
+  if (command === 'assumptions') {
+    const problems = assumptionProblems(readDoc(root, target, 'Spec'));
+    const items = parseAssumptions(readDoc(root, target, 'Spec')) ?? [];
+    for (const a of items) log(`${a.id} ${a.status.toUpperCase().padEnd(9)} ${a.text}${a.note ? ` → ${a.note}` : ''}`);
+    log(problems.length ? `NOT READY TO PLAN:\n  - ${problems.join('\n  - ')}` : `READY TO PLAN: ${items.length} assumptions confirmed or denied`);
+    return problems.length ? 1 : 0;
   }
   if (command === 'status') {
     const s = quizStatus(root, target);
