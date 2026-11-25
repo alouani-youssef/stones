@@ -1,6 +1,5 @@
 # ai-stones
 
-[![CI](https://github.com/alouani-youssef/stones/actions/workflows/ci.yml/badge.svg)](https://github.com/alouani-youssef/stones/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/ai-stones)](https://www.npmjs.com/package/ai-stones)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -205,32 +204,9 @@ npm test          # unit and hook tests
 npm run smoke     # exercise commands on throwaway projects
 ```
 
-The CI workflow checks generated files and package contents, runs tests on
-Linux and macOS, and smoke-tests the packed package against sample projects.
+The repository has no CI: run these checks before a commit or a release.
+`npm run check` also runs shellcheck on the shell scripts when it is installed.
 Releases are versioned from `package.json` and tagged as `v<version>`.
-
-### Run the CI workflow locally
-
-[act](https://nektosact.com) runs the GitHub Actions jobs in Docker on your
-machine. It needs a running Docker engine. Install it with
-`brew install act` or `gh extension install nektos/gh-act`, then:
-
-```sh
-npm run ci:local:list                       # list workflows, jobs and events
-npm run ci:local                            # confirm, then run the pull-request workflows
-npm run ci:local -- --workflow ci.yml --job test
-```
-
-The shared flags are in `.actrc`:
-
-- the medium runner image, `catthehacker/ubuntu:act-latest`
-- only the `ubuntu-latest` matrix entries, because act cannot run macOS jobs
-
-Containers run natively. On Apple Silicon that means arm64, because amd64
-emulation breaks `actions/setup-node`. Artifacts go to `.act/artifacts`. If a job needs a secret, put it in
-`.secrets` (dotenv format). `.act/`, `.secrets` and `.vars` are gitignored.
-A local pass doesn't guarantee a pass on GitHub: the macOS matrix entries
-still run only on GitHub, so GitHub CI remains the gate.
 
 ## License
 

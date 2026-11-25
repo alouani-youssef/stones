@@ -41,9 +41,7 @@
     "build:settings": "node settings/build-settings.mjs",
     "build:devcontainers": "node cli/devcontainer.mjs",
     "check": "node scripts/check-repo.mjs",
-    "smoke": "node scripts/smoke.mjs",
-    "ci:local": "node tools/workflows.mjs run",
-    "ci:local:list": "node tools/workflows.mjs list"
+    "smoke": "node scripts/smoke.mjs"
   },
   "engines": {
     "node": ">=22.13"

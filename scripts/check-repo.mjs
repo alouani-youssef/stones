@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Repository checks that need no dependencies, run by CI (`npm run check`):
+// Repository checks that need no dependencies, run before a commit or a
+// release (`npm run check`):
 //
 //   syntax     every tracked .mjs parses (node --check)
 //   json       every tracked .json parses
@@ -7,6 +8,7 @@
 //              every vendored plugin ships its own LICENSE and declares it
 //   secrets    no tokens or private keys in tracked files
 //   paths      no machine-specific absolute paths in shipped files
+//   shell      tracked shell scripts pass shellcheck (skipped if not installed)
 //
 // Exits 1 and lists every finding when any check fails.
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -95,14 +97,25 @@ function checkSecretsAndPaths() {
   }
 }
 
+function checkShell() {
+  if (spawnSync('shellcheck', ['--version']).status !== 0) {
+    console.log('check-repo: shellcheck not installed, shell check skipped');
+    return;
+  }
+  const scripts = tracked.filter((f) => f.endsWith('.sh') || f === 'setup.bash');
+  const result = spawnSync('shellcheck', scripts, { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) fail('shell', result.stdout.trim() || result.stderr.trim());
+}
+
 checkSyntax();
 checkJson();
 checkLicense();
 checkSecretsAndPaths();
+checkShell();
 
 if (findings.length) {
   console.error(`${findings.length} problem(s):\n${findings.map((f) => `  - ${f}`).join('\n')}`);
   process.exitCode = 1;
 } else {
-  console.log(`check-repo: ${tracked.length} tracked files OK (syntax, json, license, secrets, paths)`);
+  console.log(`check-repo: ${tracked.length} tracked files OK (syntax, json, license, secrets, paths, shell)`);
 }
