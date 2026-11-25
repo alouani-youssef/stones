@@ -703,6 +703,36 @@ describe('github-setup', () => {
   });
 });
 
+describe('github-setup command line', () => {
+  const stones = (args, cwd) => spawnSync(process.execPath, [join(PACKAGE_ROOT, 'bin/stones.mjs'), ...args], { cwd, encoding: 'utf8' });
+
+  it('lists the subcommand and its flag in --help', () => {
+    const help = stones(['--help']).stdout;
+    assert.match(help, /npx ai-stones github-setup \[dir\]/);
+    assert.match(help, /--no-github-setup/);
+  });
+
+  it('prints the prompt with the saved workflow selection', async () => {
+    const root = nextApp();
+    assert.match(stones(['github-setup', root, '--print-prompt']).stdout, /Workflows to generate: none selected/);
+    await runInit(root, { 'github.workflows': ['ci'] });
+    assert.match(stones(['github-setup', root, '--print-prompt']).stdout, /Workflows to generate: ci\n/);
+  });
+
+  it('prints the next step instead of starting a session with --yes', () => {
+    const root = nextApp();
+    const result = stones(['init', root, '--yes', '--no-roadmap']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /npx ai-stones github-setup/);
+  });
+
+  it('skips the hint with --no-github-setup', () => {
+    const result = stones(['init', nextApp(), '--yes', '--no-roadmap', '--no-github-setup']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /ai-stones github-setup/);
+  });
+});
+
 describe('atomicity hook install', () => {
   const prismaApp = () => project({
     'package.json': { name: 'api', devDependencies: { prisma: '5' } },

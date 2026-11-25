@@ -92,7 +92,7 @@ function smoke(name, { files, expect }) {
     const third = run(root, ['init', '--yes', '--no-roadmap']).stdout;
     assert.match(third, /nothing to change/, `re-running init is not stable:\n${third}`);
 
-    for (const path of ['AGENT.md', 'CLAUDE.md', '.claude/settings.json', '.claude/stones.json', '.claude/commands/roadmap.md']) {
+    for (const path of ['AGENT.md', 'CLAUDE.md', '.claude/settings.json', '.claude/stones.json', '.claude/commands/roadmap.md', '.claude/commands/github-setup.md', '.claude/skills/git-hooks/SKILL.md', '.claude/skills/github-actions/SKILL.md']) {
       assert.ok(existsSync(join(root, path)), `missing ${path}`);
     }
     assert.match(readFileSync(join(root, 'CLAUDE.md'), 'utf8'), /@AGENT\.md/);
