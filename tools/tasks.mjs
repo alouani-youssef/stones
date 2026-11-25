@@ -23,6 +23,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSyn
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { EvaluationError, loadRegistry } from './evaluation-registry.mjs';
+import { checkPlan, scoreTarget } from './evaluation.mjs';
 import { reviewTask } from './review.mjs';
 import { quizStatus } from './spec-quiz.mjs';
 
@@ -48,6 +50,7 @@ Status: next
 Branch:
 Base:
 Scope: {{scope}}
+Category: {{category}}
 
 ## Expected behavior
 
@@ -79,7 +82,7 @@ Approval: TODO: the spec quiz the user answered (docs/superpowers/approvals/<top
 `;
 
 // Blocked: the reason a blocked task waits; Result: the commits and test run a done task closed with.
-const META = ['Status', 'Branch', 'Base', 'Scope', 'Blocked', 'Result'];
+const META = ['Status', 'Branch', 'Base', 'Scope', 'Category', 'Blocked', 'Result'];
 
 const readText = (file) => {
   try {
@@ -249,13 +252,13 @@ export function tasksIn(root, state) {
 
 // ---------------------------------------------------------------- commands
 
-export function addTask(root, title, { scope = '' } = {}) {
+export function addTask(root, title, { scope = '', category = 'none' } = {}) {
   if (!title.trim()) fail('usage: tasks add <title> [--scope "src/a/**,tests/a/**"]');
   ensureBoard(root);
   const last = listTasks(root).reduce((max, t) => Math.max(max, Number(t.id)), 0);
   const id = String(last + 1).padStart(4, '0');
   const file = `${id}-${slugify(title)}.md`;
-  const text = TASK_TEMPLATE.replace('{{id}}', id).replace('{{title}}', title.trim()).replace('{{scope}}', scope).replace(/^Scope: $/m, 'Scope:');
+  const text = TASK_TEMPLATE.replace('{{id}}', id).replace('{{title}}', title.trim()).replace('{{scope}}', scope).replace('{{category}}', category || 'none').replace(/^Scope: $/m, 'Scope:');
   writeFileSync(join(root, LIST_DIR, file), text);
   syncBoard(root);
   return readTask(root, file);
@@ -343,6 +346,42 @@ export function validateTaskReadiness(root, task) {
   linkedDocument(root, task, 'Spec', 'docs/superpowers/specs/', 'superpowers:brainstorming');
   linkedDocument(root, task, 'Plan', 'docs/superpowers/plans/', 'superpowers:writing-plans');
   validateApproval(root, task);
+  validateEvaluation(root, task);
+}
+
+// A task with a Category (evaluating-outputs skill) needs its plan to carry the
+// generated ## Evaluation section for that category. No Category line, or
+// Category: none, is not gated.
+export const isCategorised = (task) => Boolean(task.category) && task.category !== 'none';
+const planOf = (task) => /^Plan:[ \t]*(\S+)/m.exec(markdownSection(task.text, 'Spec and plan'))?.[1];
+
+function validateEvaluation(root, task) {
+  if (!isCategorised(task)) return;
+  const notReady = (message) => fail(`${task.id} is not ready to start: ${message}`);
+  let registry;
+  try {
+    registry = loadRegistry({ root });
+  } catch (error) {
+    if (error instanceof EvaluationError) notReady(error.message);
+    throw error;
+  }
+  if (!registry.categories[task.category]) {
+    notReady(`unknown category '${task.category}'; available: ${Object.keys(registry.categories).sort().join(', ')}`);
+  }
+  const { problems } = checkPlan(root, planOf(task), { category: task.category, registry });
+  if (problems.length) notReady(problems[0]);
+}
+
+// Scores a categorised task's output (null for any other task). The verdict
+// gates `done`; human sign-offs on the scorecard are advisory.
+export function evaluateTask(root, task) {
+  if (!isCategorised(task)) return null;
+  try {
+    return scoreTarget(root, task.id);
+  } catch (error) {
+    if (error instanceof EvaluationError) fail(`${task.id}: ${error.message}`);
+    throw error;
+  }
 }
 
 // Notes with an Approval: line (every note `add` writes) need the user to have
@@ -498,11 +537,13 @@ export function finishTask(root, ref, command) {
   const task = findTask(root, ref);
   const tests = runTests(root, task, command);
   if (!tests.ok) return { task, tests, finished: false };
+  const evaluation = evaluateTask(root, task);
+  if (evaluation && evaluation.verdict !== 'PASS') return { task, tests, finished: false, evaluation };
   const head = git(root, ['rev-parse', 'HEAD']);
   const range = task.base && head.ok ? `commits ${short(root, task.base)}..${short(root, head.out)}` : 'no commits recorded';
   const result = `${range} · tests: ${tests.command} → ${tests.last}`.replace(/\s+/g, ' ');
   const updated = setMeta(root, task, { Status: 'done', Blocked: null, Result: result });
-  return { task: updated, tests, finished: true };
+  return { task: updated, tests, finished: true, evaluation };
 }
 
 const DRAFT = /TODO:/;
@@ -538,7 +579,10 @@ export function boardText(root) {
 // --------------------------------------------------------------------- cli
 
 const USAGE = `usage: tasks <command>
-  add <title> [--scope "glob,glob"]   create a task in list/ and queue it in next.md
+  add <title> [--scope "glob,glob"] [--category <id>]
+                                      create a task in list/ and queue it in next.md;
+                                      a category (evaluating-outputs skill) gates start
+                                      on the plan's ## Evaluation and done on its scorecard
   list [current|next|blocked|done]    show the board, or one state of it
   current                             print the task in progress (its note and board line)
   next                                the queued tasks, in order
@@ -588,8 +632,20 @@ async function openSession(root, task, { log, blockedReason = '', claude, run })
 async function handleDone(root, rest, after, { log, refOrCurrent, session, claude, run }) {
   const noAdvance = rest.includes('--no-advance');
   const ref = refOrCurrent(rest.find((a) => !a.startsWith('--')));
-  const { task, tests, finished } = finishTask(root, ref, after);
+  const { task, tests, finished, evaluation } = finishTask(root, ref, after);
   log(tests.tail);
+  const advisory = evaluation?.rows.filter((r) => r.human && r.human !== 'pass') ?? [];
+  if (!finished && evaluation) {
+    log(`evaluation ${evaluation.verdict}: ${task.id} NOT done — ${evaluation.scorecard}`);
+    for (const r of evaluation.rows.filter((x) => x.status !== 'pass' && x.status !== 'n/a')) log(`- ${r.id}: ${r.status} (${r.threshold}, value ${r.value})`);
+    for (const p of evaluation.problems) log(`- ${p}`);
+    log('record each measurement with `node .claude/tools/evaluation.mjs record`, then run done again');
+    return 1;
+  }
+  if (evaluation) {
+    log(`evaluation PASS: ${evaluation.scorecard}`);
+    if (advisory.length) log(`human review (advisory): ${advisory.map((r) => `${r.id} ${r.human}`).join(', ')}`);
+  }
   if (!finished) {
     log(`tests failed (exit ${tests.status}); ${task.id} NOT done. Full output: ${tests.log}`);
     return tests.status || 1;
@@ -656,7 +712,8 @@ function parseArgv(argv) {
 
 function handleAdd(root, rest, log) {
   const scope = option(rest, '--scope') ?? '';
-  const task = addTask(root, rest.join(' '), { scope });
+  const category = option(rest, '--category') ?? 'none';
+  const task = addTask(root, rest.join(' '), { scope, category });
   log(`added ${task.path} (Status: next); complete the behavior, scenarios, test strategy and cases, create the spec and plan, then start it`);
   return 0;
 }

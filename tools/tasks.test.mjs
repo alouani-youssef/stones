@@ -10,6 +10,8 @@ import { coverage, globMatcher } from './review.mjs';
 import { EventEmitter } from 'node:events';
 
 import { approveQuiz } from './spec-quiz.mjs';
+import { loadRegistry } from './evaluation-registry.mjs';
+import { parseEvaluation, recordKpi, writePlanEvaluation } from './evaluation.mjs';
 import { addTask, currentTaskOf, findTask, main, migrateBoard, tasksIn, taskPrompt } from './tasks.mjs';
 
 function repo() {
@@ -499,7 +501,7 @@ describe('task state in the notes', () => {
     const { root } = repo();
     const task = addTask(root, 'First', { scope: 'src/**' });
     await cli(root, 'block', '1', 'waiting');
-    assert.match(read(root, task.path), /^# 0001 First\n\nStatus: blocked\nBranch:\nBase:\nScope: src\/\*\*\nBlocked: waiting\n\n## Expected behavior/);
+    assert.match(read(root, task.path), /^# 0001 First\n\nStatus: blocked\nBranch:\nBase:\nScope: src\/\*\*\nCategory: none\nBlocked: waiting\n\n## Expected behavior/);
   });
 
   it('writes a complete PR draft for the finished task and prints the commands that open it', async () => {
@@ -627,5 +629,124 @@ describe('task review', () => {
     const inScope = globMatcher(['src/**', 'docs/*.md']);
     assert.ok(inScope('src/a/b.ts') && inScope('docs/x.md'));
     assert.ok(!inScope('docs/a/x.md') && !inScope('package.json'));
+  });
+});
+
+function fillEvaluatedTask(root, task, category = 'caching') {
+  fillTask(root, task);
+  write(root, task.path, read(root, task.path).replace(/^Category: .*$/m, `Category: ${category}`));
+  writePlanEvaluation(root, PLAN, [category]);
+  approveQuiz(root, QUIZ);
+}
+
+// Records a passing value with complete details for every KPI the agent measures.
+function recordAllAgentKpis(root, id) {
+  const registry = loadRegistry({ root });
+  const { kpis } = parseEvaluation(read(root, PLAN));
+  for (const k of kpis.filter((x) => x.evidence === 'measured' && x.verifier !== 'human')) {
+    const fields = registry.dimensions.find((d) => d.id === k.dimension).details ?? [];
+    const file = `results/${k.id}.json`;
+    write(root, file, JSON.stringify(Object.fromEntries(fields.map((f) => [f, 1]))));
+    recordKpi(root, id, k.id, String(k.value), { evidence: `measured ${k.id}`, details: file, registry });
+  }
+}
+
+describe('task evaluation', () => {
+  it('writes Category: none in new notes and sets it with --category', async () => {
+    const { root } = repo();
+    assert.equal(addTask(root, 'Plain').category, 'none');
+    await cli(root, 'add', 'Cache lookups', '--category', 'caching');
+    assert.match(read(root, findTask(root, '2').path), /^Scope:.*\nCategory: caching$/m);
+  });
+
+  it('leaves tasks with no category line unchanged', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'Old style');
+    fillTask(root, task);
+    write(root, task.path, read(root, task.path).replace(/^Category: .*\n/m, ''));
+    assert.equal((await cli(root, 'start', '1')).code, 0);
+    const done = await cli(root, 'done', '1', '--', 'node', '-e', '0');
+    assert.equal(done.code, 0, done.out);
+    assert.doesNotMatch(done.out, /evaluation/);
+    assert.equal(findTask(root, '1').status, 'done');
+  });
+
+  it('refuses to start a categorised task whose plan has no Evaluation section', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'Cache lookups');
+    fillTask(root, task);
+    write(root, task.path, read(root, task.path).replace(/^Category: .*$/m, 'Category: caching'));
+    await assert.rejects(cli(root, 'start', '1'), /0001 is not ready to start: no ## Evaluation section/);
+    const after = findTask(root, '1');
+    assert.equal(after.status, 'next');
+    assert.equal(after.branch, '');
+    assert.equal(after.base, '');
+  });
+
+  it('refuses an unknown category and lists the available ones', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'Mystery');
+    fillTask(root, task);
+    write(root, task.path, read(root, task.path).replace(/^Category: .*$/m, 'Category: nope'));
+    await assert.rejects(cli(root, 'start', '1'), /unknown category 'nope'; available: .*caching/);
+    assert.equal(findTask(root, '1').status, 'next');
+  });
+
+  it('refuses to start when the plan names a different category than the note', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'Cache lookups');
+    fillEvaluatedTask(root, task);
+    write(root, task.path, read(root, task.path).replace(/^Category: .*$/m, 'Category: api'));
+    await assert.rejects(cli(root, 'start', '1'), /Category: caching in the plan, but the task says api/);
+  });
+
+  it('starts a categorised task whose plan passes check', async () => {
+    const { root } = repo();
+    fillEvaluatedTask(root, addTask(root, 'Cache lookups'));
+    const r = await cli(root, 'start', '1');
+    assert.equal(r.code, 0, r.out);
+    assert.equal(currentTaskOf(root).id, '0001');
+  });
+
+  it('refuses done while the scorecard is PENDING and lists what waits', async () => {
+    const { root } = repo();
+    fillEvaluatedTask(root, addTask(root, 'Cache lookups'));
+    await cli(root, 'start', '1');
+    const r = await cli(root, 'done', '1', '--', 'node', '-e', '0');
+    assert.equal(r.code, 1);
+    assert.match(r.out, /evaluation PENDING: 0001 NOT done — context\/tasks\/evaluations\/0001\.md/);
+    assert.match(r.out, /^- caching\.hit-ratio: waiting/m);
+    assert.equal(currentTaskOf(root).id, '0001');
+    assert.ok(existsSync(join(root, 'context/tasks/evaluations/0001.md')));
+  });
+
+  it('finishes with human checks waiting, and lists them', async () => {
+    const { root } = repo();
+    fillEvaluatedTask(root, addTask(root, 'Cache lookups'));
+    await cli(root, 'start', '1');
+    recordAllAgentKpis(root, '1');
+    const r = await cli(root, 'done', '1', '--no-pr', '--', 'node', '-e', '0');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /evaluation PASS: context\/tasks\/evaluations\/0001\.md/);
+    assert.match(r.out, /human review \(advisory\): caching\.lookup-scaling waiting, caching\.scenarios-failing waiting$/m);
+    assert.equal(findTask(root, '1').status, 'done');
+  });
+
+  it('reports a non-PASS evaluation as a review finding', async () => {
+    const { root } = repo();
+    fillEvaluatedTask(root, addTask(root, 'Cache lookups'));
+    await cli(root, 'start', '1');
+    const r = await cli(root, 'review', '1');
+    assert.equal(r.code, 1);
+    assert.match(r.out, /^- evaluation PENDING: 0 KPIs failing, 13 waiting \(context\/tasks\/evaluations\/0001\.md\)$/m);
+    assert.match(read(root, '.claude/reviews/0001.md'), /^## Evaluation$/m);
+  });
+
+  it('makes the approval stale when a threshold in the plan changes', async () => {
+    const { root } = repo();
+    fillEvaluatedTask(root, addTask(root, 'Cache lookups'));
+    write(root, PLAN, read(root, PLAN).replace('## Evaluation\n', '## Evaluation\n\nOverride: caching.hit-ratio >= 0.95 ratio — checkout traffic is read-heavy\n'));
+    writePlanEvaluation(root, PLAN, ['caching']);
+    await assert.rejects(cli(root, 'start', '1'), /changed after .* was approved/);
   });
 });

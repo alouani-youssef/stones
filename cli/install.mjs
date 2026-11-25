@@ -21,7 +21,8 @@ const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.j
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
 const TASKS_GITIGNORE = ['.claude/reviews/', STATE_GITIGNORE];
-export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
+// tasks.mjs and review.mjs import the evaluation tools (evaluating-outputs skill).
+export const TASK_TOOLS = ['tasks.mjs', 'review.mjs', 'evaluation.mjs', 'evaluation-registry.mjs'];
 const ANALYZER_FILES = ['compose.yaml', 'analyzers.Dockerfile'];
 // Files in hooks/lib/ each hook imports.
 const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'], workflows: ['shell.mjs'], 'four-d': ['python.mjs'] };

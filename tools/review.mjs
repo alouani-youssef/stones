@@ -12,6 +12,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { scoreTarget } from './evaluation.mjs';
+
 const HOOKS = join(dirname(fileURLToPath(import.meta.url)), '..', 'hooks');
 const BOOKKEEPING = [/^context\/tasks\//, /^\.claude\/reviews\//];
 const DANGER = ['db', 'packages', 'network'];
@@ -155,6 +157,26 @@ async function checkComplexity(root, base, files, findings, notes) {
   if (missing.size) notes.push(`no complexity analyzer for ${[...missing].join(', ')}`);
 }
 
+// A categorised task's scorecard (evaluating-outputs skill); anything but PASS
+// is a finding. Human sign-offs are advisory and never one.
+function checkEvaluation(root, task, findings) {
+  if (!task.category || task.category === 'none') return null;
+  let evaluation;
+  try {
+    evaluation = scoreTarget(root, task.id);
+  } catch (error) {
+    findings.push(`evaluation: ${error.message}`);
+    return null;
+  }
+  if (evaluation.verdict !== 'PASS') {
+    const agent = evaluation.rows.filter((r) => r.status !== 'n/a');
+    const failing = agent.filter((r) => r.status === 'fail').length;
+    const waiting = agent.filter((r) => r.status === 'waiting' || r.status === 'stale').length;
+    findings.push(`evaluation ${evaluation.verdict}: ${failing} KPIs failing, ${waiting} waiting (${evaluation.scorecard})`);
+  }
+  return evaluation;
+}
+
 export async function reviewTask(root, task, { tests = null, recorded = '' } = {}) {
   const findings = [];
   const notes = [];
@@ -196,6 +218,7 @@ export async function reviewTask(root, task, { tests = null, recorded = '' } = {
 
   const classes = base ? await checkAtomicity(root, base, findings, notes) : new Map();
   if (base) await checkComplexity(root, base, files, findings, notes);
+  const evaluation = checkEvaluation(root, task, findings);
 
   const ready = findings.length === 0;
   const md = [
@@ -236,6 +259,7 @@ export async function reviewTask(root, task, { tests = null, recorded = '' } = {
       ? files.map((f) => `- ${f}${DANGER.includes(classes.get(f)) ? ` (${classes.get(f)})` : ''}${isTest(f) ? ' (test)' : ''}`)
       : ['_none_']),
     '',
+    ...(evaluation ? ['## Evaluation', '', evaluation.markdown.replace(/^(#+) /gm, '##$1 ').trim(), ''] : []),
     '## Diff',
     '',
     '```diff',
