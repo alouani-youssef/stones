@@ -1049,6 +1049,721 @@
           ]
         }
       }
+    },
+    "ui-component": {
+      "title": "UI component",
+      "match": [
+        "component",
+        "button",
+        "modal",
+        "dialog",
+        "form",
+        "input",
+        "dropdown",
+        "widget",
+        "react",
+        "vue",
+        "svelte",
+        "storybook",
+        "props"
+      ],
+      "defaults": {
+        "states": "default, loading, empty, error and disabled"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "ui-component.state-render-failures",
+              "metric": "documented states that render the wrong output",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "cases"
+              },
+              "method": "see categories/ui-component.md#correctness",
+              "case": "Case: the component renders in each of its states ({{states}}). Expected: {{op}} {{value}} {{unit}} wrong."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "ui-component.design-system-violations",
+              "metric": "hard-coded colours, spacing or type and props named unlike existing components",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "violations"
+              },
+              "method": "see categories/ui-component.md#consistency",
+              "case": "Case: the component's styles and props are checked against the design tokens and sibling components. Expected: {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "ui-component.render-p95",
+              "metric": "p95 render time after the stated prop change",
+              "threshold": {
+                "op": "<=",
+                "value": 16,
+                "unit": "ms"
+              },
+              "method": "see categories/ui-component.md#latency",
+              "case": "Case: the main prop changes 100 times in a production build. Expected: p95 render {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "ui-component.mount-growth",
+              "metric": "heap growth after repeated mount and unmount",
+              "threshold": {
+                "op": "<=",
+                "value": 5,
+                "unit": "%"
+              },
+              "method": "see categories/ui-component.md#memory",
+              "case": "Case: the component is mounted and unmounted 100 times. Expected: heap growth {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "ui-component.list-scaling",
+              "metric": "measured / predicted growth of render time with item count",
+              "threshold": {
+                "op": "<=",
+                "value": 1.5,
+                "unit": "ratio"
+              },
+              "method": "see categories/ui-component.md#big-o",
+              "case": "Case: the component renders 10x and 100x the items. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "ui-component.failed-call-recoveries",
+              "metric": "failed data calls that do not show the error state and recover on retry",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/ui-component.md#failure-recovery",
+              "case": "Case: each call the component makes fails, then succeeds on retry. Expected: {{op}} {{value}} {{unit}} without the error state and a working retry."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "ui-component.uncaught-errors",
+              "metric": "missing or malformed props and data that throw instead of rendering a defined fallback",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/ui-component.md#exception-handling",
+              "case": "Case: the component gets missing, null and malformed props and data. Expected: {{op}} {{value}} {{unit}} thrown past its boundary."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "ui-component.scenarios-failing",
+              "metric": "task scenarios failing in the running app",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/ui-component.md#results",
+              "case": "Case: every task scenario is played in the running app. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "ui-component.axe-violations",
+              "metric": "accessibility violations reported by axe in every state",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "violations"
+              },
+              "method": "see categories/ui-component.md#task-kpis",
+              "case": "Case: axe runs on the component in each of its states. Expected: {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "ui-component.keyboard-operable",
+              "metric": "every action is reachable and usable by keyboard with a visible focus",
+              "threshold": {
+                "op": "signed"
+              },
+              "method": "see categories/ui-component.md#task-kpis",
+              "case": "Case: the reviewer uses the component with the keyboard only. Expected: every action works and focus is always visible.",
+              "verifier": "human",
+              "evidence": "signed"
+            },
+            {
+              "id": "ui-component.visual-diff",
+              "metric": "pixels that differ from the approved screenshot in each state",
+              "threshold": {
+                "op": "<=",
+                "value": 0.1,
+                "unit": "%"
+              },
+              "method": "see categories/ui-component.md#task-kpis",
+              "case": "Case: screenshots of each state are compared with the approved baseline. Expected: difference {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "ui-component.bundle-added",
+              "metric": "bytes the component adds to the production bundle, gzipped",
+              "threshold": {
+                "op": "<=",
+                "value": 10,
+                "unit": "KB"
+              },
+              "method": "see categories/ui-component.md#task-kpis",
+              "case": "Case: the production bundle is built with and without the component. Expected: added {{op}} {{value}} {{unit}} gzipped.",
+              "evidence": "measured"
+            },
+            {
+              "id": "ui-component.rerenders",
+              "metric": "renders per single prop change",
+              "threshold": {
+                "op": "<=",
+                "value": 1,
+                "unit": "renders"
+              },
+              "method": "see categories/ui-component.md#task-kpis",
+              "case": "Case: one prop changes once with the profiler on. Expected: renders {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    },
+    "page": {
+      "title": "Page or screen",
+      "match": [
+        "page",
+        "screen",
+        "view",
+        "route",
+        "layout",
+        "landing",
+        "dashboard",
+        "next.js",
+        "nextjs",
+        "nuxt",
+        "lcp",
+        "seo"
+      ],
+      "defaults": {
+        "breakpoints": "360, 768 and 1280 px wide"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "page.state-render-failures",
+              "metric": "loading, empty, error and success states missing or wrong",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "cases"
+              },
+              "method": "see categories/page.md#correctness",
+              "case": "Case: the page is loaded with slow, empty, failing and normal data. Expected: {{op}} {{value}} {{unit}} wrong or missing states."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "page.layout-violations",
+              "metric": "places where the page departs from the app's shared layout, navigation and tokens",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "violations"
+              },
+              "method": "see categories/page.md#consistency",
+              "case": "Case: the page is compared with the shared layout, navigation and design tokens. Expected: {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "page.lcp",
+              "metric": "Largest Contentful Paint in a lab run",
+              "threshold": {
+                "op": "<=",
+                "value": 2500,
+                "unit": "ms"
+              },
+              "method": "see categories/page.md#latency",
+              "case": "Case: Lighthouse runs on the page with mobile throttling. Expected: LCP {{op}} {{value}} {{unit}}."
+            },
+            {
+              "id": "page.inp",
+              "metric": "Interaction to Next Paint for the page's main interactions",
+              "threshold": {
+                "op": "<=",
+                "value": 200,
+                "unit": "ms"
+              },
+              "method": "see categories/page.md#latency",
+              "case": "Case: the main interactions are played with web-vitals attached. Expected: INP {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "page.navigation-growth",
+              "metric": "heap growth after navigating to the page and away 20 times",
+              "threshold": {
+                "op": "<=",
+                "value": 10,
+                "unit": "%"
+              },
+              "method": "see categories/page.md#memory",
+              "case": "Case: the app navigates to the page and away 20 times. Expected: heap growth {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "na": "a page's cost is measured as LCP and INP; a list that must scale is its own ui-component task"
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "page.failed-call-recoveries",
+              "metric": "failed API calls that leave the page broken instead of showing the error state and recovering",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/page.md#failure-recovery",
+              "case": "Case: each API the page calls fails, then recovers. Expected: {{op}} {{value}} {{unit}} without the error state and recovery."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "page.console-errors",
+              "metric": "errors in the browser console during the scenarios",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/page.md#exception-handling",
+              "case": "Case: every task scenario is played with the console captured. Expected: {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "page.scenarios-failing",
+              "metric": "task scenarios failing in a real browser",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/page.md#results",
+              "case": "Case: every task scenario is played end to end in a real browser. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "page.cls",
+              "metric": "Cumulative Layout Shift in a lab run",
+              "threshold": {
+                "op": "<=",
+                "value": 0.1,
+                "unit": "score"
+              },
+              "method": "see categories/page.md#task-kpis",
+              "case": "Case: Lighthouse runs on the page with mobile throttling. Expected: CLS {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "page.axe-violations",
+              "metric": "accessibility violations reported by axe on the page",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "violations"
+              },
+              "method": "see categories/page.md#task-kpis",
+              "case": "Case: axe runs on the page in each state. Expected: {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "page.breakpoint-failures",
+              "metric": "breakpoints where content overflows, overlaps or is unreachable",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "breakpoints"
+              },
+              "method": "see categories/page.md#task-kpis",
+              "case": "Case: the page is rendered at {{breakpoints}}. Expected: {{op}} {{value}} {{unit}} with overflow or overlap.",
+              "evidence": "measured"
+            },
+            {
+              "id": "page.meta-failures",
+              "metric": "missing title, description or canonical, or a route that does not answer 200",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "checks"
+              },
+              "method": "see categories/page.md#task-kpis",
+              "case": "Case: the page's route, title, description and canonical link are checked. Expected: {{op}} {{value}} {{unit}} failing.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    },
+    "llm-feature": {
+      "title": "LLM feature, prompt, RAG pipeline or agent",
+      "match": [
+        "llm",
+        "prompt",
+        "agent",
+        "rag",
+        "retrieval",
+        "embedding",
+        "claude",
+        "gpt",
+        "model",
+        "chatbot",
+        "tool-calling",
+        "eval"
+      ],
+      "defaults": {
+        "golden": "the versioned golden set",
+        "runs": "5"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "llm-feature.deterministic-failures",
+              "metric": "golden cases failing a code check (schema, label, required citation, tool called)",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "cases"
+              },
+              "method": "see the golden-set skill (cases and graders) and categories/llm-feature.md#correctness",
+              "case": "Case: the feature runs over {{golden}} with code graders. Expected: {{op}} {{value}} {{unit}} failing a deterministic check."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "llm-feature.repeat-divergence",
+              "metric": "golden cases whose graded outcome changes across repeated runs",
+              "threshold": {
+                "op": "<=",
+                "value": 1,
+                "unit": "runs"
+              },
+              "method": "see the golden-set skill (cases and graders) and categories/llm-feature.md#consistency",
+              "case": "Case: a sample of {{golden}} runs {{runs}} times with the production settings. Expected: {{op}} {{value}} {{unit}} with a changed outcome."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "llm-feature.p95",
+              "metric": "p95 end-to-end time per request, including tool calls",
+              "threshold": {
+                "op": "<=",
+                "value": 5,
+                "unit": "s"
+              },
+              "method": "see categories/llm-feature.md#latency",
+              "case": "Case: the feature answers {{golden}} through its real entry point. Expected: p95 {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "na": "the model runs out of process; the app's own memory is covered by its api or job task"
+        },
+        "big-o": {
+          "na": "cost grows with tokens and tool calls, which latency and the task KPIs measure"
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "llm-feature.provider-failures",
+              "metric": "provider 429, 5xx or timeouts not handled with the designed retry or fallback",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/llm-feature.md#failure-recovery",
+              "case": "Case: the model provider is made to return 429, 500 and time out. Expected: {{op}} {{value}} {{unit}} not handled as designed."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "llm-feature.malformed-output-errors",
+              "metric": "model outputs that break the schema and are not caught and handled",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/llm-feature.md#exception-handling",
+              "case": "Case: the parser gets truncated, invalid and off-schema model outputs. Expected: {{op}} {{value}} {{unit}} unhandled."
+            },
+            {
+              "id": "llm-feature.leaks",
+              "metric": "prompt-injection cases that reveal the system prompt, secrets or other users' data",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "leaks"
+              },
+              "method": "see categories/llm-feature.md#exception-handling",
+              "case": "Case: the injection cases in {{golden}} are run. Expected: {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "llm-feature.scenarios-failing",
+              "metric": "task scenarios failing through the real entry point",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/llm-feature.md#results",
+              "case": "Case: every task scenario runs through the feature's real entry point. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "llm-feature.golden-pass-rate",
+              "metric": "share of golden cases graded pass",
+              "threshold": {
+                "op": ">=",
+                "value": 0.9,
+                "unit": "ratio"
+              },
+              "method": "see the golden-set and deepeval skills, and categories/llm-feature.md#task-kpis",
+              "case": "Case: the feature runs over {{golden}} with its graders. Expected: pass rate {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "llm-feature.tool-correctness",
+              "metric": "share of cases where the expected tools were called with valid arguments",
+              "threshold": {
+                "op": ">=",
+                "value": 0.95,
+                "unit": "ratio"
+              },
+              "method": "see the deepeval skill (ToolCorrectnessMetric) and categories/llm-feature.md#task-kpis",
+              "case": "Case: the agent runs over the tool cases in {{golden}}. Expected: tool correctness {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "llm-feature.negative-case-failures",
+              "metric": "negative cases where the feature acted instead of refusing or escalating",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "cases"
+              },
+              "method": "see categories/llm-feature.md#task-kpis",
+              "case": "Case: the negative cases in {{golden}} are run. Expected: {{op}} {{value}} {{unit}} acted on.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    },
+    "general": {
+      "title": "General (no other category fits)",
+      "match": [],
+      "defaults": {},
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "general.case-failures",
+              "metric": "plan test cases failing",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "cases"
+              },
+              "method": "see categories/general.md#correctness",
+              "case": "Case: every test case in the plan runs. Expected: {{op}} {{value}} {{unit}} failing."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "general.repeat-divergence",
+              "metric": "repeated runs on the same input with a different output",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "runs"
+              },
+              "method": "see categories/general.md#consistency",
+              "case": "Case: the main path runs 5 times on the same input. Expected: {{op}} {{value}} {{unit}} differing."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "general.p95",
+              "metric": "p95 time of the main operation; set the task's own target with an Override: line",
+              "threshold": {
+                "op": "<=",
+                "value": 1000,
+                "unit": "ms"
+              },
+              "method": "see categories/general.md#latency",
+              "case": "Case: the main operation runs 100 times on a production build. Expected: p95 {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "general.peak-memory",
+              "metric": "peak memory of the main operation; set the task's own target with an Override: line",
+              "threshold": {
+                "op": "<=",
+                "value": 512,
+                "unit": "MB"
+              },
+              "method": "see categories/general.md#memory",
+              "case": "Case: the main operation runs on the largest stated input. Expected: peak {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "general.scaling",
+              "metric": "measured / predicted growth with input size",
+              "threshold": {
+                "op": "<=",
+                "value": 1.5,
+                "unit": "ratio"
+              },
+              "method": "see categories/general.md#big-o",
+              "case": "Case: the main operation runs at 10x and 100x the input. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "general.fault-failures",
+              "metric": "injected dependency faults not handled as designed",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/general.md#failure-recovery",
+              "case": "Case: each dependency is made to fail, then restored. Expected: {{op}} {{value}} {{unit}} not handled as designed."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "general.undefined-errors",
+              "metric": "invalid inputs or internal errors not producing a defined error",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/general.md#exception-handling",
+              "case": "Case: invalid inputs and forced internal errors are sent. Expected: {{op}} {{value}} {{unit}} outside the defined errors."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "general.scenarios-failing",
+              "metric": "task scenarios failing end to end",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/general.md#results",
+              "case": "Case: every task scenario runs end to end. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "general.task-kpis-stated",
+              "metric": "the plan states this task's own KPIs as hand-written cases, and the human agrees they are the right ones",
+              "threshold": {
+                "op": "signed"
+              },
+              "method": "see categories/general.md#task-kpis",
+              "case": "Case: the task's own KPIs are listed as cases in the plan. Expected: the reviewer agrees they measure what matters.",
+              "verifier": "human",
+              "evidence": "signed"
+            }
+          ]
+        }
+      }
     }
   }
 }
