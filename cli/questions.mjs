@@ -41,11 +41,11 @@ const split = (text) => (Array.isArray(text) ? text : String(text ?? '').split('
 
 // Default skill selection: the previous run's, else everything that fits the
 // stack (a skill naming frameworks fits only when the project uses one of them,
-// as a detected framework or tool such as GitHub Actions). A run from before
+// as a detected language, framework or tool such as TypeScript or GitHub Actions). A run from before
 // guides became skills saved `install.docs`; keep its choices and add the
 // skills that did not exist then.
 function previousSkills(previous, guides, stack) {
-  const used = new Set([...(stack.frameworks ?? []), ...(stack.tools ?? [])]);
+  const used = new Set([...(stack.languages ?? []), ...(stack.frameworks ?? []), ...(stack.tools ?? [])]);
   const fits = (s) => !s.frameworks?.length || s.frameworks.some((f) => used.has(f));
   const all = guides.filter(fits).map((s) => s.id);
   if (Array.isArray(previous.install?.skills)) return previous.install.skills;

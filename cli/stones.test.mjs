@@ -158,6 +158,12 @@ describe('settings', () => {
     const mixed = composeSettings({ plugins: ['superpowers', 'flask-best-practices'] });
     assert.equal(mixed.enabledPlugins['flask-best-practices@stones'], true);
     assert.deepEqual(mixed.extraKnownMarketplaces.stones, { source: { source: 'github', repo: 'alouani-youssef/stones' } });
+    const evidence = composeSettings({ plugins: ['show-me-the-work'] });
+    assert.equal(evidence.enabledPlugins['show-me-the-work@show-me-the-work'], true);
+    assert.deepEqual(evidence.extraKnownMarketplaces, {
+      'show-me-the-work': { source: { source: 'github', repo: 'pinetreeB/show-me-the-work', ref: 'v2.8.2' } },
+    });
+    assert.ok(!pluginCatalog().find((p) => p.id === 'show-me-the-work').default, 'its Stop gate stays opt-in');
     const none = composeSettings({});
     assert.equal(none.enabledPlugins, undefined);
     assert.equal(none.extraKnownMarketplaces, undefined);
@@ -266,6 +272,14 @@ describe('framework skills', () => {
     const without = await pick([]);
     assert.ok(!without.includes('github-actions'));
     assert.ok(without.includes('ci-cd'), 'CI/CD practices apply to every project');
+  });
+
+  it('offers the Factory ESLint rules only to TypeScript projects', async () => {
+    assert.deepEqual(skillCatalog().find((s) => s.id === 'factory-eslint-rules')?.frameworks, ['TypeScript']);
+    const pick = async (files) => (await interview(createScriptedPrompter({}), detect(project(files)))).install.skills;
+    assert.ok((await pick({ 'package.json': { devDependencies: { typescript: '5' } }, 'tsconfig.json': '{}' })).includes('factory-eslint-rules'));
+    assert.ok(!(await pick({ 'package.json': { dependencies: { express: '5' } } })).includes('factory-eslint-rules'), 'plain JavaScript');
+    assert.ok(!(await pick({ 'requirements.txt': 'fastapi\n' })).includes('factory-eslint-rules'));
   });
 
   it('gives every framework skill a references section with links', () => {

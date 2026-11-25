@@ -646,63 +646,72 @@ async function handleReview(root, rest, after, { log, refOrCurrent }) {
   return result.ready ? 0 : 1;
 }
 
-export async function main(argv, { root = projectRoot(), log = console.log, session = canOpenSession(), claude, run } = {}) {
+function parseArgv(argv) {
   const sep = argv.indexOf('--');
   const args = sep < 0 ? [...argv] : argv.slice(0, sep);
   const after = sep < 0 ? '' : argv.slice(sep + 1).join(' ');
   const [command, ...rest] = args;
+  return { command, rest, after };
+}
+
+function handleAdd(root, rest, log) {
+  const scope = option(rest, '--scope') ?? '';
+  const task = addTask(root, rest.join(' '), { scope });
+  log(`added ${task.path} (Status: next); complete the behavior, scenarios, test strategy and cases, create the spec and plan, then start it`);
+  return 0;
+}
+
+function handleBoard(root, rest, log) {
+  const state = rest[0];
+  if (state && !STATES.includes(state)) fail(`unknown state ${state}: use ${STATES.join(', ')}`);
+  log(state ? stateText(root, state) : boardText(root));
+  const hint = trackedStateHint(root);
+  if (hint) log(hint);
+  return 0;
+}
+
+function handleCurrent(root, log) {
+  const [task] = tasksIn(root, 'current');
+  if (!task) {
+    log(`no task is in progress; start one with \`tasks start <id>\`\n\n${stateText(root, 'next')}`);
+    return 0;
+  }
+  const extra = task.extra ? ` · ${task.extra}` : '';
+  log(`current: ${task.id} ${task.title}${extra}\nfile: ${task.path}\n\n${task.text.trim()}`);
+  return 0;
+}
+
+function handleSync(root, synced, log) {
+  log(synced.length ? `rewrote ${synced.join(', ')} from the notes` : `${STATE_DIR}/ already matches the notes`);
+  const hint = trackedStateHint(root);
+  if (hint) log(hint);
+  return 0;
+}
+
+function handleBlock(root, rest, log) {
+  const task = blockTask(root, rest[0] ?? fail('usage: tasks block <id> <reason>'), rest.slice(1).join(' '));
+  log(`blocked ${task.id}`);
+  return 0;
+}
+
+export async function main(argv, { root = projectRoot(), log = console.log, session = canOpenSession(), claude, run } = {}) {
+  const { command, rest, after } = parseArgv(argv);
   const refOrCurrent = (ref) => ref ?? currentTaskOf(root)?.id ?? fail('no task is in progress; pass an id');
   const synced = command && command !== 'help' ? ensureBoard(root) : [];
 
   switch (command) {
-    case 'add': {
-      const scope = option(rest, '--scope') ?? '';
-      const task = addTask(root, rest.join(' '), { scope });
-      log(`added ${task.path} (Status: next); complete the behavior, scenarios, test strategy and cases, create the spec and plan, then start it`);
-      return 0;
-    }
+    case 'add':       return handleAdd(root, rest, log);
     case 'list':
-    case 'board': {
-      const state = rest[0];
-      if (state && !STATES.includes(state)) fail(`unknown state ${state}: use ${STATES.join(', ')}`);
-      log(state ? stateText(root, state) : boardText(root));
-      const hint = trackedStateHint(root);
-      if (hint) log(hint);
-      return 0;
-    }
-    case 'current': {
-      const [task] = tasksIn(root, 'current');
-      if (!task) {
-        log(`no task is in progress; start one with \`tasks start <id>\`\n\n${stateText(root, 'next')}`);
-        return 0;
-      }
-      log(`current: ${task.id} ${task.title}${task.extra ? ` · ${task.extra}` : ''}\nfile: ${task.path}\n\n${task.text.trim()}`);
-      return 0;
-    }
-    case 'sync': {
-      log(synced.length ? `rewrote ${synced.join(', ')} from the notes` : `${STATE_DIR}/ already matches the notes`);
-      const hint = trackedStateHint(root);
-      if (hint) log(hint);
-      return 0;
-    }
+    case 'board':     return handleBoard(root, rest, log);
+    case 'current':   return handleCurrent(root, log);
+    case 'sync':      return handleSync(root, synced, log);
     case 'next':
-    case 'blocked':
-      log(stateText(root, command));
-      return 0;
-    case 'show':
-      log(findTask(root, refOrCurrent(rest[0])).text);
-      return 0;
-    case 'start':
-      return handleStart(root, rest, { log, session, claude, run });
-    case 'block': {
-      const task = blockTask(root, rest[0] ?? fail('usage: tasks block <id> <reason>'), rest.slice(1).join(' '));
-      log(`blocked ${task.id}`);
-      return 0;
-    }
-    case 'done':
-      return handleDone(root, rest, after, { log, refOrCurrent, session, claude, run });
-    case 'review':
-      return handleReview(root, rest, after, { log, refOrCurrent });
+    case 'blocked':   log(stateText(root, command)); return 0;
+    case 'show':      log(findTask(root, refOrCurrent(rest[0])).text); return 0;
+    case 'start':     return handleStart(root, rest, { log, session, claude, run });
+    case 'block':     return handleBlock(root, rest, log);
+    case 'done':      return handleDone(root, rest, after, { log, refOrCurrent, session, claude, run });
+    case 'review':    return handleReview(root, rest, after, { log, refOrCurrent });
     default:
       log(USAGE);
       return command && command !== 'help' ? 2 : 0;
