@@ -1,10 +1,11 @@
 ---
 name: github-actions
-description: Use when writing, changing or reviewing a GitHub Actions workflow or reusable workflow in .github/workflows — CI checks, builds, releases, deployments, scheduled jobs — or when a workflow is slow, flaky, runs too often, leaks or needs secrets, uses pull_request_target, or fails actionlint or a security scan, or needs to be run and debugged locally with act before pushing.
+description: Use when writing, changing or reviewing a GitHub Actions workflow or reusable workflow in .github/workflows — CI checks, builds, releases, deployments, scheduled jobs — or when a workflow is slow, flaky, runs too often, leaks or needs secrets, uses pull_request_target, or fails actionlint or a security scan, or needs to be run and debugged locally with act before pushing; also when running /github-setup or adding issue or pull request templates.
 metadata:
   title: GitHub Actions
   frameworks: GitHub Actions
   summary: Least-privilege tokens, actions pinned by commit SHA, untrusted input kept out of scripts, OIDC instead of stored cloud keys, environments for deploys, fast, cancellable, cached runs, and workflows tried locally with act before they are pushed.
+  core: true
 ---
 
 # GitHub Actions
@@ -96,6 +97,25 @@ jobs:
         env:
           DEPLOY_ENV: production
 ```
+
+## Templates
+
+`templates/` holds starting points for the files `/github-setup` generates. Adapt them to the project: its package manager, its commands, the steps it actually has. Don't copy them unchanged.
+
+| Catalog id | File in the project | Template |
+| --- | --- | --- |
+| `ci` | `.github/workflows/ci.yml` | `templates/workflows/ci-<stack>.yml` (`node`, `python`, `go`) |
+| `release` | `.github/workflows/release.yml` | `templates/workflows/release-<stack>.yml` |
+| `security` | `.github/workflows/security.yml` | `templates/workflows/security.yml` |
+| `dependabot` | `.github/dependabot.yml` | `templates/dependabot.yml` |
+| always | `.github/ISSUE_TEMPLATE/*.yml` | `templates/ISSUE_TEMPLATE/` (bug report, feature request, config) |
+| always | `.github/pull_request_template.md` | `templates/pull_request_template.md` |
+
+- Generate only the workflows the user selected. If none were selected, write none.
+- The release templates call `./.github/workflows/ci.yml` through `workflow_call`. If `ci` wasn't selected, put the checks in the release workflow itself.
+- For another stack, start from the closest template and keep its rules: read-only `permissions`, `concurrency`, `timeout-minutes`, `persist-credentials: false`, and actions pinned by SHA.
+- Before you pin a newer version, resolve its SHA with `gh api repos/<owner>/<action>/commits/<tag> --jq .sha`.
+- A workflow isn't done until actionlint passes and `node .claude/tools/workflows.mjs run --workflow <file>` has passed locally, after the user confirms the run. Publish steps are skipped under act (`if: ${{ !env.ACT }}`).
 
 ## Run workflows locally with act
 

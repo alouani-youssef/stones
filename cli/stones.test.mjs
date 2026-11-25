@@ -270,7 +270,10 @@ describe('framework skills', () => {
     assert.ok(withActions.includes('github-actions'));
     assert.ok(withActions.includes('ci-cd'));
     const without = await pick([]);
-    assert.ok(!without.includes('github-actions'));
+    assert.ok(without.includes('github-actions'), 'github-actions is a core skill');
+    const actions = skillCatalog().find((s) => s.id === 'github-actions');
+    assert.ok(actions.core);
+    for (const f of ['templates/workflows/security.yml', 'templates/pull_request_template.md']) assert.ok(actions.files.includes(`github-actions/${f}`), f);
     assert.ok(without.includes('ci-cd'), 'CI/CD practices apply to every project');
   });
 

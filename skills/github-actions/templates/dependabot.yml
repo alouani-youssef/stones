@@ -1,0 +1,21 @@
+# Weekly, grouped updates. Keep only the ecosystems the project uses:
+# npm (package.json), pip/uv (pyproject.toml), gomod (go.mod), docker
+# (Dockerfiles), github-actions (always, so pinned SHAs stay current).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm          # or: uv, pip, gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5

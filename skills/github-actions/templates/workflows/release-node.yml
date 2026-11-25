@@ -1,0 +1,47 @@
+# Release a Node package when a v* tag is pushed: run CI, then publish to npm
+# with provenance through trusted publishing (no npm token stored).
+# Configure the trusted publisher on npmjs.com and a "release" environment.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a release half-way
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write     # create the GitHub release
+      id-token: write     # npm trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build --if-present
+      - name: Publish
+        if: ${{ !env.ACT }}   # never publish from a local act run
+        run: npm publish --provenance --access public
+      - name: GitHub release
+        if: ${{ !env.ACT }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --generate-notes --verify-tag
