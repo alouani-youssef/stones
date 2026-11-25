@@ -5,14 +5,22 @@
 //                                    one [eval:<kpi>] case per KPI
 //   check <plan.md> [--category id]  is the section complete and untouched?
 //   suggest <spec.md>                which category fits the spec best
+//   record <ref> <kpi> <value> --evidence <how> [--details <results.json>]
+//   sign <ref> <kpi> pass|fail [--note <text>]    the user's answer, never the agent's
+//   score <ref>                      write the scorecard; exit 0 only on PASS
+//
+// <ref> is a task id (its note's Plan: and Category: lines) or a plan path.
+// The verdict comes from the agent's measured KPIs: PASS when each has a
+// current record within its threshold. Human sign-offs are advisory: listed
+// on the scorecard, never part of the verdict.
 //
 // The KPIs come from the evaluating-outputs skill (see evaluation-registry.mjs).
 // Thresholds are resolved when the section is generated and written into the
 // plan, so the plan's approval covers them and a later registry change never
 // moves the goalposts of an approved plan.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { EvaluationError, formatThreshold, loadRegistry, REGISTRY_DIR, resolveCategory } from './evaluation-registry.mjs';
@@ -261,6 +269,198 @@ export function suggestCategory(text, registry) {
   return ranked.length ? ranked : [{ category: 'general', hits: 0 }];
 }
 
+// ------------------------------------------------------------------ records
+
+const TASK_LIST = 'context/tasks/list';
+const NUMBER = /^-?\d+(?:\.\d+)?$/;
+
+export function resolveTarget(root, ref) {
+  if (/^\d+$/.test(String(ref))) {
+    const id = String(ref).padStart(4, '0');
+    const dir = join(root, TASK_LIST);
+    const file = existsSync(dir) ? readdirSync(dir).find((f) => f.startsWith(`${id}-`) && f.endsWith('.md')) : null;
+    if (!file) fail(`task ${id} is not in ${TASK_LIST}`);
+    const text = readFileSync(join(dir, file), 'utf8');
+    const plan = /^Plan:[ \t]*(\S+)/m.exec(text)?.[1];
+    if (!plan || /TODO/.test(plan)) fail(`task ${id} links no plan (Plan: line)`);
+    return {
+      plan,
+      category: /^Category:[ \t]*(\S+)/m.exec(text)?.[1] ?? null,
+      taskId: id,
+      title: /^#\s+(.+)$/m.exec(text)?.[1].trim() ?? id,
+      store: `${EVALUATIONS_DIR}/${id}.json`,
+      scorecard: `${EVALUATIONS_DIR}/${id}.md`,
+    };
+  }
+  const plan = String(ref);
+  const parsed = parseEvaluation(readFileSync(projectFile(root, plan), 'utf8'));
+  const base = plan.replace(/\.md$/, '');
+  return { plan, category: parsed?.category ?? null, taskId: null, title: plan, store: `${base}.eval.json`, scorecard: `${base}.eval.md` };
+}
+
+function readStore(root, target) {
+  const file = join(root, target.store);
+  if (!existsSync(file)) return { plan: target.plan, entries: {} };
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    return fail(`${target.store} is not JSON: ${error.message}`);
+  }
+}
+
+function writeStore(root, target, store) {
+  const file = join(root, target.store);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`);
+}
+
+function planKpi(root, target, kpiId) {
+  const text = readFileSync(projectFile(root, target.plan), 'utf8');
+  const parsed = parseEvaluation(text);
+  if (!parsed?.generated) fail(`${target.plan} has no generated ## Evaluation section; run \`evaluation.mjs plan\` first`);
+  const kpi = parsed.kpis.find((k) => k.id === kpiId);
+  if (!kpi) fail(`unknown KPI '${kpiId}'; the plan's KPIs: ${parsed.kpis.map((k) => k.id).join(', ')}`);
+  return { kpi, planHash: sha(text) };
+}
+
+const meets = (kpi, value) => (kpi.op === '<=' ? value <= kpi.value : kpi.op === '>=' ? value >= kpi.value : value === kpi.value);
+
+function readDetails(root, details) {
+  const file = resolve(root, details);
+  if (!existsSync(file)) fail(`${details} does not exist`);
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(`${details} is not JSON: ${error.message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(`${details} must hold a JSON object of results`);
+  return parsed;
+}
+
+export function recordKpi(root, ref, kpiId, value, { evidence = '', details, registry = loadRegistry({ root }) } = {}) {
+  const target = resolveTarget(root, ref);
+  const { kpi, planHash } = planKpi(root, target, kpiId);
+  if (kpi.evidence === 'signed') fail(`${kpiId} is signed: use \`sign\``);
+  if (kpi.verifier === 'human') fail(`${kpiId} is checked by a person: use \`sign\``);
+  if (!String(evidence).trim()) fail('--evidence is required: the command, file or log the value came from');
+  if (!NUMBER.test(String(value).trim())) fail(`value must be a number in ${kpi.unit}`);
+  const fields = registry.dimensions.find((d) => d.id === kpi.dimension)?.details ?? [];
+  if (!details) fail(`${kpiId} is measured: pass --details <results.json> with ${fields.join(', ') || 'the run\'s results'}`);
+  const results = readDetails(root, details);
+  const missing = fields.filter((f) => !(f in results));
+  if (missing.length) fail(`${kpiId}: details missing ${missing.join(', ')}`);
+  const store = readStore(root, target);
+  const record = { value: Number(value), unit: kpi.unit, evidence: String(evidence).trim(), details: results, planHash, at: new Date().toISOString() };
+  store.entries[kpiId] = { ...store.entries[kpiId], record };
+  writeStore(root, target, store);
+  return { kpi, record, pass: meets(kpi, record.value) };
+}
+
+export function signKpi(root, ref, kpiId, verdict, { note = '' } = {}) {
+  const target = resolveTarget(root, ref);
+  const { kpi, planHash } = planKpi(root, target, kpiId);
+  if (kpi.verifier === 'agent') fail(`${kpiId} is checked by the agent: use \`record\``);
+  if (!['pass', 'fail'].includes(verdict)) fail('verdict must be pass or fail');
+  const store = readStore(root, target);
+  const sign = { verdict, note, planHash, at: new Date().toISOString() };
+  store.entries[kpiId] = { ...store.entries[kpiId], sign };
+  writeStore(root, target, store);
+  return { kpi, sign };
+}
+
+// ------------------------------------------------------------------ score
+
+const agentSide = (k) => k.evidence === 'measured' && k.verifier !== 'human';
+const humanSide = (k) => k.verifier !== 'agent';
+const shown = (v) => (Array.isArray(v) ? `[${v.length} values]` : v && typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+function scorecardMarkdown(target, parsed, planHash, rows, verdict, summary, problems, store) {
+  const kpiRows = rows.filter((r) => r.status !== 'n/a');
+  const humanRows = rows.filter((r) => r.human);
+  const recorded = rows.filter((r) => store.entries[r.id]?.record);
+  return [
+    `# Evaluation: ${target.title}`,
+    '',
+    `Verdict: **${verdict}**${summary}`,
+    `Category: ${parsed?.category ?? '—'} · registry v${parsed?.version ?? '—'}`,
+    `Plan: ${target.plan} (hash ${planHash})`,
+    '',
+    '## KPIs',
+    '',
+    '| Dimension | KPI | Threshold | Value | By | Status |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...kpiRows.map((r) => `| ${r.dimension} | ${r.id} | ${r.threshold} | ${r.value} | agent | ${r.status} |`),
+    ...(parsed?.na.length ? ['', ...parsed.na.map(naText)] : []),
+    '',
+    '## Human review (advisory)',
+    '',
+    ...(humanRows.length
+      ? ['| KPI | Verifier | Sign-off | Note |', '| --- | --- | --- | --- |', ...humanRows.map((r) => `| ${r.id} | ${r.verifier} | ${r.human} | ${r.note ?? ''} |`)]
+      : ['none']),
+    '',
+    '## Evidence',
+    '',
+    ...(recorded.length ? recorded.map((r) => `- ${r.id}: ${store.entries[r.id].record.evidence} (recorded ${store.entries[r.id].record.at})`) : ['none']),
+    '',
+    '## Details',
+    '',
+    ...(recorded.length
+      ? recorded.flatMap((r) => [`### ${r.id}`, '', ...Object.entries(store.entries[r.id].record.details).map(([k, v]) => `- ${k}: ${shown(v)}`), ''])
+      : ['none', '']),
+    '## Overrides',
+    '',
+    ...(parsed?.applied.length ? parsed.applied.map((a) => `- ${appliedText(a).replace(/^Applied: /, '')}`) : ['none']),
+    ...(problems.length ? ['', '## Problems', '', ...problems.map((p) => `- ${p}`)] : []),
+    '',
+  ].join('\n');
+}
+
+export function scoreTarget(root, ref, { registry = loadRegistry({ root }), write = true } = {}) {
+  const target = resolveTarget(root, ref);
+  const text = readFileSync(projectFile(root, target.plan), 'utf8');
+  const planHash = sha(text);
+  const { problems, parsed } = checkPlan(root, target.plan, { category: target.category ?? undefined, registry });
+  const store = readStore(root, target);
+  const rows = (parsed?.kpis ?? []).map((k) => {
+    const entry = store.entries[k.id] ?? {};
+    const row = { dimension: k.dimension, id: k.id, verifier: k.verifier, threshold: formatThreshold(k), value: '—', status: 'n/a' };
+    if (agentSide(k)) {
+      const rec = entry.record;
+      if (!rec) row.status = 'waiting';
+      else {
+        row.value = `${rec.value} ${rec.unit}`;
+        row.status = rec.planHash !== planHash ? 'stale' : meets(k, rec.value) ? 'pass' : 'fail';
+      }
+    }
+    if (humanSide(k)) {
+      const sign = entry.sign && entry.sign.planHash === planHash ? entry.sign : null;
+      row.human = sign ? sign.verdict : 'waiting';
+      if (sign?.note) row.note = sign.note;
+    }
+    return row;
+  });
+  const agent = rows.filter((r) => r.status !== 'n/a');
+  const failing = agent.filter((r) => r.status === 'fail').length;
+  const waiting = agent.filter((r) => r.status === 'waiting' || r.status === 'stale').length;
+  const verdict = problems.length || failing ? 'FAIL' : waiting ? 'PENDING' : 'PASS';
+  const human = rows.filter((r) => r.human);
+  const humanWaiting = human.filter((r) => r.human === 'waiting').length;
+  const humanFailed = human.filter((r) => r.human === 'fail').length;
+  const counts = [failing && `${failing} KPI${failing === 1 ? '' : 's'} failing`, waiting && `${waiting} KPI${waiting === 1 ? '' : 's'} waiting`].filter(Boolean);
+  const advisory = human.length
+    ? ` · human review (advisory): ${humanWaiting || humanFailed ? [humanWaiting && `${humanWaiting} waiting`, humanFailed && `${humanFailed} failed`].filter(Boolean).join(', ') : 'all signed pass'}`
+    : '';
+  const summary = `${counts.length ? ` — ${counts.join(', ')}` : ''}${problems.length ? ` — ${problems.length} plan problem${problems.length === 1 ? '' : 's'}` : ''}${advisory}`;
+  const markdown = scorecardMarkdown(target, parsed, planHash, rows, verdict, summary, problems, store);
+  if (write) {
+    const file = join(root, target.scorecard);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, markdown);
+  }
+  return { verdict, rows, problems, scorecard: target.scorecard, markdown };
+}
+
 // ------------------------------------------------------------------ CLI
 
 const USAGE = `evaluation: requirements fixed at planning time, scored on the task's output
@@ -269,18 +469,29 @@ Usage
   node .claude/tools/evaluation.mjs suggest <spec.md>
   node .claude/tools/evaluation.mjs plan <plan.md> --category <id>
   node .claude/tools/evaluation.mjs check <plan.md> [--category <id>]
+  node .claude/tools/evaluation.mjs record <task-id|plan.md> <kpi-id> <value> --evidence <how> [--details <results.json>]
+  node .claude/tools/evaluation.mjs sign <task-id|plan.md> <kpi-id> pass|fail [--note <text>]
+  node .claude/tools/evaluation.mjs score <task-id|plan.md> [--json]
+
+record needs the command or file the value came from, and for a measured KPI
+a JSON file with the run's results (the fields its dimension lists). sign
+records the user's own answer. score exits 0 only on PASS; human sign-offs
+are advisory and never change the verdict.
 
 A task is atomic: one category per plan. Categories and KPIs live in
 .claude/skills/evaluating-outputs/ (see its SKILL.md).`;
 
-function flags(args, name) {
-  const values = [];
+const VALUED = ['--category', '--evidence', '--details', '--note'];
+
+function parseArgs(args) {
+  const opts = {};
   const rest = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === name) values.push(args[++i]);
+    if (VALUED.includes(args[i])) (opts[args[i]] ??= []).push(args[++i]);
+    else if (args[i].startsWith('--')) opts[args[i]] = [true];
     else rest.push(args[i]);
   }
-  return { values, rest };
+  return { opts, rest };
 }
 
 function dispatch(command, args, { root, log, registry }) {
@@ -291,20 +502,49 @@ function dispatch(command, args, { root, log, registry }) {
     return 0;
   }
   if (command === 'plan') {
-    const { values, rest } = flags(args, '--category');
-    if (!rest[0] || values.length === 0) fail('usage: plan <plan.md> --category <id>');
-    const parsed = writePlanEvaluation(root, rest[0], values, { registry: registry() });
+    const { opts, rest } = parseArgs(args);
+    if (!rest[0] || !opts['--category']) fail('usage: plan <plan.md> --category <id>');
+    const parsed = writePlanEvaluation(root, rest[0], opts['--category'], { registry: registry() });
     log(`wrote ## Evaluation (${parsed.category}, ${parsed.kpis.length} KPIs) and ${parsed.kpis.length} [eval:] cases to ${rest[0]}`);
     return 0;
   }
   if (command === 'check') {
-    const { values, rest } = flags(args, '--category');
+    const { opts, rest } = parseArgs(args);
     if (!rest[0]) fail('usage: check <plan.md> [--category <id>]');
-    const { problems, notes } = checkPlan(root, rest[0], { category: values[0], registry: registry() });
+    const { problems, notes } = checkPlan(root, rest[0], { category: opts['--category']?.[0], registry: registry() });
     for (const p of problems) log(`- ${p}`);
     for (const n of notes) log(`note: ${n}`);
     log(problems.length ? 'NOT READY' : 'READY');
     return problems.length ? 1 : 0;
+  }
+  if (command === 'record') {
+    const { opts, rest } = parseArgs(args);
+    const [ref, kpiId, value] = rest;
+    if (!ref || !kpiId || value === undefined) fail('usage: record <task-id|plan.md> <kpi-id> <value> --evidence <how> [--details <results.json>]');
+    const { kpi, record, pass } = recordKpi(root, ref, kpiId, value, { evidence: opts['--evidence']?.[0] ?? '', details: opts['--details']?.[0], registry: registry() });
+    log(`recorded ${kpi.id} = ${record.value} ${record.unit} (${pass ? 'pass' : 'fail'}) against ${formatThreshold(kpi)}`);
+    return 0;
+  }
+  if (command === 'sign') {
+    const { opts, rest } = parseArgs(args);
+    const [ref, kpiId, verdict] = rest;
+    if (!ref || !kpiId || !verdict) fail('usage: sign <task-id|plan.md> <kpi-id> pass|fail [--note <text>]');
+    const { kpi, sign } = signKpi(root, ref, kpiId, verdict, { note: opts['--note']?.[0] ?? '' });
+    log(`signed ${kpi.id}: ${sign.verdict}${sign.note ? ` (${sign.note})` : ''}`);
+    return 0;
+  }
+  if (command === 'score') {
+    const { opts, rest } = parseArgs(args);
+    if (!rest[0]) fail('usage: score <task-id|plan.md> [--json]');
+    const result = scoreTarget(root, rest[0], { registry: registry() });
+    if (opts['--json']) log(JSON.stringify({ verdict: result.verdict, rows: result.rows, problems: result.problems, scorecard: result.scorecard }, null, 2));
+    else {
+      log(`${result.verdict}: ${result.scorecard}`);
+      for (const r of result.rows.filter((x) => x.status !== 'pass' && x.status !== 'n/a')) log(`- ${r.id}: ${r.status} (${r.threshold}, value ${r.value})`);
+      for (const r of result.rows.filter((x) => x.human && x.human !== 'pass')) log(`- ${r.id}: human review ${r.human} (advisory)`);
+      for (const p of result.problems) log(`- ${p}`);
+    }
+    return result.verdict === 'PASS' ? 0 : 1;
   }
   log(USAGE);
   return command && !['help', '--help', '-h'].includes(command) ? 1 : 0;

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { loadRegistry } from './evaluation-registry.mjs';
-import { checkPlan, parseEvaluation, run, suggestCategory, writePlanEvaluation } from './evaluation.mjs';
+import { checkPlan, parseEvaluation, recordKpi, resolveTarget, run, scoreTarget, signKpi, suggestCategory, writePlanEvaluation } from './evaluation.mjs';
 
 const PLAN = 'docs/superpowers/plans/2026-11-25-cache.md';
 
@@ -213,5 +213,159 @@ describe('evaluation plan section', () => {
     assert.equal(result.code, 1);
     assert.match(result.out, /docs\/nope\.md does not exist/);
     assert.ok(!existsSync(join(root, 'docs/nope.md')));
+  });
+});
+
+const P95 = { tool: 'autocannon', tool_version: '7.15.0', run_at: '2026-11-25T10:00:00Z', p50: 2.1, p95: 3.8, p99: 4.6, count: 5000, environment: 'm2 / node 22', samples: [3.1, 3.8, 4.6] };
+const STORE = 'docs/superpowers/plans/2026-11-25-cache.eval.json';
+
+function planned() {
+  const p = project();
+  writePlanEvaluation(p.root, PLAN, ['cache'], { registry: p.registry });
+  writeFile(p.root, 'results/p95.json', JSON.stringify(P95));
+  writeFile(p.root, 'results/diffs.json', JSON.stringify({ tool: 'compare.mjs', run_at: '2026-11-25T10:00:00Z' }));
+  return p;
+}
+const diffs = (p, value = '0') => recordKpi(p.root, PLAN, 'cache.diffs', value, { evidence: 'node compare.mjs', details: 'results/diffs.json', registry: p.registry });
+const p95 = (p, value = '3.8') => recordKpi(p.root, PLAN, 'cache.p95', value, { evidence: 'npx autocannon -c 50 http://localhost:3000/p/1', details: 'results/p95.json', registry: p.registry });
+
+describe('evaluation records and scoring', () => {
+  it('refuses a record without evidence, without details, or with a non-number', () => {
+    const p = planned();
+    assert.throws(() => recordKpi(p.root, PLAN, 'cache.p95', '3.8', { evidence: '', details: 'results/p95.json', registry: p.registry }), /--evidence is required/);
+    assert.throws(() => recordKpi(p.root, PLAN, 'cache.p95', '3.8', { evidence: 'autocannon', registry: p.registry }), /cache\.p95 is measured: pass --details/);
+    for (const bad of ['3.8ms', '', 'NaN']) {
+      assert.throws(() => p95(p, bad), /value must be a number in ms/);
+    }
+    assert.ok(!existsSync(join(p.root, STORE)));
+  });
+
+  it('refuses details files that are missing, not JSON, or lack the dimension fields', () => {
+    const p = planned();
+    const rec = (details) => recordKpi(p.root, PLAN, 'cache.p95', '3.8', { evidence: 'autocannon', details, registry: p.registry });
+    assert.throws(() => rec('results/none.json'), /results\/none\.json does not exist/);
+    writeFile(p.root, 'results/bad.json', '{ nope');
+    assert.throws(() => rec('results/bad.json'), /results\/bad\.json is not JSON/);
+    writeFile(p.root, 'results/thin.json', JSON.stringify({ tool: 'autocannon', run_at: 'now' }));
+    assert.throws(() => rec('results/thin.json'), /cache\.p95: details missing p95, count/);
+    assert.ok(!existsSync(join(p.root, STORE)));
+  });
+
+  it('refuses unknown KPI ids and lists the valid ones', () => {
+    const p = planned();
+    const result = cli(p.root, p.dir, 'record', PLAN, 'cache.nope', '1', '--evidence', 'x');
+    assert.equal(result.code, 1);
+    assert.match(result.out, /unknown KPI 'cache\.nope'; the plan's KPIs: cache\.diffs, cache\.p95, cache\.signoff/);
+  });
+
+  it('refuses to record a signed KPI and to sign an agent-only KPI', () => {
+    const p = planned();
+    assert.throws(() => recordKpi(p.root, PLAN, 'cache.signoff', '1', { evidence: 'x', registry: p.registry }), /cache\.signoff is signed: use `sign`/);
+    assert.throws(() => signKpi(p.root, PLAN, 'cache.diffs', 'pass'), /cache\.diffs is checked by the agent: use `record`/);
+    assert.throws(() => signKpi(p.root, PLAN, 'cache.signoff', 'ok'), /verdict must be pass or fail/);
+  });
+
+  it('stores the value with its full details', () => {
+    const p = planned();
+    p95(p);
+    const store = JSON.parse(read(p.root, STORE));
+    assert.equal(store.entries['cache.p95'].record.value, 3.8);
+    assert.equal(store.entries['cache.p95'].record.unit, 'ms');
+    assert.equal(store.entries['cache.p95'].record.details.count, 5000);
+    const { markdown } = scoreTarget(p.root, PLAN, { registry: p.registry });
+    assert.match(markdown, /^- p95: 3\.8$/m);
+    assert.match(markdown, /^- tool: autocannon$/m);
+    assert.match(markdown, /^- samples: \[3 values\]$/m);
+    assert.match(markdown, /npx autocannon -c 50/);
+  });
+
+  it('is PENDING while an agent KPI has no record, and names it', () => {
+    const p = planned();
+    diffs(p);
+    const result = scoreTarget(p.root, PLAN, { registry: p.registry });
+    assert.equal(result.verdict, 'PENDING');
+    assert.equal(result.rows.find((r) => r.id === 'cache.p95').status, 'waiting');
+    assert.match(result.markdown, /\| cache\.p95 \| <= 5 ms \| — \| agent \| waiting \|/);
+    assert.equal(cli(p.root, p.dir, 'score', PLAN).code, 1);
+  });
+
+  it('is PASS with human checks unsigned or failed, and lists them as advisory', () => {
+    const p = planned();
+    diffs(p);
+    p95(p);
+    signKpi(p.root, PLAN, 'cache.signoff', 'fail', { note: 'wants a TTL per tenant' });
+    const result = scoreTarget(p.root, PLAN, { registry: p.registry });
+    assert.equal(result.verdict, 'PASS');
+    assert.match(result.markdown, /## Human review \(advisory\)/);
+    assert.match(result.markdown, /\| cache\.p95 \| both \| waiting \|/);
+    assert.match(result.markdown, /\| cache\.signoff \| human \| fail \| wants a TTL per tenant \|/);
+    assert.match(result.markdown, /Verdict: \*\*PASS\*\* · human review \(advisory\): 1 waiting, 1 failed/);
+    assert.equal(cli(p.root, p.dir, 'score', PLAN).code, 0);
+    assert.ok(existsSync(join(p.root, 'docs/superpowers/plans/2026-11-25-cache.eval.md')));
+  });
+
+  it('is FAIL when a value breaks its threshold, with threshold and value', () => {
+    const p = planned();
+    diffs(p);
+    p95(p, '7.2');
+    const result = scoreTarget(p.root, PLAN, { registry: p.registry });
+    assert.equal(result.verdict, 'FAIL');
+    assert.match(result.markdown, /\| cache\.p95 \| <= 5 ms \| 7\.2 ms \| agent \| fail \|/);
+    assert.match(result.markdown, /Verdict: \*\*FAIL\*\* — 1 KPI failing/);
+  });
+
+  it('treats entries recorded against an older plan as stale', () => {
+    const p = planned();
+    diffs(p);
+    p95(p);
+    writeFile(p.root, PLAN, read(p.root).replace('Unit tests for the cache wrapper.', 'Unit and load tests for the cache wrapper.'));
+    const result = scoreTarget(p.root, PLAN, { registry: p.registry });
+    assert.deepEqual(result.rows.filter((r) => r.status !== 'n/a').map((r) => r.status), ['stale', 'stale']);
+    assert.equal(result.verdict, 'PENDING');
+  });
+
+  it('fails the verdict when the plan itself does not pass check', () => {
+    const p = planned();
+    diffs(p);
+    p95(p);
+    writeFile(p.root, PLAN, read(p.root).replace('| == 0 diffs |', '| == 9 diffs |'));
+    const result = scoreTarget(p.root, PLAN, { registry: p.registry });
+    assert.equal(result.verdict, 'FAIL');
+    has(result.problems, /edited by hand/);
+  });
+
+  it('scores a deprecated dimension still present in an old plan', () => {
+    const p = planned();
+    diffs(p);
+    p95(p);
+    const dimensions = DIMENSIONS.map((d) => (d.id === 'latency' ? { ...d, status: 'deprecated' } : d));
+    const categories = structuredClone(CATEGORIES);
+    const registry = loadRegistry({ dir: registryDir({ dimensions, categories }), root: p.root });
+    const result = scoreTarget(p.root, PLAN, { registry });
+    assert.equal(result.rows.find((r) => r.id === 'cache.p95').status, 'pass');
+  });
+
+  it('resolves a task id to its plan, category and evaluation files', () => {
+    const p = planned();
+    writeFile(p.root, 'context/tasks/list/0007-cache.md', `# 0007 Cache product lookups\n\nStatus: current\nCategory: cache\n\n## Spec and plan\n\nPlan: ${PLAN}\n`);
+    const target = resolveTarget(p.root, '7');
+    assert.deepEqual(target, {
+      plan: PLAN, category: 'cache', taskId: '0007', title: '0007 Cache product lookups',
+      store: 'context/tasks/evaluations/0007.json', scorecard: 'context/tasks/evaluations/0007.md',
+    });
+    recordKpi(p.root, '7', 'cache.diffs', '0', { evidence: 'node compare.mjs', details: 'results/diffs.json', registry: p.registry });
+    assert.ok(existsSync(join(p.root, 'context/tasks/evaluations/0007.json')));
+    assert.match(scoreTarget(p.root, '7', { registry: p.registry }).markdown, /^# Evaluation: 0007 Cache product lookups$/m);
+    assert.throws(() => resolveTarget(p.root, '9'), /task 0009 is not in context\/tasks\/list/);
+  });
+
+  it('records and signs through the CLI', () => {
+    const p = planned();
+    const rec = cli(p.root, p.dir, 'record', PLAN, 'cache.p95', '3.8', '--evidence', 'autocannon', '--details', 'results/p95.json');
+    assert.equal(rec.code, 0, rec.out);
+    assert.match(rec.out, /recorded cache\.p95 = 3\.8 ms \(pass\)/);
+    const sign = cli(p.root, p.dir, 'sign', PLAN, 'cache.signoff', 'pass', '--note', 'looks right');
+    assert.equal(sign.code, 0, sign.out);
+    assert.equal(JSON.parse(read(p.root, STORE)).entries['cache.signoff'].sign.note, 'looks right');
   });
 });
