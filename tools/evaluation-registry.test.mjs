@@ -172,3 +172,11 @@ describe('evaluation registry', () => {
     assert.throws(() => loadRegistry({ dir: empty }), /dimensions.json: /);
   });
 });
+
+describe('evaluation registry review fixes', () => {
+  it('rejects a signed KPI that only the agent would check', () => {
+    const categories = CATEGORIES();
+    categories.cache.dimensions.review.kpis[0].verifier = 'agent';
+    has(registryProblems(fixture({ categories })), /cache\.signoff: a signed KPI needs verifier human or both/);
+  });
+});

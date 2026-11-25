@@ -48,9 +48,19 @@ export function loadRegistry({ dir = REGISTRY_DIR, root } = {}) {
     else dimensions.push({ ...d, project: true });
   }
   const categories = { ...(cats.categories ?? {}) };
+  // A project entry for a built-in category may only cover the project's own
+  // dimensions; the built-in dimensions of a built-in category are fixed.
   for (const [id, c] of Object.entries(project?.categories ?? {})) {
-    if (categories[id]) problems.push(`project category '${id}' clashes with the registry`);
-    else categories[id] = { ...c, project: true };
+    if (!categories[id]) {
+      categories[id] = { ...c, project: true };
+      continue;
+    }
+    const merged = { ...categories[id], dimensions: { ...categories[id].dimensions } };
+    for (const [dim, entry] of Object.entries(c.dimensions ?? {})) {
+      if (builtIn.has(dim)) problems.push(`project cannot redefine ${id}.${dim}`);
+      else merged.dimensions[dim] = entry;
+    }
+    categories[id] = merged;
   }
   return { version: dims.version, dimensions, categories, project, loadProblems: problems };
 }
@@ -97,6 +107,9 @@ function kpiProblems(registry, category, dimension, kpi, seen) {
   seen.add(kpi.id);
   if (!kpi.metric) problems.push(`${name}: metric is required`);
   if (!kpi.method) problems.push(`${name}: method is required`);
+  if (kpiEvidence(dimension, kpi) === 'signed' && (kpi.verifier ?? dimension.verifier) === 'agent') {
+    problems.push(`${name}: a signed KPI needs verifier human or both`);
+  }
   if (kpi.verifier && !VERIFIERS.includes(kpi.verifier)) problems.push(`${name}: verifier must be one of ${VERIFIERS.join(', ')}`);
   const evidence = kpiEvidence(dimension, kpi);
   if (dimension.evidence === 'any' && !['measured', 'signed'].includes(kpi.evidence)) {
@@ -135,12 +148,57 @@ export function registryProblems(registry) {
     }
     for (const d of active) {
       const entry = covered[d.id];
+      // A project dimension is required only of the categories a project uses (categoryProblems).
+      if (d.project && !category.project && !entry) continue;
       if (!entry || !((entry.kpis?.length ?? 0) > 0 || (typeof entry.na === 'string' && entry.na.trim()))) {
         problems.push(`${id}: dimension '${d.id}' needs kpis or na`);
         continue;
       }
       for (const kpi of entry.kpis ?? []) problems.push(...kpiProblems(registry, category, d, kpi, seen));
     }
+  }
+  for (const [id, threshold] of Object.entries(registry.project?.thresholds ?? {})) {
+    problems.push(...thresholdProblems(registry, id, threshold, `project threshold ${id}`));
+  }
+  for (const id of Object.keys(registry.project?.na ?? {})) {
+    if (!findKpi(registry, id)) problems.push(`project na ${id} is not a KPI`);
+  }
+  return problems;
+}
+
+// What the category a plan uses must also satisfy: every project dimension covered.
+export function categoryProblems(registry, categoryId) {
+  const covered = registry.categories[categoryId]?.dimensions ?? {};
+  return activeDimensions(registry)
+    .filter((d) => d.project && !covered[d.id])
+    .map((d) => `${categoryId}: project dimension '${d.id}' needs kpis or na (cover it under categories.${categoryId} in ${PROJECT_FILE})`);
+}
+
+export function findKpi(registry, id) {
+  for (const [categoryId, category] of Object.entries(registry.categories)) {
+    for (const [dimensionId, entry] of Object.entries(category.dimensions ?? {})) {
+      const kpi = (entry.kpis ?? []).find((k) => k.id === id);
+      if (kpi) return { categoryId, dimension: dimensionOf(registry, dimensionId), kpi };
+    }
+  }
+  return null;
+}
+
+// A changed threshold (project file or task Override:) must keep the KPI's
+// op and fit its dimension's units, and a signed KPI has none to change.
+export function thresholdProblems(registry, id, threshold, label, categoryId) {
+  const found = findKpi(registry, id);
+  if (!found || (categoryId && found.categoryId !== categoryId)) return [`${label} is not a KPI of ${categoryId ?? 'any category'}`];
+  const { dimension, kpi } = found;
+  if (kpiEvidence(dimension, kpi) === 'signed') return [`${label} is signed: it has no threshold to change`];
+  const problems = [];
+  if (threshold.op !== kpi.threshold.op) problems.push(`${label}: op '${threshold.op}' differs from the KPI's '${kpi.threshold.op}'`);
+  if (typeof threshold.value !== 'number' || !Number.isFinite(threshold.value)) problems.push(`${label}: value must be a number`);
+  const unit = threshold.unit ?? kpi.threshold.unit;
+  if (Array.isArray(dimension.units) && !dimension.units.includes(unit)) {
+    problems.push(`${label}: unit '${unit}' not in ${dimension.id} units (${dimension.units.join(', ')})`);
+  } else if (!Array.isArray(dimension.units) && unit !== kpi.threshold.unit) {
+    problems.push(`${label}: unit '${unit}' differs from the KPI's '${kpi.threshold.unit}'`);
   }
   return problems;
 }

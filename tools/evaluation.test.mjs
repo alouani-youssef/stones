@@ -369,3 +369,56 @@ describe('evaluation records and scoring', () => {
     assert.equal(JSON.parse(read(p.root, STORE)).entries['cache.signoff'].sign.note, 'looks right');
   });
 });
+
+describe('evaluation review fixes', () => {
+  it('reads and regenerates plans with CRLF line endings', () => {
+    const { root, registry } = project();
+    writePlanEvaluation(root, PLAN, ['cache'], { registry });
+    writeFile(root, PLAN, read(root).replace(/\n/g, '\r\n'));
+    assert.deepEqual(checkPlan(root, PLAN, { registry }).problems, []);
+    writePlanEvaluation(root, PLAN, ['cache'], { registry });
+    assert.equal(read(root).match(/evaluation:begin/g).length, 1);
+    assert.doesNotMatch(read(root), /\r/);
+  });
+
+  it('refuses overrides whose unit, op or value does not fit the KPI', () => {
+    const { root, registry } = project();
+    writePlanEvaluation(root, PLAN, ['cache'], { registry });
+    const generated = read(root);
+    const withLine = (line) => writeFile(root, PLAN, generated.replace('## Evaluation\n', `## Evaluation\n\n${line}\n`));
+    withLine('Override: cache.p95 <= 10 banana — slower is fine');
+    assert.throws(() => writePlanEvaluation(root, PLAN, ['cache'], { registry }), /Override: cache\.p95: unit 'banana' not in latency units \(ms\)/);
+    has(checkPlan(root, PLAN, { registry }).problems, /Override: cache\.p95: unit 'banana' not in latency units/);
+    withLine('Override: cache.p95 >= 3 ms — flipped');
+    assert.throws(() => writePlanEvaluation(root, PLAN, ['cache'], { registry }), /Override: cache\.p95: op '>=' differs from the KPI's '<='/);
+    withLine('Override: cache.signoff <= 3 ms — not measurable');
+    assert.throws(() => writePlanEvaluation(root, PLAN, ['cache'], { registry }), /Override: cache\.signoff is signed: it has no threshold to change/);
+  });
+
+  it('validates the project file in check and plan', () => {
+    const { root, dir } = project();
+    writePlanEvaluation(root, PLAN, ['cache'], { registry: loadRegistry({ dir, root }) });
+    writeFile(root, '.claude/evaluation.json', JSON.stringify({ dimensions: [{ ...DIMENSIONS[1] }] }));
+    has(checkPlan(root, PLAN, { registry: loadRegistry({ dir, root }) }).problems, /project dimension 'latency' clashes with the registry/);
+    writeFile(root, '.claude/evaluation.json', JSON.stringify({ thresholds: { 'cache.p95': { op: '<=', value: 'lots', unit: 'ms' } } }));
+    has(checkPlan(root, PLAN, { registry: loadRegistry({ dir, root }) }).problems, /project threshold cache\.p95: value must be a number/);
+    assert.throws(() => writePlanEvaluation(root, PLAN, ['cache'], { registry: loadRegistry({ dir, root }) }), /project threshold cache\.p95/);
+    writeFile(root, '.claude/evaluation.json', JSON.stringify({ na: { 'cache.nope': 'gone' } }));
+    has(checkPlan(root, PLAN, { registry: loadRegistry({ dir, root }) }).problems, /project na cache\.nope is not a KPI/);
+  });
+
+  it('requires a project dimension to be covered by the category in use, and lets the project cover it', () => {
+    const { root, dir } = project();
+    const security = { ...DIMENSIONS[0], id: 'security', title: 'Security', order: 50, units: ['findings'] };
+    writeFile(root, '.claude/evaluation.json', JSON.stringify({ dimensions: [security] }));
+    assert.throws(() => writePlanEvaluation(root, PLAN, ['cache'], { registry: loadRegistry({ dir, root }) }), /cache: project dimension 'security' needs kpis or na/);
+    writeFile(root, '.claude/evaluation.json', JSON.stringify({
+      dimensions: [security],
+      categories: { cache: { dimensions: { security: { kpis: [{ id: 'cache.findings', metric: 'scanner findings', threshold: { op: '==', value: 0, unit: 'findings' }, method: 'scan', case: 'Case: the scanner runs on the cache code. Expected: zero findings reported.' }] } } } },
+    }));
+    const parsed = writePlanEvaluation(root, PLAN, ['cache'], { registry: loadRegistry({ dir, root }) });
+    assert.ok(parsed.kpis.some((k) => k.id === 'cache.findings'));
+    writeFile(root, '.claude/evaluation.json', JSON.stringify({ categories: { cache: { dimensions: { latency: { na: 'not needed' } } } } }));
+    has(checkPlan(root, PLAN, { registry: loadRegistry({ dir, root }) }).problems, /project cannot redefine cache\.latency/);
+  });
+});
