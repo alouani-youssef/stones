@@ -2,6 +2,7 @@
 // then from stack detection, so re-running `init` is mostly pressing Enter.
 import { currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, pluginCatalog, skillCatalog, suggestedPlugins } from './catalog.mjs';
 import { devcontainerStack } from './devcontainer.mjs';
+import { knownWorkflows, WORKFLOW_CATALOG } from './github-setup.mjs';
 
 const ARCHITECTURES = [
   { value: 'monolith', label: 'Monolith', hint: 'one deployable application' },
@@ -153,6 +154,15 @@ export async function interview(ask, stack, previous = {}) {
       p('install.mcp', []),
     )
     : [];
+  ask.note('\n— Git hooks and GitHub');
+  // Claude writes the hooks, issue and PR templates in every GitHub setup
+  // session; only the workflows are chosen here, and none is a valid choice.
+  const workflows = knownWorkflows(await ask.multi(
+    'github.workflows',
+    'GitHub workflows to generate (Claude writes them in the GitHub setup session; none is fine)',
+    WORKFLOW_CATALOG,
+    knownWorkflows(p('github.workflows', [])),
+  ));
   const sandbox = await ask.confirm('install.sandbox', 'Enable the sandbox (network limited to your package registries)?', p('install.sandbox', true));
   // Stored as the stack id, or null when declined or unsupported; a previous
   // "no" (null) stays "no".
@@ -172,6 +182,7 @@ export async function interview(ask, stack, previous = {}) {
     conventions: { commits, notes: conventionNotes },
     workflow: { branching, commands, tdd },
     guardrails: { notes: guardrailNotes },
+    github: { workflows },
     install: { hooks: selectedHooks, skills: selectedSkills, plugins: selectedPlugins, mcp: selectedMcps, sandbox, devcontainer },
   };
 }

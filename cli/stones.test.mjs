@@ -682,6 +682,20 @@ describe('github-setup', () => {
     for (const word of ['git-hooks', 'github-actions', 'pull_request_template.md', 'ISSUE_TEMPLATE', 'not a git repository']) assert.ok(prompt.includes(word), word);
   });
 
+  it('asks which workflows to generate, none by default', async () => {
+    const { answers } = await runInit(nextApp());
+    assert.deepEqual(answers.github.workflows, []);
+  });
+
+  it('keeps the previous workflow selection and drops unknown ids', async () => {
+    const root = nextApp();
+    await runInit(root, { 'github.workflows': ['ci', 'release'] });
+    const again = await runInit(root);
+    assert.deepEqual(again.answers.github.workflows, ['ci', 'release']);
+    const stale = await interview(createScriptedPrompter({}), detect(root), { github: { workflows: ['ci', 'deploy'] } });
+    assert.deepEqual(stale.github.workflows, ['ci']);
+  });
+
   it('reports when Claude is not on PATH', async () => {
     const result = await startGithubSetupSession(project(), { claude: 'no-such-claude-binary' });
     assert.equal(result.started, false);
