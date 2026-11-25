@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "dimensions": [
+    {
+      "id": "correctness",
+      "title": "Correctness",
+      "definition": "Outputs match the expected values for valid inputs, including boundaries.",
+      "question": "Does the output equal what it should for every input in the cases, boundaries included?",
+      "evidence": "measured",
+      "units": [
+        "diffs",
+        "cases"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "cases",
+        "failures"
+      ],
+      "verifier": "agent",
+      "order": 10,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "consistency",
+      "title": "Consistency",
+      "definition": "The same input gives the same output across repeated runs, and the output follows the project's existing contracts (formats, error shapes, naming).",
+      "question": "Run it again, or next to the code around it: does it give the same answer, in the same shape?",
+      "evidence": "measured",
+      "units": [
+        "runs",
+        "violations"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "runs",
+        "divergent"
+      ],
+      "verifier": "agent",
+      "order": 20,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "latency",
+      "title": "Latency",
+      "definition": "Time to result at stated percentiles under a stated load.",
+      "question": "How long does the output take to produce, under the load it will see?",
+      "evidence": "measured",
+      "units": [
+        "ms",
+        "s"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "load",
+        "count",
+        "p50",
+        "p95",
+        "p99"
+      ],
+      "verifier": "agent",
+      "order": 30,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "memory",
+      "title": "Memory consumption",
+      "definition": "Peak and steady-state memory for a stated input size, with no growth across repeated runs.",
+      "question": "How much memory does it need at the stated size, and does that stay flat when it runs again and again?",
+      "evidence": "measured",
+      "units": [
+        "MB",
+        "%"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "input_size",
+        "runs",
+        "peak_mb",
+        "steady_mb"
+      ],
+      "verifier": "agent",
+      "order": 40,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "big-o",
+      "title": "Big O",
+      "definition": "The stated time and space complexity, backed by measurements at two or more input sizes.",
+      "question": "When the input grows, does the cost grow the way the plan says it does?",
+      "evidence": "measured",
+      "units": [
+        "ratio"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "sizes",
+        "timings",
+        "claimed"
+      ],
+      "verifier": "both",
+      "order": 50,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "failure-recovery",
+      "title": "Failure recovery",
+      "definition": "Behaviour when a dependency is down, slow or returns errors: retries, fallbacks, no partial writes, and recovery once it is back.",
+      "question": "When something it depends on fails, does it degrade as designed and come back cleanly?",
+      "evidence": "measured",
+      "units": [
+        "failures",
+        "writes"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "faults_injected",
+        "recovered"
+      ],
+      "verifier": "agent",
+      "order": 60,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "exception-handling",
+      "title": "Exception handling",
+      "definition": "Invalid input and internal errors produce defined errors; nothing is swallowed, and no stack trace or secret leaks.",
+      "question": "When given bad input or hitting an internal error, does it fail in the defined way and only that way?",
+      "evidence": "measured",
+      "units": [
+        "errors",
+        "leaks"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "inputs",
+        "undefined_errors"
+      ],
+      "verifier": "agent",
+      "order": 70,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "results",
+      "title": "Results",
+      "definition": "The task's expected behaviour and scenarios hold end to end in the real app.",
+      "question": "Used for real, end to end, does it do what the task promised?",
+      "evidence": "measured",
+      "units": [
+        "scenarios"
+      ],
+      "details": [
+        "tool",
+        "tool_version",
+        "environment",
+        "run_at",
+        "scenarios",
+        "failing"
+      ],
+      "verifier": "both",
+      "order": 90,
+      "since": 1,
+      "status": "active"
+    },
+    {
+      "id": "task-kpis",
+      "title": "Task-specific KPIs",
+      "definition": "The category's own KPIs: hit ratio, query plan, numeric precision, accessibility and the like.",
+      "question": "Does it meet the measures that matter for this kind of work in particular?",
+      "evidence": "any",
+      "verifier": "agent",
+      "order": 100,
+      "since": 1,
+      "status": "active"
+    }
+  ]
+}

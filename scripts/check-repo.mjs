@@ -9,11 +9,15 @@
 //   secrets    no tokens or private keys in tracked files
 //   paths      no machine-specific absolute paths in shipped files
 //   shell      tracked shell scripts pass shellcheck (skipped if not installed)
+//   evaluation the evaluating-outputs registry is valid and every category
+//              in categories.json has its categories/<id>.md, and the reverse
 //
 // Exits 1 and lists every finding when any check fails.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { loadRegistry, registryProblems } from '../tools/evaluation-registry.mjs';
 
 const root = new URL('..', import.meta.url).pathname;
 const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
@@ -107,15 +111,36 @@ function checkShell() {
   if (result.status !== 0) fail('shell', result.stdout.trim() || result.stderr.trim());
 }
 
+function checkEvaluation() {
+  const dir = join(root, 'skills/evaluating-outputs');
+  let registry;
+  try {
+    registry = loadRegistry({ dir });
+  } catch (error) {
+    return fail('evaluation', error.message);
+  }
+  for (const problem of registryProblems(registry)) fail('evaluation', problem);
+  const docs = existsSync(join(dir, 'categories'))
+    ? readdirSync(join(dir, 'categories')).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3))
+    : [];
+  for (const id of Object.keys(registry.categories)) {
+    if (!docs.includes(id)) fail('evaluation', `category '${id}' has no skills/evaluating-outputs/categories/${id}.md`);
+  }
+  for (const id of docs) {
+    if (!registry.categories[id]) fail('evaluation', `categories/${id}.md has no '${id}' entry in categories.json`);
+  }
+}
+
 checkSyntax();
 checkJson();
 checkLicense();
 checkSecretsAndPaths();
 checkShell();
+checkEvaluation();
 
 if (findings.length) {
   console.error(`${findings.length} problem(s):\n${findings.map((f) => `  - ${f}`).join('\n')}`);
   process.exitCode = 1;
 } else {
-  console.log(`check-repo: ${tracked.length} tracked files OK (syntax, json, license, secrets, paths, shell)`);
+  console.log(`check-repo: ${tracked.length} tracked files OK (syntax, json, license, secrets, paths, shell, evaluation)`);
 }
