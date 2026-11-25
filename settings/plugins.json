@@ -8,6 +8,12 @@
     },
     "show-me-the-work": {
       "source": { "source": "github", "repo": "pinetreeB/show-me-the-work", "ref": "v2.8.2" }
+    },
+    "posthog": {
+      "source": { "source": "github", "repo": "PostHog/ai-plugin", "ref": "a804d475f1253eca470d95f216b3dfea6df3a390" }
+    },
+    "sentry-mcp": {
+      "source": { "source": "github", "repo": "getsentry/sentry-mcp", "ref": "cli@0.51.0" }
     }
   },
   "plugins": [
@@ -42,6 +48,8 @@
     { "id": "mongodb", "when": { "frameworks": ["MongoDB"] }, "hint": "MongoDB MCP server and skills" },
     { "id": "neon", "when": { "frameworks": ["Neon"] }, "hint": "Neon serverless Postgres" },
     { "id": "firebase", "when": { "frameworks": ["Firebase"] }, "hint": "Firestore, auth and Firebase services" },
+    { "id": "posthog", "marketplace": "posthog", "when": { "frameworks": ["PostHog"] }, "hint": "official PostHog plugin: its own MCP server plus /posthog:flags and /posthog:errors (skip the posthog MCP server if you enable this)" },
+    { "id": "sentry-mcp", "marketplace": "sentry-mcp", "when": { "frameworks": ["Sentry"] }, "hint": "official Sentry plugin: its own MCP server plus a subagent for issues and traces (skip the sentry MCP server if you enable this)" },
     { "id": "redis-development", "when": { "frameworks": ["Redis"] }, "hint": "Redis data structures and best practices" }
   ]
 }

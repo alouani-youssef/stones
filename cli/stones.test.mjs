@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import { inspectSpec } from '../hooks/atomicity.mjs';
 import { parseDockerfile, renderDevcontainer } from '../hooks/devcontainer.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { hookCatalog, LEGACY_SKILL_IDS, PACKAGE_ROOT, pluginCatalog, skillCatalog, skillFrontmatter, suggestedPlugins } from './catalog.mjs';
+import { hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, PACKAGE_ROOT, pluginCatalog, skillCatalog, skillFrontmatter, suggestedPlugins } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { DEVCONTAINER_STACKS, devcontainerStack } from './devcontainer.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
@@ -280,6 +280,25 @@ describe('framework skills', () => {
     assert.ok((await pick({ 'package.json': { devDependencies: { typescript: '5' } }, 'tsconfig.json': '{}' })).includes('factory-eslint-rules'));
     assert.ok(!(await pick({ 'package.json': { dependencies: { express: '5' } } })).includes('factory-eslint-rules'), 'plain JavaScript');
     assert.ok(!(await pick({ 'requirements.txt': 'fastapi\n' })).includes('factory-eslint-rules'));
+  });
+
+  it('offers the PostHog skills and plugins only to projects that use PostHog or Sentry', async () => {
+    const posthogSkills = ['posthog', 'posthog-experiments', 'posthog-session-replay'];
+    const stack = (files) => detect(project(files));
+    const ui = stack({ 'package.json': { dependencies: { next: '15', 'posthog-js': '1', '@sentry/nextjs': '9' } } });
+    assert.ok(ui.frameworks.includes('PostHog') && ui.frameworks.includes('Sentry'));
+    assert.ok(stack({ 'requirements.txt': 'posthog\nsentry-sdk\n' }).frameworks.includes('Sentry'));
+    const skills = (await interview(createScriptedPrompter({}), ui)).install.skills;
+    for (const s of posthogSkills) assert.ok(skills.includes(s), s);
+    const plain = (await interview(createScriptedPrompter({}), stack({ 'package.json': { dependencies: { next: '15' } } }))).install.skills;
+    for (const s of posthogSkills) assert.ok(!plain.includes(s), `${s} waits until the project uses PostHog`);
+    assert.deepEqual(suggestedPlugins(ui).filter((p) => ['posthog', 'sentry-mcp'].includes(p)).sort(), ['posthog', 'sentry-mcp']);
+  });
+
+  it('offers the PostHog and Sentry MCP servers over HTTP', () => {
+    const servers = Object.fromEntries(mcpCatalog().map((m) => [m.id, m.config]));
+    assert.deepEqual(servers.posthog, { type: 'http', url: 'https://mcp.posthog.com/mcp' });
+    assert.deepEqual(servers.sentry, { type: 'http', url: 'https://mcp.sentry.dev/mcp' });
   });
 
   it('gives every framework skill a references section with links', () => {

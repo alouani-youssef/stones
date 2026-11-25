@@ -80,7 +80,10 @@ preview the planned changes without writing files.
   code graph.
 - **Settings based on the actual project.** Permissions and sandbox domains
   follow detected commands and ecosystems. Framework plugins and pattern
-  skills are offered only when relevant.
+  skills are offered only when relevant. For example, a UI that uses
+  `posthog-js` gets the PostHog setup, experiments and session replay skills.
+  A project that uses `@sentry/*` gets the official Sentry plugin. The PostHog
+  and Sentry MCP servers can be added to `.mcp.json` for any project.
 - **Safe to rerun.** Previous answers become defaults. Unedited generated
   files update; edited files are preserved and reported unless `--force` is
   used. Settings are merged, and user-authored files are left in place.

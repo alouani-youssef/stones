@@ -53,6 +53,10 @@ const NODE_FRAMEWORKS = {
   '@supabase/supabase-js': 'Supabase', mongodb: 'MongoDB', mongoose: 'MongoDB',
   '@neondatabase/serverless': 'Neon', firebase: 'Firebase', 'firebase-admin': 'Firebase',
   redis: 'Redis', ioredis: 'Redis',
+  'posthog-js': 'PostHog', 'posthog-node': 'PostHog', 'posthog-react-native': 'PostHog',
+  '@sentry/browser': 'Sentry', '@sentry/react': 'Sentry', '@sentry/nextjs': 'Sentry', '@sentry/vue': 'Sentry',
+  '@sentry/nuxt': 'Sentry', '@sentry/sveltekit': 'Sentry', '@sentry/angular': 'Sentry', '@sentry/remix': 'Sentry',
+  '@sentry/astro': 'Sentry', '@sentry/react-native': 'Sentry', '@sentry/node': 'Sentry', '@sentry/nestjs': 'Sentry',
 };
 
 const PY_FRAMEWORKS = {
@@ -61,6 +65,7 @@ const PY_FRAMEWORKS = {
   langchain: 'LangChain', langgraph: 'LangGraph', anthropic: 'Anthropic SDK', openai: 'OpenAI SDK',
   deepeval: 'DeepEval', giskard: 'Giskard',
   supabase: 'Supabase', pymongo: 'MongoDB', motor: 'MongoDB', 'firebase-admin': 'Firebase', redis: 'Redis',
+  posthog: 'PostHog', 'sentry-sdk': 'Sentry',
 };
 
 // Go modules required in go.mod, matched by module path.
