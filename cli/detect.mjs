@@ -141,30 +141,36 @@ function pythonStack(root, stack) {
   for (const [task, command] of Object.entries(py.commands)) stack.commands[task] ??= command;
 }
 
-function otherStacks(root, stack) {
-  if (has(root, 'go.mod')) {
-    stack.languages.push('Go');
-    stack.ecosystems.push('go');
-    stack.packageManagers.push('go modules');
-    stack.formatters.push('gofmt');
-    const goMod = read(root, 'go.mod');
-    stack.name ||= basename(/^module\s+(\S+)/m.exec(goMod)?.[1] ?? '');
-    for (const [mod, label] of Object.entries(GO_FRAMEWORKS)) {
-      if (new RegExp(`^\\s*(?:require\\s+)?${mod.replace(/\./g, '\\.')}(?:/v\\d+)?\\s`, 'm').test(goMod)) stack.frameworks.push(label);
+function goStack(root, stack) {
+  if (!has(root, 'go.mod')) return;
+  stack.languages.push('Go');
+  stack.ecosystems.push('go');
+  stack.packageManagers.push('go modules');
+  stack.formatters.push('gofmt');
+  const goMod = read(root, 'go.mod');
+  stack.name ||= basename(/^module\s+(\S+)/m.exec(goMod)?.[1] ?? '');
+  for (const [mod, label] of Object.entries(GO_FRAMEWORKS)) {
+    if (new RegExp(`^\\s*(?:require\\s+)?${mod.replace(/\./g, '\\.')}(?:/v\\d+)?\\s`, 'm').test(goMod)) {
+      stack.frameworks.push(label);
     }
-    stack.commands.test ??= 'go test ./...';
-    stack.commands.lint ??= 'go vet ./...';
-    stack.commands.build ??= 'go build ./...';
   }
-  if (has(root, 'Cargo.toml')) {
-    stack.languages.push('Rust');
-    stack.ecosystems.push('rust');
-    stack.packageManagers.push('cargo');
-    stack.name ||= /^\s*name\s*=\s*"([^"]+)"/m.exec(read(root, 'Cargo.toml'))?.[1];
-    stack.commands.test ??= 'cargo test';
-    stack.commands.lint ??= 'cargo clippy';
-    stack.commands.build ??= 'cargo build';
-  }
+  stack.commands.test ??= 'go test ./...';
+  stack.commands.lint ??= 'go vet ./...';
+  stack.commands.build ??= 'go build ./...';
+}
+
+function rustStack(root, stack) {
+  if (!has(root, 'Cargo.toml')) return;
+  stack.languages.push('Rust');
+  stack.ecosystems.push('rust');
+  stack.packageManagers.push('cargo');
+  stack.name ||= /^\s*name\s*=\s*"([^"]+)"/m.exec(read(root, 'Cargo.toml'))?.[1];
+  stack.commands.test ??= 'cargo test';
+  stack.commands.lint ??= 'cargo clippy';
+  stack.commands.build ??= 'cargo build';
+}
+
+function jvmStack(root, stack) {
   if (has(root, 'pom.xml')) {
     stack.languages.push('Java');
     stack.ecosystems.push('jvm');
@@ -178,21 +184,34 @@ function otherStacks(root, stack) {
     stack.commands.test ??= './gradlew test';
     stack.commands.build ??= './gradlew build';
   }
-  if (has(root, 'Gemfile')) {
-    stack.languages.push('Ruby');
-    stack.ecosystems.push('ruby');
-    stack.packageManagers.push('bundler');
-    if (/\brails\b/.test(read(root, 'Gemfile'))) stack.frameworks.push('Rails');
+}
+
+function rubyStack(root, stack) {
+  if (!has(root, 'Gemfile')) return;
+  stack.languages.push('Ruby');
+  stack.ecosystems.push('ruby');
+  stack.packageManagers.push('bundler');
+  if (/\brails\b/.test(read(root, 'Gemfile'))) stack.frameworks.push('Rails');
+}
+
+function makefileCommands(root, stack) {
+  const makefile = read(root, 'Makefile');
+  for (const task of ['test', 'lint', 'build']) {
+    if (new RegExp(`^${task}:`, 'm').test(makefile)) stack.commands[task] ??= `make ${task}`;
   }
+}
+
+function otherStacks(root, stack) {
+  goStack(root, stack);
+  rustStack(root, stack);
+  jvmStack(root, stack);
+  rubyStack(root, stack);
   if (has(root, 'composer.json')) {
     stack.languages.push('PHP');
     stack.ecosystems.push('php');
     stack.packageManagers.push('composer');
   }
-  const makefile = read(root, 'Makefile');
-  for (const task of ['test', 'lint', 'build']) {
-    if (new RegExp(`^${task}:`, 'm').test(makefile)) stack.commands[task] ??= `make ${task}`;
-  }
+  makefileCommands(root, stack);
   if (has(root, 'Dockerfile', 'docker-compose.yml', 'compose.yaml')) stack.tools.push('Docker');
   if (has(root, '.github/workflows')) stack.tools.push('GitHub Actions');
   if (has(root, 'openspec')) stack.tools.push('OpenSpec');
