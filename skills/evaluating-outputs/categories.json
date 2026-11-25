@@ -1,4 +1,1054 @@
 {
   "version": 1,
-  "categories": {}
+  "categories": {
+    "api": {
+      "title": "HTTP API endpoint",
+      "match": [
+        "api",
+        "endpoint",
+        "route",
+        "http",
+        "rest",
+        "graphql",
+        "handler",
+        "request",
+        "response"
+      ],
+      "defaults": {
+        "load": "50 concurrent connections for 30 s",
+        "soak": "10 000 requests"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "api.contract-mismatches",
+              "metric": "responses whose status or body differ from the contract",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "diffs"
+              },
+              "method": "see categories/api.md#correctness",
+              "case": "Case: the contract test suite calls every route with valid input. Expected: {{op}} {{value}} {{unit}} against the contract."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "api.error-shape-violations",
+              "metric": "error bodies that differ from the project's existing error shape",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "violations"
+              },
+              "method": "see categories/api.md#consistency",
+              "case": "Case: each documented error is triggered once. Expected: {{op}} {{value}} {{unit}} from the project's error shape."
+            },
+            {
+              "id": "api.repeat-divergence",
+              "metric": "repeated identical GETs that return different bodies",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "runs"
+              },
+              "method": "see categories/api.md#consistency",
+              "case": "Case: each GET route is called 5 times with the same input and state. Expected: {{op}} {{value}} {{unit}} differing."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "api.p95",
+              "metric": "p95 response time",
+              "threshold": {
+                "op": "<=",
+                "value": 200,
+                "unit": "ms"
+              },
+              "method": "see categories/api.md#latency",
+              "case": "Case: the route is load tested at {{load}}. Expected: p95 {{op}} {{value}} {{unit}}."
+            },
+            {
+              "id": "api.p99",
+              "metric": "p99 response time",
+              "threshold": {
+                "op": "<=",
+                "value": 500,
+                "unit": "ms"
+              },
+              "method": "see categories/api.md#latency",
+              "case": "Case: the route is load tested at {{load}}. Expected: p99 {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "api.heap-growth",
+              "metric": "heap growth after a soak run",
+              "threshold": {
+                "op": "<=",
+                "value": 10,
+                "unit": "%"
+              },
+              "method": "see categories/api.md#memory",
+              "case": "Case: the service serves {{soak}} after warm-up. Expected: heap growth {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "api.list-scaling",
+              "metric": "measured / predicted growth of the slowest collection route",
+              "threshold": {
+                "op": "<=",
+                "value": 1.5,
+                "unit": "ratio"
+              },
+              "method": "see categories/api.md#big-o",
+              "case": "Case: the collection route runs against 10x and 100x the stored items. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "api.dependency-failures",
+              "metric": "dependency faults not answered with the designed 503/504 and recovery",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/api.md#failure-recovery",
+              "case": "Case: each downstream dependency is made to time out, then restored. Expected: {{op}} {{value}} {{unit}} not handled as designed."
+            },
+            {
+              "id": "api.partial-writes",
+              "metric": "writes left half-done after a fault mid-request",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "writes"
+              },
+              "method": "see categories/api.md#failure-recovery",
+              "case": "Case: the connection drops in the middle of each write route. Expected: {{op}} {{value}} {{unit}} left behind."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "api.undefined-errors",
+              "metric": "invalid inputs not answered with a defined 4xx and error body",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/api.md#exception-handling",
+              "case": "Case: each route gets wrong types, missing fields and oversized bodies. Expected: {{op}} {{value}} {{unit}} outside the defined 4xx responses."
+            },
+            {
+              "id": "api.leaks",
+              "metric": "responses or logs exposing stack traces, internal paths or secrets",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "leaks"
+              },
+              "method": "see categories/api.md#exception-handling",
+              "case": "Case: internal errors are forced on each route. Expected: {{op}} {{value}} {{unit}} in responses or logs."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "api.scenarios-failing",
+              "metric": "task scenarios failing against the running service",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/api.md#results",
+              "case": "Case: every task scenario is run against the running service. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "api.unprotected-routes",
+              "metric": "routes reachable without the required auth",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "routes"
+              },
+              "method": "see categories/api.md#task-kpis",
+              "case": "Case: every new or changed route is called without credentials and with a wrong role. Expected: {{op}} {{value}} {{unit}} served.",
+              "evidence": "measured"
+            },
+            {
+              "id": "api.duplicate-writes",
+              "metric": "duplicate side effects when a write is retried with the same idempotency key",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "duplicates"
+              },
+              "method": "see categories/api.md#task-kpis",
+              "case": "Case: each write route is sent twice with the same idempotency key. Expected: {{op}} {{value}} {{unit}} side effects.",
+              "evidence": "measured"
+            },
+            {
+              "id": "api.pagination-drift",
+              "metric": "items missed or repeated while paging during concurrent inserts",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "items"
+              },
+              "method": "see categories/api.md#task-kpis",
+              "case": "Case: a list is paged to the end while new items are inserted. Expected: {{op}} {{value}} {{unit}} missed or repeated.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    },
+    "db-query": {
+      "title": "Database query",
+      "match": [
+        "query",
+        "sql",
+        "database",
+        "db",
+        "postgres",
+        "mysql",
+        "sqlite",
+        "index",
+        "migration",
+        "orm",
+        "transaction"
+      ],
+      "defaults": {
+        "rows": "1 000 000 rows"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "db-query.result-diffs",
+              "metric": "rows that differ from the reference result set",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "diffs"
+              },
+              "method": "see categories/db-query.md#correctness",
+              "case": "Case: the query runs on the fixture dataset with known answers. Expected: {{op}} {{value}} {{unit}} from the reference rows."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "db-query.repeat-divergence",
+              "metric": "repeated runs on the same snapshot returning different rows or order",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "runs"
+              },
+              "method": "see categories/db-query.md#consistency",
+              "case": "Case: the query runs 5 times on one snapshot. Expected: {{op}} {{value}} {{unit}} with different rows or order."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "db-query.p95",
+              "metric": "p95 query time on a production-sized table",
+              "threshold": {
+                "op": "<=",
+                "value": 50,
+                "unit": "ms"
+              },
+              "method": "see categories/db-query.md#latency",
+              "case": "Case: the query runs repeatedly on {{rows}}. Expected: p95 {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "db-query.result-memory",
+              "metric": "application memory held while reading the result",
+              "threshold": {
+                "op": "<=",
+                "value": 100,
+                "unit": "MB"
+              },
+              "method": "see categories/db-query.md#memory",
+              "case": "Case: the caller reads the full result from {{rows}}. Expected: peak {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "db-query.scaling",
+              "metric": "measured / predicted growth of query time with table size",
+              "threshold": {
+                "op": "<=",
+                "value": 1.5,
+                "unit": "ratio"
+              },
+              "method": "see categories/db-query.md#big-o",
+              "case": "Case: the query runs on 10x and 100x the rows. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "db-query.failed-recoveries",
+              "metric": "connection losses mid-transaction that do not roll back and retry cleanly",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/db-query.md#failure-recovery",
+              "case": "Case: the connection is killed inside each transaction, then restored. Expected: {{op}} {{value}} {{unit}} without rollback and clean retry."
+            },
+            {
+              "id": "db-query.partial-writes",
+              "metric": "rows left by a transaction that failed midway",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "writes"
+              },
+              "method": "see categories/db-query.md#failure-recovery",
+              "case": "Case: a statement fails in the middle of a multi-statement write. Expected: {{op}} {{value}} {{unit}} committed."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "db-query.undefined-errors",
+              "metric": "constraint and type errors not mapped to a defined error",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/db-query.md#exception-handling",
+              "case": "Case: unique, foreign key and not-null constraints are violated in turn. Expected: {{op}} {{value}} {{unit}} unmapped."
+            },
+            {
+              "id": "db-query.leaks",
+              "metric": "errors exposing SQL text, connection strings or credentials",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "leaks"
+              },
+              "method": "see categories/db-query.md#exception-handling",
+              "case": "Case: the query fails with each kind of database error. Expected: {{op}} {{value}} {{unit}} in the returned errors or logs."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "db-query.scenarios-failing",
+              "metric": "task scenarios failing against a migrated database",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/db-query.md#results",
+              "case": "Case: every task scenario is run against a freshly migrated database. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "db-query.seq-scans",
+              "metric": "sequential scans on tables larger than the threshold in the query plan",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scans"
+              },
+              "method": "see categories/db-query.md#task-kpis",
+              "case": "Case: EXPLAIN (ANALYZE, BUFFERS) runs on {{rows}}. Expected: {{op}} {{value}} {{unit}} on large tables.",
+              "evidence": "measured"
+            },
+            {
+              "id": "db-query.scan-ratio",
+              "metric": "rows scanned per row returned",
+              "threshold": {
+                "op": "<=",
+                "value": 10,
+                "unit": "ratio"
+              },
+              "method": "see categories/db-query.md#task-kpis",
+              "case": "Case: EXPLAIN (ANALYZE) runs on {{rows}}. Expected: scanned/returned {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "db-query.n-plus-one",
+              "metric": "extra queries issued per returned item",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "queries"
+              },
+              "method": "see categories/db-query.md#task-kpis",
+              "case": "Case: the caller loads a page of 50 items with their relations. Expected: {{op}} {{value}} {{unit}} per item.",
+              "evidence": "measured"
+            },
+            {
+              "id": "db-query.isolation-anomalies",
+              "metric": "lost updates or phantom reads under concurrent writers",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "anomalies"
+              },
+              "method": "see categories/db-query.md#task-kpis",
+              "case": "Case: 20 concurrent writers update overlapping rows. Expected: {{op}} {{value}} {{unit}} anomalies.",
+              "evidence": "measured"
+            },
+            {
+              "id": "db-query.migration-rollback-failures",
+              "metric": "migrations that fail to roll back or lose data on rollback",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/db-query.md#task-kpis",
+              "case": "Case: each new migration is applied, rolled back and applied again on seeded data. Expected: {{op}} {{value}} {{unit}} failing.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    },
+    "calculation-engine": {
+      "title": "Calculation engine",
+      "match": [
+        "calculate",
+        "calculation",
+        "formula",
+        "pricing",
+        "price",
+        "tax",
+        "interest",
+        "score",
+        "engine",
+        "rounding",
+        "precision",
+        "compute"
+      ],
+      "defaults": {
+        "size": "10 000 inputs",
+        "tolerance": "1e-9 relative"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "calculation-engine.reference-diffs",
+              "metric": "results outside tolerance of the reference set",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "diffs"
+              },
+              "method": "see categories/calculation-engine.md#correctness",
+              "case": "Case: the engine runs over the reference input set with known results. Expected: {{op}} {{value}} {{unit}} outside {{tolerance}}."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "calculation-engine.nondeterministic-runs",
+              "metric": "runs whose output differs from the first run",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "runs"
+              },
+              "method": "see categories/calculation-engine.md#consistency",
+              "case": "Case: the same {{size}} run 10 times, in different input orders where order should not matter. Expected: {{op}} {{value}} {{unit}} differing."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "calculation-engine.p95",
+              "metric": "p95 time per calculation",
+              "threshold": {
+                "op": "<=",
+                "value": 10,
+                "unit": "ms"
+              },
+              "method": "see categories/calculation-engine.md#latency",
+              "case": "Case: the engine runs over {{size}}. Expected: p95 per calculation {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "calculation-engine.peak-memory",
+              "metric": "peak memory for the stated batch",
+              "threshold": {
+                "op": "<=",
+                "value": 200,
+                "unit": "MB"
+              },
+              "method": "see categories/calculation-engine.md#memory",
+              "case": "Case: the engine runs over {{size}}. Expected: peak {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "calculation-engine.scaling",
+              "metric": "measured / predicted growth of run time with input size",
+              "threshold": {
+                "op": "<=",
+                "value": 1.3,
+                "unit": "ratio"
+              },
+              "method": "see categories/calculation-engine.md#big-o",
+              "case": "Case: the engine runs on 10x and 100x the inputs. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "calculation-engine.failed-recoveries",
+              "metric": "missing or late inputs not handled with the designed fallback or error",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/calculation-engine.md#failure-recovery",
+              "case": "Case: each external input (rates, tables, config) is made missing or stale. Expected: {{op}} {{value}} {{unit}} without the designed fallback, and no partial result."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "calculation-engine.undefined-errors",
+              "metric": "overflow, division by zero or NaN input not raised as a defined error",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/calculation-engine.md#exception-handling",
+              "case": "Case: the engine gets zero divisors, overflowing values, NaN and empty input. Expected: {{op}} {{value}} {{unit}} outside the defined errors."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "calculation-engine.scenarios-failing",
+              "metric": "task scenarios failing through the engine's real caller",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/calculation-engine.md#results",
+              "case": "Case: every task scenario runs through the code that calls the engine. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "calculation-engine.precision-violations",
+              "metric": "values with the wrong rounding or beyond tolerance at the boundaries",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "values"
+              },
+              "method": "see categories/calculation-engine.md#task-kpis",
+              "case": "Case: half-way, negative, very small and very large values go through each rounding point. Expected: {{op}} {{value}} {{unit}} breaking the rounding rule.",
+              "evidence": "measured"
+            },
+            {
+              "id": "calculation-engine.non-finite-outputs",
+              "metric": "NaN or Infinity in outputs for valid inputs",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "values"
+              },
+              "method": "see categories/calculation-engine.md#task-kpis",
+              "case": "Case: the engine runs over {{size}} valid inputs. Expected: {{op}} {{value}} {{unit}} non-finite.",
+              "evidence": "measured"
+            },
+            {
+              "id": "calculation-engine.rounding-rule",
+              "metric": "the rounding and precision rule matches the business rule",
+              "threshold": {
+                "op": "signed"
+              },
+              "method": "see categories/calculation-engine.md#task-kpis",
+              "case": "Case: the rounding rule and three worked examples are shown to the reviewer. Expected: the reviewer confirms they match the business rule.",
+              "verifier": "human",
+              "evidence": "signed"
+            }
+          ]
+        }
+      }
+    },
+    "caching": {
+      "title": "Cache",
+      "match": [
+        "cache",
+        "caching",
+        "cached",
+        "redis",
+        "memcached",
+        "ttl",
+        "invalidation",
+        "invalidate",
+        "memoize",
+        "lru"
+      ],
+      "defaults": {
+        "load": "50 concurrent connections for 30 s",
+        "concurrency": "100 concurrent requests"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "caching.read-matches-source",
+              "metric": "cached reads that differ from the source of truth",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "diffs"
+              },
+              "method": "see categories/caching.md#correctness",
+              "case": "Case: every key is read through the cache and from the source. Expected: {{op}} {{value}} {{unit}} between them."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "caching.hit-miss-divergence",
+              "metric": "hits that return a different value or shape than a miss",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "runs"
+              },
+              "method": "see categories/caching.md#consistency",
+              "case": "Case: each key is read on a miss and then on a hit. Expected: {{op}} {{value}} {{unit}} differing."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "caching.hit-latency-p95",
+              "metric": "p95 latency of a cache hit",
+              "threshold": {
+                "op": "<=",
+                "value": 5,
+                "unit": "ms"
+              },
+              "method": "see categories/caching.md#latency",
+              "case": "Case: a warm key is read under {{load}}. Expected: p95 {{op}} {{value}} {{unit}}."
+            },
+            {
+              "id": "caching.miss-overhead-p95",
+              "metric": "p95 time a miss adds over the uncached path",
+              "threshold": {
+                "op": "<=",
+                "value": 2,
+                "unit": "ms"
+              },
+              "method": "see categories/caching.md#latency",
+              "case": "Case: cold keys are read under {{load}}. Expected: added p95 {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "caching.memory-growth",
+              "metric": "in-process cache memory growth past its configured bound",
+              "threshold": {
+                "op": "<=",
+                "value": 5,
+                "unit": "%"
+              },
+              "method": "see categories/caching.md#memory",
+              "case": "Case: the cache is filled to 10x its capacity. Expected: memory above the bound {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "caching.lookup-scaling",
+              "metric": "measured / predicted growth of lookup time with key count",
+              "threshold": {
+                "op": "<=",
+                "value": 1.2,
+                "unit": "ratio"
+              },
+              "method": "see categories/caching.md#big-o",
+              "case": "Case: lookups run with 10x and 100x the keys. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "caching.cache-down-errors",
+              "metric": "requests that fail while the cache is down instead of falling through",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/caching.md#failure-recovery",
+              "case": "Case: the cache is stopped under load, then restarted. Expected: {{op}} {{value}} {{unit}} failing, and hits resume after restart."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "caching.undefined-errors",
+              "metric": "serialization errors or oversized values not handled as designed",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/caching.md#exception-handling",
+              "case": "Case: values that cannot be serialized and values above the size limit are cached. Expected: {{op}} {{value}} {{unit}} outside the designed handling."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "caching.scenarios-failing",
+              "metric": "task scenarios failing with the cache in place",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/caching.md#results",
+              "case": "Case: every task scenario runs with the cache enabled. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "caching.hit-ratio",
+              "metric": "hit ratio on the replayed workload",
+              "threshold": {
+                "op": ">=",
+                "value": 0.9,
+                "unit": "ratio"
+              },
+              "method": "see categories/caching.md#task-kpis",
+              "case": "Case: a recorded production-like workload is replayed after warm-up. Expected: hit ratio {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "caching.stale-after-write",
+              "metric": "stale reads after a write",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "reads"
+              },
+              "method": "see categories/caching.md#task-kpis",
+              "case": "Case: each key is written and then read immediately from every instance. Expected: {{op}} {{value}} {{unit}} stale.",
+              "evidence": "measured"
+            },
+            {
+              "id": "caching.stampede-loads",
+              "metric": "source loads per key during concurrent misses",
+              "threshold": {
+                "op": "<=",
+                "value": 1,
+                "unit": "loads"
+              },
+              "method": "see categories/caching.md#task-kpis",
+              "case": "Case: {{concurrency}} miss the same cold key at once. Expected: source loads {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "caching.ttl-violations",
+              "metric": "reads served after the key's TTL expired",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "reads"
+              },
+              "method": "see categories/caching.md#task-kpis",
+              "case": "Case: keys are read just before and just after their TTL. Expected: {{op}} {{value}} {{unit}} served after expiry.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    },
+    "background-job": {
+      "title": "Background job or queue worker",
+      "match": [
+        "job",
+        "jobs",
+        "queue",
+        "worker",
+        "cron",
+        "scheduler",
+        "consumer",
+        "message",
+        "kafka",
+        "sqs",
+        "rabbitmq",
+        "bullmq",
+        "celery",
+        "sidekiq"
+      ],
+      "defaults": {
+        "batch": "10 000 jobs"
+      },
+      "dimensions": {
+        "correctness": {
+          "kpis": [
+            {
+              "id": "background-job.output-diffs",
+              "metric": "processed jobs whose end state differs from the expected state",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "diffs"
+              },
+              "method": "see categories/background-job.md#correctness",
+              "case": "Case: a batch of jobs with known outcomes is processed. Expected: {{op}} {{value}} {{unit}} from the expected state."
+            }
+          ]
+        },
+        "consistency": {
+          "kpis": [
+            {
+              "id": "background-job.rerun-divergence",
+              "metric": "jobs whose re-run leaves a different end state",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "runs"
+              },
+              "method": "see categories/background-job.md#consistency",
+              "case": "Case: each job in a sample is run twice on the same input. Expected: {{op}} {{value}} {{unit}} with a different end state."
+            }
+          ]
+        },
+        "latency": {
+          "kpis": [
+            {
+              "id": "background-job.p95-end-to-end",
+              "metric": "p95 time from enqueue to completion",
+              "threshold": {
+                "op": "<=",
+                "value": 5,
+                "unit": "s"
+              },
+              "method": "see categories/background-job.md#latency",
+              "case": "Case: {{batch}} are enqueued at the expected rate. Expected: p95 enqueue-to-done {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "memory": {
+          "kpis": [
+            {
+              "id": "background-job.worker-growth",
+              "metric": "worker memory growth over a long batch",
+              "threshold": {
+                "op": "<=",
+                "value": 10,
+                "unit": "%"
+              },
+              "method": "see categories/background-job.md#memory",
+              "case": "Case: one worker processes {{batch}}. Expected: memory growth {{op}} {{value}} {{unit}}."
+            }
+          ]
+        },
+        "big-o": {
+          "kpis": [
+            {
+              "id": "background-job.batch-scaling",
+              "metric": "measured / predicted growth of batch time with batch size",
+              "threshold": {
+                "op": "<=",
+                "value": 1.5,
+                "unit": "ratio"
+              },
+              "method": "see categories/background-job.md#big-o",
+              "case": "Case: batches of 10x and 100x the jobs are processed. Expected: growth ratio {{op}} {{value}} {{unit}} of the stated complexity."
+            }
+          ]
+        },
+        "failure-recovery": {
+          "kpis": [
+            {
+              "id": "background-job.lost-messages",
+              "metric": "jobs lost or never retried after a worker is killed mid-job",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "failures"
+              },
+              "method": "see categories/background-job.md#failure-recovery",
+              "case": "Case: workers are killed in the middle of jobs, then restarted. Expected: {{op}} {{value}} {{unit}} lost."
+            },
+            {
+              "id": "background-job.partial-writes",
+              "metric": "side effects left half-done by a failed job",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "writes"
+              },
+              "method": "see categories/background-job.md#failure-recovery",
+              "case": "Case: a dependency fails halfway through each job type. Expected: {{op}} {{value}} {{unit}} left behind."
+            }
+          ]
+        },
+        "exception-handling": {
+          "kpis": [
+            {
+              "id": "background-job.unhandled-errors",
+              "metric": "poison messages that crash or loop the worker instead of going to the dead-letter queue",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "errors"
+              },
+              "method": "see categories/background-job.md#exception-handling",
+              "case": "Case: malformed and unprocessable messages are enqueued. Expected: {{op}} {{value}} {{unit}}; each lands in the dead-letter queue."
+            }
+          ]
+        },
+        "results": {
+          "kpis": [
+            {
+              "id": "background-job.scenarios-failing",
+              "metric": "task scenarios failing with real workers and queue",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "scenarios"
+              },
+              "method": "see categories/background-job.md#results",
+              "case": "Case: every task scenario runs through the real queue and workers. Expected: {{op}} {{value}} {{unit}} failing.",
+              "verifier": "both"
+            }
+          ]
+        },
+        "task-kpis": {
+          "kpis": [
+            {
+              "id": "background-job.duplicate-side-effects",
+              "metric": "side effects applied twice when a message is redelivered",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "effects"
+              },
+              "method": "see categories/background-job.md#task-kpis",
+              "case": "Case: each message type is delivered twice. Expected: {{op}} {{value}} {{unit}} applied twice.",
+              "evidence": "measured"
+            },
+            {
+              "id": "background-job.throughput",
+              "metric": "jobs completed per second by one worker",
+              "threshold": {
+                "op": ">=",
+                "value": 100,
+                "unit": "jobs/s"
+              },
+              "method": "see categories/background-job.md#task-kpis",
+              "case": "Case: one worker processes {{batch}}. Expected: throughput {{op}} {{value}} {{unit}}.",
+              "evidence": "measured"
+            },
+            {
+              "id": "background-job.retries-without-backoff",
+              "metric": "retries issued without the configured backoff",
+              "threshold": {
+                "op": "==",
+                "value": 0,
+                "unit": "retries"
+              },
+              "method": "see categories/background-job.md#task-kpis",
+              "case": "Case: a dependency fails for every attempt of a job. Expected: {{op}} {{value}} {{unit}} outside the backoff schedule.",
+              "evidence": "measured"
+            },
+            {
+              "id": "background-job.poison-redeliveries",
+              "metric": "deliveries of a poison message before it is dead-lettered",
+              "threshold": {
+                "op": "<=",
+                "value": 3,
+                "unit": "deliveries"
+              },
+              "method": "see categories/background-job.md#task-kpis",
+              "case": "Case: a message that always fails is enqueued. Expected: deliveries {{op}} {{value}} {{unit}} before dead-lettering.",
+              "evidence": "measured"
+            }
+          ]
+        }
+      }
+    }
+  }
 }
