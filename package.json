@@ -33,6 +33,7 @@
     "mcps/",
     "analyzers/",
     "AGENT.md",
+    "scripts/ci-local.sh",
     "setup.bash"
   ],
   "scripts": {

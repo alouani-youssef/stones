@@ -733,6 +733,63 @@ describe('github-setup command line', () => {
   });
 });
 
+describe('ci-local script', () => {
+  const stub = (dir, name, body) => {
+    writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`);
+    execFileSync('chmod', ['+x', join(dir, name)]);
+  };
+  // A PATH with git and the given stubs only, so the real act and docker are never seen.
+  const fakePath = (stubs) => {
+    const bin = mkdtempSync(join(tmpdir(), 'stones-bin-'));
+    symlinkSync(execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(), join(bin, 'git'));
+    for (const [name, body] of Object.entries(stubs)) stub(bin, name, body);
+    return `${bin}:/usr/bin:/bin`;
+  };
+  const installed = async () => {
+    const root = nextApp();
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    const { ops } = await runInit(root);
+    return { root, ops };
+  };
+  const run = (root, args, PATH) => spawnSync('bash', ['.claude/scripts/ci-local.sh', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH } });
+
+  it('installs an executable ci-local.sh that Claude must ask before running', async () => {
+    const { root } = await installed();
+    assert.ok(statSync(join(root, '.claude/scripts/ci-local.sh')).mode & 0o100);
+    const allow = JSON.parse(read(root, '.claude/settings.json')).permissions.allow;
+    assert.ok(!allow.some((rule) => rule.includes('ci-local')), 'not allowed without asking');
+  });
+
+  it('stops with an install hint when act is missing', async () => {
+    const { root } = await installed();
+    const result = run(root, [], fakePath({ node: 'echo "node $*"', docker: 'exit 0' }));
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /act is not installed/);
+    assert.match(result.stderr, /brew install act/);
+    assert.doesNotMatch(result.stdout, /node /);
+  });
+
+  it('stops when Docker is not running', async () => {
+    const { root } = await installed();
+    const result = run(root, ['run'], fakePath({ node: 'echo "node $*"', act: 'exit 0', docker: 'exit 1' }));
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Docker is not running/);
+  });
+
+  it('runs the workflows tool, with run as the default subcommand', async () => {
+    const { root } = await installed();
+    const PATH = fakePath({ node: 'echo "node $*"', act: 'exit 0', docker: 'exit 0' });
+    assert.match(run(root, [], PATH).stdout, /node \.claude\/tools\/workflows\.mjs run$/m);
+    assert.match(run(root, ['--job', 'test'], PATH).stdout, /workflows\.mjs run --job test$/m);
+    assert.match(run(root, ['list'], PATH).stdout, /workflows\.mjs list$/m);
+  });
+
+  it('reads the run status without act or Docker', async () => {
+    const { root } = await installed();
+    assert.match(run(root, ['status'], fakePath({ node: 'echo "node $*"' })).stdout, /workflows\.mjs status$/m);
+  });
+});
+
 describe('atomicity hook install', () => {
   const prismaApp = () => project({
     'package.json': { name: 'api', devDependencies: { prisma: '5' } },

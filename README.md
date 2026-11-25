@@ -14,6 +14,7 @@ the history hook uses the built-in `node:sqlite` module.
 npx ai-stones init       # run in your project root
 npx ai-stones detect     # inspect the detected stack
 npx ai-stones roadmap    # start a Claude session to write ROADMAP.md
+npx ai-stones github-setup  # start a Claude session for git hooks and GitHub files
 ```
 
 ## Install
@@ -61,6 +62,7 @@ CLAUDE.md                 imports AGENT.md (appended if CLAUDE.md exists)
 ├── analyzers/            complexity analyzer, when selected
 ├── commands/             slash commands such as /roadmap
 ├── tools/                project and task-board tools
+├── scripts/              ci-local.sh, to run the GitHub workflows locally
 └── stones.json           saved answers and installed-file hashes
 context/tasks/            task board, when selected
 ```
@@ -128,6 +130,30 @@ reviews `AGENT.md`, the current roadmap, recent commits and any OpenSpec specs,
 then interviews you and drafts or revises `ROADMAP.md`. In Claude Code, you can
 also run `/roadmap [focus]`.
 
+### Set up git hooks and GitHub files
+
+```sh
+npx ai-stones github-setup
+npx ai-stones github-setup --print-prompt
+```
+
+During `init` you choose which GitHub workflows to generate, from none to all
+of `ci`, `release`, `security` (actionlint, zizmor, dependency review) and
+`dependabot`. `init` then offers a Claude Code session with the `/github-setup`
+prompt. Claude reads the project and uses the `git-hooks` and `github-actions`
+skills to write:
+
+- git hooks: format and lint staged files before a commit, typecheck and test
+  before a push, and check commit messages when you use Conventional Commits.
+  It uses lefthook when the project has it, and `.githooks/` with
+  `core.hooksPath` otherwise.
+- the workflows you selected, in `.github/workflows/`, plus `dependabot.yml`
+- issue forms in `.github/ISSUE_TEMPLATE/` and `.github/pull_request_template.md`
+
+Claude asks before it replaces any of these files that already exist. Run
+`/github-setup [workflows]` in Claude Code, or the command above, to run it
+again later.
+
 ### Sync a dev container
 
 ```sh
@@ -146,8 +172,9 @@ exits with an error when the generated file is out of date.
 | `--dry-run` | Show planned `init` changes without writing them |
 | `--force` | Overwrite files edited since installation |
 | `--no-roadmap` | Do not offer to start a roadmap session after `init` |
+| `--no-github-setup` | Do not offer to start a GitHub setup session after `init` |
 | `--focus <text>` | Set the focus for a roadmap session |
-| `--print-prompt` | Print the roadmap prompt instead of starting Claude |
+| `--print-prompt` | Print the roadmap or github-setup prompt instead of starting Claude |
 | `--check` | With `sync`, check for drift without writing |
 
 ## Included project tools
@@ -178,6 +205,17 @@ node .claude/tools/workflows.mjs list                       # workflows, jobs an
 node .claude/tools/workflows.mjs run                        # every workflow that runs on pull requests
 node .claude/tools/workflows.mjs run --workflow ci.yml --job test
 node .claude/tools/workflows.mjs status                     # does the current code have a passing run?
+```
+
+`.claude/scripts/ci-local.sh` wraps the tool for any stack. It runs `run` by
+default, takes `list` and `status`, and passes the other options through. It
+stops with an install hint when act is missing or Docker isn't running.
+Claude asks before running it, as it does for the tool.
+
+```sh
+.claude/scripts/ci-local.sh                       # confirm, then run the pull-request workflows
+.claude/scripts/ci-local.sh --workflow ci.yml --job test
+.claude/scripts/ci-local.sh status
 ```
 
 The `workflows` hook is selected by default. It blocks these commands until a

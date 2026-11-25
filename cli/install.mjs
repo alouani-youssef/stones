@@ -133,6 +133,8 @@ function toolFiles(answers, pkg) {
     content: pkg(`tools/${tool}`),
     kind: 'managed',
   }));
+  // Runs the workflows tool; ask-first like it, so not added to permissions.allow.
+  files.push({ path: '.claude/scripts/ci-local.sh', content: pkg('scripts/ci-local.sh'), kind: 'managed', executable: true });
   if (usesTaskBoard(answers)) {
     for (const tool of TASK_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
     // The state files are git-ignored and built from the notes by the task tool on its first run.
