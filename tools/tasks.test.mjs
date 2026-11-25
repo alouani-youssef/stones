@@ -9,6 +9,7 @@ import { currentTask, evaluate as testingGuard } from '../hooks/testing.mjs';
 import { coverage, globMatcher } from './review.mjs';
 import { EventEmitter } from 'node:events';
 
+import { approveQuiz } from './spec-quiz.mjs';
 import { addTask, currentTaskOf, findTask, main, migrateBoard, tasksIn, taskPrompt } from './tasks.mjs';
 
 function repo() {
@@ -65,7 +66,23 @@ function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
   write(root, task.path, text);
   write(root, SPEC, '# Login rate limit design\n\n## Test Strategy\n\nUse unit tests for the limit rule and an integration test for the endpoint.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: request is rate limited.\n');
   write(root, PLAN, '# Login rate limit plan\n\n## Test Strategy\n\nRun focused unit and integration tests.\n\n## Test Cases\n\n- Case: sixth attempt in one minute. Expected: focused test fails before implementation and passes after.\n');
+  write(root, QUIZ, quizText());
+  approveQuiz(root, QUIZ);
+  write(root, task.path, read(root, task.path).replace(/^Approval: .*$/m, `Approval: ${QUIZ}`));
 }
+
+const QUIZ = 'docs/superpowers/approvals/2026-11-16-login-rate-limit.md';
+const question = (n, answer = 'B', resolution = '') => `## Question ${n} about the rate limit decision?
+
+- A. The account is locked
+- B. The request gets a 429
+- C. Nothing happens
+
+Expected: B
+Answer: ${answer}
+${resolution}`;
+const quizText = (answers = ['B', 'B', 'B']) =>
+  `# Spec check: Login rate limit\n\nSpec: ${SPEC}\nPlan: ${PLAN}\nApproved: TODO\n\n${answers.map((a, i) => question(i + 1, a)).join('\n')}`;
 
 describe('task board', () => {
   it('adds tasks to list/ with Status: next and lists them in next.md', async () => {
@@ -76,7 +93,7 @@ describe('task board', () => {
     const task = findTask(root, '1');
     assert.equal(task.status, 'next');
     assert.equal(task.scope, 'src/**');
-    assert.match(task.text, /## Spec and plan\n\nSpec: TODO: [^\n]*superpowers:brainstorming[^\n]*\nPlan: TODO: [^\n]*superpowers:writing-plans/);
+    assert.match(task.text, /## Spec and plan\n\nSpec: TODO: [^\n]*superpowers:brainstorming[^\n]*\nPlan: TODO: [^\n]*superpowers:writing-plans[^\n]*\nApproval: TODO: [^\n]*confirming-specs/);
     assert.match(task.text, /## Test Strategy/);
     assert.match(task.text, /## Test Cases/);
     assert.equal(tasksIn(root, 'next').length, 1);
@@ -117,6 +134,26 @@ describe('task board', () => {
         assert.equal(currentTaskOf(root), null);
       }
     }
+  });
+
+  it('requires an approved spec quiz that still matches the spec and plan', async () => {
+    const start = async (mutate) => {
+      const { root } = repo();
+      const task = addTask(root, 'First');
+      fillTask(root, task);
+      mutate(root, task);
+      return cli(root, 'start', '1').then(() => ({ ok: true, root }), (e) => ({ ok: false, message: e.message, root }));
+    };
+    const unapproved = await start((root, task) => write(root, task.path, read(root, task.path).replace(/^Approval: .*$/m, 'Approval: TODO')));
+    assert.match(unapproved.message, /spec quiz/);
+    assert.equal(currentTaskOf(unapproved.root), null);
+    const stale = await start((root) => write(root, SPEC, `${read(root, SPEC)}\nAccounts are locked after 5 failures.\n`));
+    assert.match(stale.message, /changed after/);
+    const other = await start((root) => write(root, QUIZ, read(root, QUIZ).replace(/^Plan: .*$/m, 'Plan: docs/superpowers/plans/other.md')));
+    assert.match(other.message, /different spec or plan|does not exist/);
+    const legacy = await start((root, task) => write(root, task.path, read(root, task.path).replace(/^Approval: .*\n/m, '')));
+    assert.ok(legacy.ok, 'notes written before approvals existed are not gated');
+    assert.ok((await start(() => {})).ok);
   });
 
   it('requires existing spec and plan links before task start', async () => {

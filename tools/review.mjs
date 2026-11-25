@@ -177,7 +177,7 @@ export async function reviewTask(root, task, { tests = null, recorded = '' } = {
   if (scopeGlobs.length) {
     const inScope = globMatcher(scopeGlobs);
     // The spec and plan the task links are part of its work wherever they live.
-    const designDocs = new Set([...task.text.matchAll(/^(?:Spec|Plan):[ \t]*(\S+)/gm)].map((m) => m[1]));
+    const designDocs = new Set([...task.text.matchAll(/^(?:Spec|Plan|Approval):[ \t]*(\S+)/gm)].map((m) => m[1]));
     const outside = files.filter((f) => !inScope(f) && !designDocs.has(f));
     if (outside.length) findings.push(`changes outside the task's scope (${scopeGlobs.join(', ')}): ${outside.join(', ')}`);
   } else {

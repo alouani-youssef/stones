@@ -146,8 +146,9 @@ exits with an error when the generated file is out of date.
 
 Depending on the selected skills, the setup can include tools to inspect
 dependencies, review worktree history, store Git comments, run project quality
-checks, draft pull requests, manage a roadmap, synchronize documentation and
-track tasks. For example, the dependency listing tool reads manifests without
+checks, draft pull requests, manage a roadmap, synchronize documentation,
+track tasks, and quiz you on a spec before implementation starts
+(`spec-quiz.mjs`, used by the `confirming-specs` skill). For example, the dependency listing tool reads manifests without
 installing packages:
 
 ```sh

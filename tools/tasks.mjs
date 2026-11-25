@@ -24,6 +24,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { reviewTask } from './review.mjs';
+import { quizStatus } from './spec-quiz.mjs';
 
 export const TASKS_DIR = 'context/tasks';
 export const LIST_DIR = `${TASKS_DIR}/list`;
@@ -72,6 +73,7 @@ TODO: Describe the test levels and checks that give confidence for this task.
 
 Spec: TODO: the spec written with superpowers:brainstorming (docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md)
 Plan: TODO: the plan written with superpowers:writing-plans (docs/superpowers/plans/YYYY-MM-DD-<feature>.md)
+Approval: TODO: the spec quiz the user answered (docs/superpowers/approvals/<topic>.md; see the confirming-specs skill)
 
 ## Notes
 `;
@@ -340,6 +342,34 @@ export function validateTaskReadiness(root, task) {
   validateTestSections(task.text, 'task note', task);
   linkedDocument(root, task, 'Spec', 'docs/superpowers/specs/', 'superpowers:brainstorming');
   linkedDocument(root, task, 'Plan', 'docs/superpowers/plans/', 'superpowers:writing-plans');
+  validateApproval(root, task);
+}
+
+// Notes with an Approval: line (every note `add` writes) need the user to have
+// answered the spec quiz for the linked spec and plan, and neither to have
+// changed since. Older notes without the line are not gated.
+function validateApproval(root, task) {
+  const links = markdownSection(task.text, 'Spec and plan');
+  const line = /^Approval:[ \t]*(.*)$/m.exec(links);
+  if (!line) return;
+  const path = line[1].trim();
+  const how = 'ask the user the spec quiz (confirming-specs skill) and run `node .claude/tools/spec-quiz.mjs approve <quiz>`';
+  if (!path || PLACEHOLDER.test(path)) fail(`${task.id} is not ready to start: ${how}, then link it as Approval: in ${task.path}.`);
+  const rel = relative(realpathSync(root), resolve(realpathSync(root), path));
+  if (isAbsolute(path) || rel === '..' || rel.startsWith(`..${sep}`) || !existsSync(join(root, path))) {
+    fail(`${task.id} is not ready to start: ${path} does not exist inside the project; ${how}.`);
+  }
+  let status;
+  try {
+    status = quizStatus(root, path);
+  } catch (e) {
+    fail(`${task.id} is not ready to start: ${e.message}`);
+  }
+  const linked = (label) => new RegExp(`^${label}:[ \\t]*(.*)$`, 'm').exec(links)?.[1].trim();
+  if (status.spec !== linked('Spec') || (status.plan ?? undefined) !== linked('Plan')) {
+    fail(`${task.id} is not ready to start: ${path} approves a different spec or plan than ${task.path} links.`);
+  }
+  if (!status.approved) fail(`${task.id} is not ready to start: ${status.reason}.`);
 }
 
 export function startTask(root, ref) {

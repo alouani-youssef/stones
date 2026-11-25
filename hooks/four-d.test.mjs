@@ -218,7 +218,9 @@ function contextProject() {
     .replace('TODO: Describe the test levels and checks that give confidence for this task.', 'Use unit tests for task context formatting and hook integration tests for prompt injection.')
     .replace('- Case: TODO: describe an input or condition. Expected: TODO: describe the observable result.', '- Case: the current task has a title. Expected: the prompt context includes that title.')
     .replace(/^Spec: .*$/m, `Spec: ${spec}`)
-    .replace(/^Plan: .*$/m, `Plan: ${plan}`);
+    .replace(/^Plan: .*$/m, `Plan: ${plan}`)
+    // Spec approval has its own tests; a note without the line is not gated.
+    .replace(/^Approval: .*\n/m, '');
   writeFileSync(file, note);
   mkdirSync(join(root, 'docs/superpowers/specs'), { recursive: true });
   mkdirSync(join(root, 'docs/superpowers/plans'), { recursive: true });
