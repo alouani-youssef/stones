@@ -71,6 +71,12 @@ preview the planned changes without writing files.
 
 ## Why use ai-stones
 
+- **No slop, by default.** The `anti-slop` skill is a core stone, installed
+  in every setup and linked from `AGENT.md`. It holds every change to one
+  rule: each line of code, test, comment and prose must earn its place, and
+  nothing is reported done without evidence. That rules out narrating
+  comments, guards for impossible states, speculative abstractions, tests that
+  cannot fail, filler prose and unverified claims.
 - **Relevant context, loaded when needed.** `CLAUDE.md` imports a short
   `AGENT.md` brief. Guides are installed as Claude Code skills, so their full
   instructions load when a task matches.

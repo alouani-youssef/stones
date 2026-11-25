@@ -375,6 +375,21 @@ describe('skills', () => {
     assert.ok(!answers.install.skills.includes('writing-tests'), 'deselected guides stay deselected');
     assert.deepEqual(answers.patterns, ['repository-pattern']);
   });
+
+  it('installs the anti-slop core skill in every setup and links it from AGENT.md', async () => {
+    assert.ok(skills.find((s) => s.id === 'anti-slop')?.core, 'anti-slop is a core skill');
+    const root = nextApp();
+    const { answers } = await runInit(root, { 'install.skills': ['writing-tests'] });
+    assert.ok(answers.install.skills.includes('anti-slop'), 'kept when the user picks other skills');
+    assert.ok(existsSync(join(root, '.claude/skills/anti-slop/SKILL.md')));
+    assert.match(read(root, 'AGENT.md'), /No slop: .*\(\.claude\/skills\/anti-slop\/SKILL\.md\)/);
+
+    const manifest = loadManifest(root);
+    manifest.answers.install.skills = ['writing-tests'];
+    writeFileSync(join(root, '.claude/stones.json'), JSON.stringify(manifest));
+    const rerun = await runInit(root);
+    assert.ok(rerun.answers.install.skills.includes('anti-slop'), 'added to answers saved before it existed');
+  });
 });
 
 describe('AGENT.md', () => {

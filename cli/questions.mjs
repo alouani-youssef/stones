@@ -126,13 +126,17 @@ export async function interview(ask, stack, previous = {}) {
     })),
     p('install.hooks', defaultHooks),
   );
-  const guideSkills = skills.filter((s) => !s.pattern);
-  const selectedSkills = await ask.multi(
+  // Core skills are part of every setup, so they are not offered for deselection.
+  const coreSkills = skills.filter((s) => s.core).map((s) => s.id);
+  const guideSkills = skills.filter((s) => !s.pattern && !s.core);
+  if (coreSkills.length) ask.note(`Core skills (always installed): ${list(skills.filter((s) => s.core).map((s) => s.title))}`);
+  const chosenSkills = await ask.multi(
     'install.skills',
     'Skills to install in .claude/skills (Claude loads one only when its task comes up)',
     guideSkills.map((s) => ({ value: s.id, label: s.title, hint: s.lead })),
-    previousSkills(previous, guideSkills, stack),
+    previousSkills(previous, guideSkills, stack).filter((id) => !coreSkills.includes(id)),
   );
+  const selectedSkills = [...new Set([...coreSkills, ...chosenSkills])];
   const selectedPlugins = plugins.length
     ? await ask.multi(
       'install.plugins',

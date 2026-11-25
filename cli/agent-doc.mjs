@@ -56,6 +56,7 @@ function renderConventions(answers, stack, { has, doc }) {
     : 'Commits use a short imperative summary line.';
 
   return bullets([
+    doc('anti-slop') && `No slop: every line of code, test, comment and prose must earn its place, and nothing is reported done without evidence. Apply ${docLink(doc('anti-slop'))} to every change.`,
     commitMsg,
     has('naming') && `File names follow the project's existing style per language; the naming hook rejects others${docSuffix(doc('naming-files'))}.`,
     has('format') && stack.formatters.length && `Formatting is applied after every edit with ${stack.formatters.join(', ')}; do not hand-format.`,

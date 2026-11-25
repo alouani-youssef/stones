@@ -1,4 +1,4 @@
-# Verification
+e# Verification
 
 Verification is producing evidence for a specific claim. The rule that matters: **the evidence must be capable of failing if the claim is false.**
 
@@ -11,15 +11,15 @@ Tests verify. Validation needs a person: a demo, a review of the spec, a check w
 
 ## Claims and the evidence they need
 
-| Claim | Minimum evidence | Not enough |
-| --- | --- | --- |
-| "This function computes X correctly" | Unit tests over typical, boundary and invalid inputs against a known oracle | One happy-path example |
-| "The bug is fixed" | A test or script that reproduced the bug, failed before the fix and passes after | The new code "looks right"; the old symptom just isn't visible locally |
-| "It persists correctly" | Integration test against the real database engine (container or test instance) | Unit test with the repository mocked |
-| "The user can do Y" | E2E or a manual run of the actual flow, with the observed result stated | Unit tests of each piece |
-| "Nothing else broke" | The affected area's suite plus typecheck and lint, as CI runs them | Only the new test |
-| "It's fast enough" | A measurement with input size, environment and number stated | "It's O(n)" |
-| "It handles failure Z" | A test that injects Z (timeout, 5xx, partial write) and asserts the promised behavior | A try/catch existing in the code |
+| Claim                                | Minimum evidence                                                                      | Not enough                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| "This function computes X correctly" | Unit tests over typical, boundary and invalid inputs against a known oracle           | One happy-path example                                                 |
+| "The bug is fixed"                   | A test or script that reproduced the bug, failed before the fix and passes after      | The new code "looks right"; the old symptom just isn't visible locally |
+| "It persists correctly"              | Integration test against the real database engine (container or test instance)        | Unit test with the repository mocked                                   |
+| "The user can do Y"                  | E2E or a manual run of the actual flow, with the observed result stated               | Unit tests of each piece                                               |
+| "Nothing else broke"                 | The affected area's suite plus typecheck and lint, as CI runs them                    | Only the new test                                                      |
+| "It's fast enough"                   | A measurement with input size, environment and number stated                          | "It's O(n)"                                                            |
+| "It handles failure Z"               | A test that injects Z (timeout, 5xx, partial write) and asserts the promised behavior | A try/catch existing in the code                                       |
 
 Pick the cheapest row that actually covers the claim. If you can't produce the evidence, narrow the claim.
 
@@ -59,7 +59,7 @@ Say what you showed, at what level, and what you didn't check:
 
 > Added `parseDuration` with 9 unit tests (boundaries: empty, `0s`, max int, unknown unit); verified red before implementing. Ran `npm test -- duration`: 9 passed. Full suite and typecheck pass. Not verified: behavior under non-English locale (no test env for it).
 
-Keep these claims apart: *written* ≠ *ran* ≠ *passed* ≠ *passed in CI*. A local pass is evidence for that environment only. If something failed or was skipped, say so with the output.
+Keep these claims apart: _written_ ≠ _ran_ ≠ _passed_ ≠ _passed in CI_. A local pass is evidence for that environment only. If something failed or was skipped, say so with the output.
 
 ## Common mistakes
 

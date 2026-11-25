@@ -109,6 +109,7 @@ const filesUnder = (dir, rel = '') => readdirSync(join(dir, rel), { withFileType
 // Every `skills/<name>/SKILL.md`, installed as a Claude Code project skill in
 // `.claude/skills/<name>/`. Folders without a SKILL.md are drafts and skipped.
 // `metadata.kind: pattern` marks design-pattern skills, offered per stack.
+// `metadata.core: true` marks core skills, installed in every setup.
 export function skillCatalog(root = PACKAGE_ROOT) {
   const skillsRoot = join(root, 'skills');
   if (!existsSync(skillsRoot)) return [];
@@ -125,6 +126,7 @@ export function skillCatalog(root = PACKAGE_ROOT) {
       main: `${d.name}/SKILL.md`,
       files: filesUnder(join(skillsRoot, d.name)).sort().map((f) => `${d.name}/${f}`),
       pattern: fm.metadata.kind === 'pattern',
+      core: fm.metadata.core === 'true',
       // `metadata.frameworks: FastAPI, Pydantic` limits the default selection to those stacks.
       frameworks: (fm.metadata.frameworks ?? '').split(',').map((f) => f.trim()).filter(Boolean),
     });
