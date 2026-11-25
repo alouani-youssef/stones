@@ -390,6 +390,35 @@ describe('skills', () => {
     const rerun = await runInit(root);
     assert.ok(rerun.answers.install.skills.includes('anti-slop'), 'added to answers saved before it existed');
   });
+
+  it('ships git-hooks as a core skill with templates', () => {
+    const skill = skills.find((s) => s.id === 'git-hooks');
+    assert.ok(skill?.core, 'git-hooks is a core skill');
+    for (const f of ['templates/githooks/pre-commit', 'templates/githooks/pre-push', 'templates/githooks/commit-msg', 'templates/lefthook/node.yml', 'templates/lefthook/python.yml', 'templates/lefthook/go.yml']) {
+      assert.ok(skill.files.includes(`git-hooks/${f}`), f);
+    }
+  });
+
+  it('runs the hook templates: staged files formatted and re-staged, commit messages checked', () => {
+    const templates = join(PACKAGE_ROOT, 'skills/git-hooks/templates/githooks');
+    const root = project({ 'a.txt': 'x\n' });
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['add', 'a.txt'], { cwd: root });
+    const hook = readFileSync(join(templates, 'pre-commit'), 'utf8').replace('FORMAT_CMD=""', 'FORMAT_CMD="sed -i.bak s/x/y/"');
+    writeFileSync(join(root, 'pre-commit'), hook);
+    const run = spawnSync('bash', ['pre-commit'], { cwd: root, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(execFileSync('git', ['show', ':a.txt'], { cwd: root, encoding: 'utf8' }), 'y\n', 'formatted file re-staged');
+
+    const msg = (text) => {
+      writeFileSync(join(root, 'MSG'), text);
+      return spawnSync('bash', [join(templates, 'commit-msg'), 'MSG'], { cwd: root, encoding: 'utf8' }).status;
+    };
+    assert.equal(msg('feat(cli): add github setup\n'), 0);
+    assert.equal(msg('fix!: drop node 20\n'), 0);
+    assert.equal(msg('Merge branch main\n'), 0);
+    assert.notEqual(msg('added stuff\n'), 0);
+  });
 });
 
 describe('AGENT.md', () => {

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pre-push: typecheck, then the test suite, before anything leaves the machine.
+# Fill the commands with the project's own; an empty command skips that step.
+set -euo pipefail
+
+TYPECHECK_CMD=""   # e.g. npm run typecheck | mypy . | go vet ./...
+TEST_CMD=""        # e.g. npm test | pytest | go test ./...
+
+for cmd in "$TYPECHECK_CMD" "$TEST_CMD"; do
+  [ -z "$cmd" ] && continue
+  echo "pre-push: $cmd"
+  # shellcheck disable=SC2086 # the command is intentionally word-split
+  $cmd
+done

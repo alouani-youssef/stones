@@ -1,0 +1,22 @@
+# lefthook.yml for a Go module. Swap go vet for golangci-lint when the
+# project uses it.
+pre-commit:
+  parallel: false
+  jobs:
+    - name: format
+      glob: "*.go"
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.go"
+      run: go vet ./...
+
+commit-msg:
+  jobs:
+    - name: conventional commits
+      run: .githooks/commit-msg {1}
+
+pre-push:
+  jobs:
+    - name: test
+      run: go test ./...

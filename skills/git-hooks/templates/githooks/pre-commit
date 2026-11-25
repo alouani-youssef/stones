@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# pre-commit: format, then lint, the staged files. Formatted files are re-staged.
+# Fill the commands with the project's own; an empty command skips that step.
+# Each command gets the staged file paths as arguments.
+set -euo pipefail
+
+FORMAT_CMD=""   # e.g. npx prettier --write | ruff format | gofmt -w
+LINT_CMD=""     # e.g. npx eslint | ruff check | go vet
+
+# A while-read loop rather than mapfile, which macOS's bash 3.2 lacks.
+files=()
+while IFS= read -r file; do files+=("$file"); done < <(git diff --cached --name-only --diff-filter=ACMR)
+[ "${#files[@]}" -eq 0 ] && exit 0
+
+if [ -n "$FORMAT_CMD" ]; then
+  echo "pre-commit: $FORMAT_CMD"
+  # shellcheck disable=SC2086 # the command is intentionally word-split
+  $FORMAT_CMD "${files[@]}"
+  git add -- "${files[@]}"
+fi
+
+if [ -n "$LINT_CMD" ]; then
+  echo "pre-commit: $LINT_CMD"
+  # shellcheck disable=SC2086
+  $LINT_CMD "${files[@]}"
+fi

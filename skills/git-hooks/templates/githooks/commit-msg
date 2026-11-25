@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# commit-msg: require Conventional Commits (type(scope)!: summary).
+# Install only when the project uses Conventional Commits.
+set -euo pipefail
+
+TYPES="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
+first_line="$(head -n 1 "$1")"
+
+# Merge, revert and fixup commits written by git itself are allowed.
+case "$first_line" in
+  Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;;
+esac
+
+if ! printf '%s\n' "$first_line" | grep -Eq "^($TYPES)(\([a-z0-9._/-]+\))?!?: .+"; then
+  echo "commit-msg: \"$first_line\" is not a Conventional Commit." >&2
+  echo "commit-msg: expected <type>(<scope>): <summary>, with type one of ${TYPES//|/, }" >&2
+  exit 1
+fi

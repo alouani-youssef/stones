@@ -1,0 +1,24 @@
+# lefthook.yml for a Python project. Prefix commands with `uv run` or
+# `poetry run` when the project uses them; drop jobs it has no tool for.
+pre-commit:
+  parallel: false
+  jobs:
+    - name: format
+      glob: "*.py"
+      run: ruff format {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.py"
+      run: ruff check {staged_files}
+
+commit-msg:
+  jobs:
+    - name: conventional commits
+      run: .githooks/commit-msg {1}
+
+pre-push:
+  jobs:
+    - name: typecheck
+      run: mypy .
+    - name: test
+      run: pytest

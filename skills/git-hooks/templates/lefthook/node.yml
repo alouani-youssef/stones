@@ -1,0 +1,24 @@
+# lefthook.yml for a Node project. Replace the commands with the project's
+# own scripts and drop any job the project has no command for.
+pre-commit:
+  parallel: false
+  jobs:
+    - name: format
+      glob: "*.{js,mjs,cjs,ts,tsx,jsx,json,css,md,yml,yaml}"
+      run: npx prettier --write {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.{js,mjs,cjs,ts,tsx,jsx}"
+      run: npx eslint {staged_files}
+
+commit-msg:
+  jobs:
+    - name: conventional commits
+      run: .githooks/commit-msg {1}
+
+pre-push:
+  jobs:
+    - name: typecheck
+      run: npm run typecheck
+    - name: test
+      run: npm test
