@@ -11,6 +11,8 @@ metadata:
 
 Complexity describes how the work or resources required by an algorithm change as its input grows. It helps compare approaches and anticipate bottlenecks; it does not replace measurements of the real application.
 
+To measure a codebase rather than reason about one function — cyclomatic complexity, `cc_mean`, nesting depth, lines per symbol, dependency graph entropy, violation percentage and a combined complexity index — use `measuring-complexity`.
+
 ## Cognitive complexity
 
 Cognitive complexity is about how difficult code is for a person to follow. Deep nesting, many branches, implicit state changes, and long functions increase the mental work needed to understand a path. Splitting code into small named operations, using guard clauses, and making state explicit can help.

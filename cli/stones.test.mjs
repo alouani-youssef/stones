@@ -17,6 +17,7 @@ import { interview, suggestedPatterns } from './questions.mjs';
 import { roadmapPrompt } from './roadmap.mjs';
 import { commandRule, composeSettings, mergeSettings } from './settings.mjs';
 import { PassThrough } from 'node:stream';
+import { complexityIndex, computeMetrics, dependencyEntropy, edgesFromGraph, report } from '../skills/measuring-complexity/complexity-score.mjs';
 
 function project(files = {}) {
   const root = mkdtempSync(join(tmpdir(), 'stones-'));
@@ -881,5 +882,50 @@ describe('hook libraries', () => {
         assert.ok(existsSync(join(PACKAGE_ROOT, 'hooks', rel)), `${hook.file} -> ${rel}`);
       }
     }
+  });
+});
+
+describe('complexity score', () => {
+  it('computes normalized dependency entropy from internal import edges', () => {
+    const g = dependencyEntropy([['a', 'core'], ['b', 'core'], ['c', 'core'], ['c', 'b'], ['c', 'b'], ['a', 'a']]);
+    assert.equal(g.edges, 4, 'duplicates and self-imports are dropped');
+    assert.equal(g.nodes, 4);
+    assert.ok(Math.abs(g.entropy - 0.8113) < 1e-3);
+    assert.ok(Math.abs(g.normalized - 0.4056) < 1e-3);
+    assert.equal(dependencyEntropy([]).normalized, 0);
+    assert.deepEqual(edgesFromGraph({ files: { 'a.ts': { imports: ['b.ts'] }, 'b.ts': { imports: [] } } }), [['a.ts', 'b.ts']]);
+  });
+
+  it('derives the metric set from per-function data', () => {
+    const { metrics, violations } = computeMetrics({
+      functions: [{ name: 'f', cc: 2, nesting: 1, loc: 10 }, { name: 'g', cc: 12, nesting: 2, loc: 20 }, { name: 'h', cc: 1, nesting: 5, loc: 5 }, { name: 'k', cc: 1, nesting: 0, loc: 5 }],
+      symbols: 5,
+    });
+    assert.equal(metrics.cc_mean, 4);
+    assert.equal(metrics.cc_max, 12);
+    assert.equal(metrics.max_nesting_depth, 5);
+    assert.equal(metrics.lines_per_symbol, 8);
+    assert.equal(metrics.violation_pct, 50, 'g breaks cc, h breaks nesting');
+    assert.deepEqual(violations.map((v) => v.name), ['g', 'h']);
+    assert.equal(metrics.graph_dependency_entropy, null, 'no edges, not measured');
+  });
+
+  it('scores only measured metrics and grades the index', () => {
+    const clean = complexityIndex({ cc_mean: 2, max_nesting_depth: 2, lines_per_symbol: 10, graph_dependency_entropy: 0.3, violation_pct: 0 });
+    assert.equal(clean.index, 0);
+    assert.equal(clean.grade, 'A');
+    const worst = complexityIndex({ cc_mean: 30, violation_pct: 90 });
+    assert.equal(worst.index, 100);
+    assert.equal(worst.grade, 'E');
+    assert.ok(Math.abs(worst.coverage - 0.55) < 1e-9);
+    assert.equal(complexityIndex({ cc_mean: 7 }).index, 50, 'halfway between good and limit');
+    assert.equal(complexityIndex({}).index, null);
+  });
+
+  it('reports deltas against a baseline', () => {
+    const r = report({ metrics: { cc_mean: 5, violation_pct: 10 } }, { index: 40, metrics: { cc_mean: 6, violation_pct: 10 } });
+    assert.equal(r.delta.cc_mean, -1);
+    assert.equal(r.delta.violation_pct, 0);
+    assert.ok(Number.isFinite(r.delta.index));
   });
 });
