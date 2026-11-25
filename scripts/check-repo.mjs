@@ -70,7 +70,8 @@ const SECRETS = [
 
 // Machine-specific paths leak a developer's home or temp folders.
 // (/home/<user> is left out: container files legitimately use /home/node.)
-const LOCAL_PATH = /(?:\/Users\/[a-z0-9._-]+\/|private\/tmp\/claude-)/i;
+// Case-sensitive: macOS homes are /Users/<name>/, while api/v0/users/… is ordinary code.
+const LOCAL_PATH = /(?:\/Users\/[A-Za-z0-9._-]+\/|private\/tmp\/claude-)/;
 
 // Test fixtures may hold fake secrets on purpose; design notes may quote paths.
 const SECRET_EXEMPT = /(\.test\.mjs$|^scripts\/check-repo\.mjs$)/;
