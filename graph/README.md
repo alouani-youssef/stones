@@ -1,7 +1,7 @@
 # Code Graph
 
 A map of the codebase that Claude reads before it reads code. It applies the
-[summary-details pattern](../docs/patterns/summary-details/REAMDE.md) to the
+[summary-details pattern](../../.claude/skills/summary-details-responses/SKILL.md) to the
 project itself:
 
 | Layer   | Where                                    | Written by                 |
