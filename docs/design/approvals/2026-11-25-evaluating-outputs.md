@@ -1,7 +1,7 @@
 # Spec check: Evaluating Outputs Design
 
-Spec: docs/superpowers/specs/2026-11-25-evaluating-outputs-design.md
-Plan: docs/superpowers/plans/2026-11-25-evaluating-outputs.md
+Spec: docs/design/2026-11-25-evaluating-outputs-design.md
+Plan: docs/design/plans/2026-11-25-evaluating-outputs.md
 Approved: 2026-11-25 · 3/4 matched the spec, 1 resolved · sha256:5a5e0d1fc474358d
 
 ## A `security` dimension is added to the registry while task 0007 is in progress with an approved plan. What happens to 0007?

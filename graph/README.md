@@ -6,8 +6,8 @@ project itself:
 
 | Layer   | Where                                    | Written by                 |
 | ------- | ---------------------------------------- | -------------------------- |
-| Summary | `openspec/specs/<capability>/files.md`   | Claude, when the hook asks |
-| Facts   | `.claude/graph/project.json`             | `graph.mjs`, automatically |
+| Summary | `docs/specs/<capability>/files.md`   | Claude, when the hook asks |
+| Facts   | `docs/graph/project.json`             | `graph.mjs`, automatically |
 | Details | the source file                          | you and Claude             |
 
 When Claude opens a file, the hook gives it the file's purpose, the
@@ -21,7 +21,7 @@ sequenceDiagram
     participant C as Claude
     participant H as graph.mjs
     participant G as project.json
-    participant S as openspec/specs
+    participant S as docs/specs
 
     C->>H: Read src/auth/session.ts
     H->>G: load graph (build it on first use)
@@ -43,7 +43,7 @@ The hook adds a block like this to Claude's context:
 
 ```
 [graph] src/auth/session.ts
-Capability: auth (openspec/specs/auth/spec.md) — Sign-in and sessions.
+Capability: auth (docs/specs/auth/spec.md) — Sign-in and sessions.
 Summary: Creates and validates user sessions.
 Exports: createSession, validateSession
 Imports: src/db/client.ts
@@ -76,15 +76,15 @@ Rewording a summary marks it current again.
 
 ## Writing summaries
 
-Each capability keeps its file summaries in `files.md` next to its OpenSpec
-`spec.md`. They are kept out of `spec.md` so `openspec validate` is not
-affected.
+Each capability keeps its file summaries in `files.md` next to its
+`spec.md`, so the spec stays about behavior. `docs/specs/changes/` holds
+proposed changes and is not read as a capability.
 
 ```
-openspec/
+docs/
 └── specs/
     ├── auth/
-    │   ├── spec.md      # Purpose + Requirements (OpenSpec)
+    │   ├── spec.md      # Purpose + Requirements
     │   └── files.md     # file summaries (code graph)
     └── billing/
         ├── spec.md
@@ -122,7 +122,7 @@ the meaning.
 
 ## The graph file
 
-`.claude/graph/project.json` is generated and updated by the hooks. Do not
+`docs/graph/project.json` is generated and updated by the hooks. Do not
 edit it by hand; it is safe to delete, and it is rebuilt on the next read.
 Add it to `.gitignore` in projects that use it.
 
@@ -147,8 +147,8 @@ After a build it looks like this:
   "complete": true,
   "capabilities": {
     "auth": {
-      "spec": "openspec/specs/auth/spec.md",
-      "files": "openspec/specs/auth/files.md",
+      "spec": "docs/specs/auth/spec.md",
+      "files": "docs/specs/auth/files.md",
       "purpose": "Sign-in and sessions."
     }
   },

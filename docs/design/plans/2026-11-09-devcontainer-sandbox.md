@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node ≥ 22.13 ESM, `node:test`, no new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-11-09-devcontainer-sandbox-design.md`
+**Spec:** `docs/design/2026-11-09-devcontainer-sandbox-design.md`
 
 ## Global Constraints
 

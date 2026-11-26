@@ -75,7 +75,8 @@ function renderWorkflow(answers, stack, { doc }) {
     : '';
 
   const workflowBullets = bullets([
-    branching && `Branching: ${branching.label} — ${branching.hint}; default branch \`${stack.defaultBranch}\`.`,
+    'Project docs live in `docs/`: `specs/` (capabilities; `specs/changes/` for proposals), `tasks/`, `graph/`, `decisions/`, `design/` and `logs/`. Save superpowers design specs to `docs/design/`, plans to `docs/design/plans/` and approvals to `docs/design/approvals/`, never `docs/superpowers/`.',
+    branching &&`Branching: ${branching.label} — ${branching.hint}; default branch \`${stack.defaultBranch}\`.`,
     answers.workflow.tdd && `Work test-first: write a failing test, make it pass, refactor${docSuffix(doc('test-first-development'))}.`,
     doc('writing-tests') && `Testing strategy: ${docLink(doc('writing-tests'))}.`,
     doc('creating-branches') && `Branches: ${docLink(doc('creating-branches'))}.`,
@@ -106,7 +107,7 @@ function renderGuardrails(answers, stack, { has, doc, hooks }) {
     ...hookBullets,
     has('atomicity') && `Danger zones (db, packages, network) go on their own \`db/\`, \`deps/\`, \`net/\` branch and PR with a spec in \`.claude/danger/\`; never mix them with other changes; generate migrations with \`${migrationGen}\`${docSuffix(doc('atomic-changes'))}.`,
     answers.install.devcontainer && `Dev container: .devcontainer/ (\`${answers.install.devcontainer}\`). Edit .devcontainer/Dockerfile only — devcontainer.json is generated from it.`,
-    has('graph') && 'When the graph hook asks for a file summary, add it to the OpenSpec `files.md` it names (see `.claude/graph/README.md`).',
+    has('graph') && 'When the graph hook asks for a file summary, add it to the `files.md` under `docs/specs/` it names (see `docs/graph/README.md`).',
     answers.guardrails.notes,
   ]) || '_None yet._';
 }

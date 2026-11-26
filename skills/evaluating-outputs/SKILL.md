@@ -70,7 +70,7 @@ Each guide gives, per KPI, why it and its default threshold were chosen, the mea
    node .claude/tools/evaluation.mjs sign <task-id|plan.md> <kpi-id> pass|fail --note "<their words>"
    ```
 
-6. **Score.** `node .claude/tools/evaluation.mjs score <task-id|plan.md>` writes the scorecard: `context/tasks/evaluations/<id>.md` for a task (with the records in `<id>.json`, both committed), or `<plan>.eval.md` next to the plan. On the task board, `done` scores again and refuses unless the verdict is PASS; `review` reports anything else as a finding.
+6. **Score.** `node .claude/tools/evaluation.mjs score <task-id|plan.md>` writes the scorecard: `docs/tasks/evaluations/<id>.md` for a task (with the records in `<id>.json`, both committed), or `<plan>.eval.md` next to the plan. On the task board, `done` scores again and refuses unless the verdict is PASS; `review` reports anything else as a finding.
 
 ## Rules
 

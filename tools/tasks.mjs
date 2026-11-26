@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Task board for Claude Code projects.
 //
-//   context/tasks/list/NNNN-slug.md   one file per task: goal, scenarios, scope,
+//   docs/tasks/list/NNNN-slug.md   one file per task: goal, scenarios, scope,
 //                                     and its state (Status, Blocked, Result)
-//   context/tasks/state/current.md    the board, written from the notes:
-//   context/tasks/state/next.md         the task in progress, the queue (in
-//   context/tasks/state/blocked.md      order; reorder it by moving lines),
-//   context/tasks/state/done.md         blocked tasks, finished tasks
+//   docs/tasks/state/current.md    the board, written from the notes:
+//   docs/tasks/state/next.md         the task in progress, the queue (in
+//   docs/tasks/state/blocked.md      order; reorder it by moving lines),
+//   docs/tasks/state/done.md         blocked tasks, finished tasks
 //
 // The notes are the source of truth and are committed: every command changes
 // the note of the task it acts on, then rewrites the state files from the
@@ -28,10 +28,10 @@ import { checkPlan, scoreTarget } from './evaluation.mjs';
 import { reviewTask } from './review.mjs';
 import { quizStatus } from './spec-quiz.mjs';
 
-export const TASKS_DIR = 'context/tasks';
+export const TASKS_DIR = 'docs/tasks';
 export const LIST_DIR = `${TASKS_DIR}/list`;
 export const STATE_DIR = `${TASKS_DIR}/state`;
-export const REVIEWS_DIR = '.claude/reviews';
+export const REVIEWS_DIR = 'docs/logs/reviews';
 export const STATES = ['current', 'next', 'blocked', 'done'];
 // The state files are rebuilt from the notes, so each checkout keeps its own copy out of git.
 export const STATE_GITIGNORE = `${STATE_DIR}/`;
@@ -74,9 +74,9 @@ TODO: Describe the test levels and checks that give confidence for this task.
 
 ## Spec and plan
 
-Spec: TODO: the spec written with superpowers:brainstorming (docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md)
-Plan: TODO: the plan written with superpowers:writing-plans (docs/superpowers/plans/YYYY-MM-DD-<feature>.md)
-Approval: TODO: the spec quiz the user answered (docs/superpowers/approvals/<topic>.md; see the confirming-specs skill)
+Spec: TODO: the spec written with superpowers:brainstorming (docs/design/YYYY-MM-DD-<topic>-design.md)
+Plan: TODO: the plan written with superpowers:writing-plans (docs/design/plans/YYYY-MM-DD-<feature>.md)
+Approval: TODO: the spec quiz the user answered (docs/design/approvals/<topic>.md; see the confirming-specs skill)
 
 ## Notes
 `;
@@ -308,8 +308,9 @@ function linkedDocument(root, task, label, folder, skill) {
   if (isAbsolute(path) || relativePath === '..' || relativePath.startsWith(`..${sep}`)) {
     fail(`${task.id} is not ready to start: the ${label.toLowerCase()} path must stay inside the project.`);
   }
-  if (!path.startsWith(folder) || !path.endsWith('.md')) {
-    fail(`${task.id} is not ready to start: link the ${label.toLowerCase()} under ${folder} as a Markdown file.`);
+  // Directly in the folder: docs/design/plans/x.md is a plan, not a spec under docs/design/.
+  if (!path.startsWith(folder) || path.slice(folder.length).includes('/') || !path.endsWith('.md')) {
+    fail(`${task.id} is not ready to start: link the ${label.toLowerCase()} directly under ${folder} as a Markdown file.`);
   }
   if (!existsSync(target)) {
     fail(`${task.id} is not ready to start: ${path} does not exist; create the ${label.toLowerCase()} with ${skill}.`);
@@ -343,8 +344,8 @@ export function validateTaskReadiness(root, task) {
     fail(`${task.id} is not ready to start: set ## Contract change to "none" or "behavior changed: <reason>" in ${task.path}.`);
   }
   validateTestSections(task.text, 'task note', task);
-  linkedDocument(root, task, 'Spec', 'docs/superpowers/specs/', 'superpowers:brainstorming');
-  linkedDocument(root, task, 'Plan', 'docs/superpowers/plans/', 'superpowers:writing-plans');
+  linkedDocument(root, task, 'Spec', 'docs/design/', 'superpowers:brainstorming');
+  linkedDocument(root, task, 'Plan', 'docs/design/plans/', 'superpowers:writing-plans');
   validateApproval(root, task);
   validateEvaluation(root, task);
 }

@@ -27,7 +27,7 @@ const HOOK_HINTS = {
   access_guard: 'blocks paths outside the project root, secrets (.env*, private/) and git push',
   'block-rm': 'blocks rm commands',
   naming: 'enforces the project naming convention on new files',
-  graph: 'gives Claude file summaries from OpenSpec and keeps the code graph',
+  graph: 'gives Claude file summaries from docs/specs and keeps the code graph',
   format: 'formats files after edits with the project formatter',
   complexity: 'flags functions an edit pushed over SonarQube\'s cognitive-complexity limit (Python, JS/TS, Go)',
   assumptions: 'blocks writing a plan until the user has confirmed or denied every assumption in its spec',

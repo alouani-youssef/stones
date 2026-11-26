@@ -37,7 +37,7 @@ Then, before invoking `superpowers:writing-plans`:
 4. **New assumptions found while doing this** go in as `Status: open` and get asked too.
 5. **Check**: `node .claude/tools/spec-quiz.mjs assumptions <spec>` prints each assumption and exits 1 while any is open or a denial has no decision.
 
-The assumptions hook enforces this: it blocks writing a plan under `docs/superpowers/plans/` while the plan's spec has an open assumption, has a denial with no decision, or has no `## Assumptions` section. The plan's spec is the one the plan links, else the current task's `Spec:`, else the newest spec. `approve` refuses the quiz for the same reasons.
+The assumptions hook enforces this: it blocks writing a plan under `docs/design/plans/` while the plan's spec has an open assumption, has a denial with no decision, or has no `## Assumptions` section. The plan's spec is the one the plan links, else the current task's `Spec:`, else the newest spec. `approve` refuses the quiz for the same reasons.
 
 Never mark an assumption confirmed yourself, and never mark it confirmed because the user approved the spec as a whole or said "sounds good". Each one needs its own answer.
 
@@ -56,8 +56,8 @@ Skip it only for changes with nothing to misunderstand: typo fixes, mechanical r
 1. **Create the quiz file** next to the docs it checks:
 
    ```sh
-   node .claude/tools/spec-quiz.mjs new docs/superpowers/specs/2026-11-25-login-limits-design.md \
-     --plan docs/superpowers/plans/2026-11-25-login-limits.md
+   node .claude/tools/spec-quiz.mjs new docs/design/2026-11-25-login-limits-design.md \
+     --plan docs/design/plans/2026-11-25-login-limits.md
    ```
 
 2. **Write 3 to 8 questions** (rules below), each with 2 to 4 options and `Expected:` set to the option the spec and plan support.
@@ -67,7 +67,7 @@ Skip it only for changes with nothing to misunderstand: typo fixes, mechanical r
    - The user wants something else → change the spec (and plan) and record `Resolution: spec updated: <what changed>`.
    - The user misread it → explain that decision in one or two sentences, confirm they agree, and record `Resolution: clarified: <what was unclear>`. If several people would have misread it, also make the spec clearer.
 6. **Approve**: `node .claude/tools/spec-quiz.mjs approve <quiz>`. It refuses while a question is unanswered or a mismatch has no resolution, then writes `Approved: <date> · 5/6 matched the spec, 1 resolved · sha256:<hash>`. If the spec changed in step 5, approve after the change. The hash covers the final text.
-7. **Link it** in the task note under `## Spec and plan` as `Approval: docs/superpowers/approvals/<topic>.md`. `tasks.mjs start` refuses to start the task until the quiz is approved, matches the linked spec and plan, and neither has changed since.
+7. **Link it** in the task note under `## Spec and plan` as `Approval: docs/design/approvals/<topic>.md`. `tasks.mjs start` refuses to start the task until the quiz is approved, matches the linked spec and plan, and neither has changed since.
 
 Tell the user the result in one line: how many answers matched, and what changed in the spec because of the others.
 

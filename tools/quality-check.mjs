@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs the project's quality gates — lint, typecheck, test, build — with the
 // commands recorded by `ai-stones init` in .claude/stones.json, and says
-// plainly which passed. The last result is saved to .claude/quality/last.json
+// plainly which passed. The last result is saved to docs/logs/quality/last.json
 // (with the commit it ran on) so create-pr can quote it as verification.
 //
 //   node .claude/tools/quality-check.mjs [--only lint,test] [--skip build] [--fail-fast] [--json]
@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { git, projectRoot } from './git-comments.mjs';
 
 export const STEPS = ['format', 'lint', 'typecheck', 'test', 'build'];
-export const QUALITY_DIR = '.claude/quality';
+export const QUALITY_DIR = 'docs/logs/quality';
 // Formatters rewrite files, so the format step only runs when asked for.
 const OPT_IN = new Set(['format']);
 const TAIL_LINES = 25;

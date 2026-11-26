@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node ≥ 22.13 ESM, `node:test`, bash, GitHub Actions YAML, lefthook YAML.
 
-**Spec:** `docs/superpowers/specs/2026-11-25-github-setup-design.md`
+**Spec:** `docs/design/2026-11-25-github-setup-design.md`
 
 ## Global Constraints
 

@@ -4,7 +4,7 @@
 // that produce the input are listed in SKILL.md.
 //
 //   node complexity-score.mjs metrics.json            score a measurement file
-//   node complexity-score.mjs metrics.json --graph .claude/graph/project.json
+//   node complexity-score.mjs metrics.json --graph docs/graph/project.json
 //   node complexity-score.mjs metrics.json --baseline last.json --json
 //
 // Input (every field optional; precomputed metrics win over raw data):

@@ -205,13 +205,13 @@ function contextProject() {
   roadmap = addDecision(roadmap, 'Keep hooks standalone', 'they are copied into projects', '2026-11-03');
   roadmap = addDecision(roadmap, 'Use node:test for tests', 'built into Node', '2026-11-04');
   writeFileSync(join(root, 'ROADMAP.md'), roadmap);
-  mkdirSync(join(root, 'context', 'decisions'), { recursive: true });
-  writeFileSync(join(root, 'context', 'decisions', '0001-plain-text-logs.md'),
+  mkdirSync(join(root, 'docs', 'decisions'), { recursive: true });
+  writeFileSync(join(root, 'docs', 'decisions', '0001-plain-text-logs.md'),
     '# Logs are plain text\n\nStatus: accepted\n\nThe four-d log is plain text so it can be tailed.\n');
   const task = addTask(root, 'Inject project context', { scope: 'hooks/**' });
   const file = join(root, task.path);
-  const spec = 'docs/superpowers/specs/2026-11-16-inject-project-context-design.md';
-  const plan = 'docs/superpowers/plans/2026-11-16-inject-project-context.md';
+  const spec = 'docs/design/2026-11-16-inject-project-context-design.md';
+  const plan = 'docs/design/plans/2026-11-16-inject-project-context.md';
   const note = readFileSync(file, 'utf8')
     .replace('TODO: Describe the behavior the source should provide.', 'The 4D block lists the current task, roadmap and decisions.')
     .replace('- Scenario: TODO: describe an input or condition. Expected: TODO: describe the observable result.', '- Scenario: a prompt names the current task. Expected: the 4D block includes the task title.')
@@ -222,8 +222,8 @@ function contextProject() {
     // Spec approval has its own tests; a note without the line is not gated.
     .replace(/^Approval: .*\n/m, '');
   writeFileSync(file, note);
-  mkdirSync(join(root, 'docs/superpowers/specs'), { recursive: true });
-  mkdirSync(join(root, 'docs/superpowers/plans'), { recursive: true });
+  mkdirSync(join(root, 'docs/design'), { recursive: true });
+  mkdirSync(join(root, 'docs/design/plans'), { recursive: true });
   const checks = '## Test Strategy\n\nUse focused unit tests and a hook integration test.\n\n## Test Cases\n\n- Case: a task is current. Expected: its title appears in prompt context.\n';
   writeFileSync(join(root, spec), `# Design\n\n${checks}`);
   writeFileSync(join(root, plan), `# Plan\n\n${checks}`);
@@ -298,7 +298,7 @@ describe('hook process', () => {
     const cwd = project();
     const out = JSON.parse(exec(JSON.stringify({ prompt: 'write unit tests for the parser', cwd })));
     assert.equal(out.systemMessage, undefined);
-    assert.equal(existsSync(join(cwd, '.claude', 'four-d.log')), false);
+    assert.equal(existsSync(join(cwd, 'docs', 'logs', 'four-d.log')), false);
   });
 
   it('shows the injected block to the user with "show": true', () => {
@@ -307,12 +307,12 @@ describe('hook process', () => {
     assert.equal(out.systemMessage, out.hookSpecificOutput.additionalContext);
   });
 
-  it('appends each injected block to .claude/four-d.log with "log": true', () => {
+  it('appends each injected block to docs/logs/four-d.log with "log": true', () => {
     const cwd = project({ '.claude/four-d.json': JSON.stringify({ log: true }) });
     exec(JSON.stringify({ prompt: 'write unit tests for the parser', cwd, session_id: 's1' }));
     exec(JSON.stringify({ prompt: 'fix the login bug please', cwd, session_id: 's1' }));
     exec(JSON.stringify({ prompt: 'yes', cwd, session_id: 's1' }));
-    const log = readFileSync(join(cwd, '.claude', 'four-d.log'), 'utf8');
+    const log = readFileSync(join(cwd, 'docs', 'logs', 'four-d.log'), 'utf8');
     assert.equal(log.match(/^=== /gm).length, 2, 'one entry per injection, none for silent prompts');
     assert.match(log, /^=== \d{4}-\d\d-\d\dT[^ ]+ · session s1\nprompt: write unit tests for the parser\n\[4D guardrails\] task: testing/m);
     assert.match(log, /prompt: fix the login bug please\n\[4D guardrails\] task: debugging/);

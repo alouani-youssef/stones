@@ -3,7 +3,7 @@ name: tracking-tasks
 description: Use when starting, resuming, blocking, finishing or reviewing a task, when asked what to work on next or what is in progress, when the testing hook says no task is in progress, or before handing work off for review.
 metadata:
   title: Task Board
-  summary: One file per task in context/tasks/list/ that holds the task's state, a board in context/tasks/state/ rewritten from those notes, and a review package that checks the work against what the task promised.
+  summary: One file per task in docs/tasks/list/ that holds the task's state, a board in docs/tasks/state/ rewritten from those notes, and a review package that checks the work against what the task promised.
 ---
 
 # Task Board
@@ -11,7 +11,7 @@ metadata:
 Tasks live in the repository, next to the code they change:
 
 ```
-context/tasks/
+docs/tasks/
 ├── list/NNNN-slug.md   one task: Status, Branch, Base, Scope, Blocked, Result,
 │                       expected behavior, scenarios, contract change
 └── state/              the board, rebuilt from the notes by every command (git-ignored)
@@ -33,7 +33,7 @@ The notes are the source of truth; each holds its task's state:
 
 Every command changes the note of the task it acts on, then rebuilds
 `state/*.md` from the notes, so the two never disagree. The notes are
-committed; `context/tasks/state/` is in `.gitignore`, so the state files never
+committed; `docs/tasks/state/` is in `.gitignore`, so the state files never
 reach a commit and task branches never conflict over them. After a checkout,
 pull or merge, run `sync` (or any command) to rebuild them; the testing hook
 reads the notes, so it is right even before that. Don't edit the state files
@@ -70,7 +70,7 @@ node .claude/tools/tasks.mjs block 7 "waiting for API keys"
 node .claude/tools/tasks.mjs done 7 [-- <test command>]    # done only if tests pass, then starts the next ready task
 node .claude/tools/tasks.mjs done 7 --no-advance          # done, without starting the next task
 node .claude/tools/tasks.mjs done 7 --no-pr               # done, without writing the PR draft
-node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes .claude/reviews/0007.md
+node .claude/tools/tasks.mjs review 7 [--run-tests]        # writes docs/logs/reviews/0007.md
 node .claude/tools/tasks.mjs sync                          # rewrite state/*.md from the notes, e.g. after a merge
 ```
 
@@ -78,7 +78,7 @@ node .claude/tools/tasks.mjs sync                          # rewrite state/*.md 
 
 1. **Session start:** run `current`. If a task is in progress, continue it; do not start another. Otherwise `next` shows what to pick up.
 2. **Define the task:** run `add`, then complete its note in `list/`: **Expected behavior**, at least one `- Scenario: <condition>. Expected: <outcome>.`, **Contract change** (`none` or `behavior changed: <reason>`), and **Scope** globs. Set **Category** when the output can be measured (`add --category <id>`; `node .claude/tools/evaluation.mjs suggest <spec>` proposes one; see the `evaluating-outputs` skill), else leave `none`. Also fill in **Test Strategy** and at least one **Test Cases** bullet in the format `- Case: <condition>. Expected: <observable outcome>.` Ask the user when expected behavior is unclear.
-3. **Design and plan before starting:** use [`superpowers:brainstorming`](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md) with the task note as input; save the spec under `docs/superpowers/specs/` and link it as `Spec: <path>`. List every decision you made that the user did not state under the spec's `## Assumptions`, and have the user confirm or deny each one before planning (`confirming-specs` skill; the assumptions hook blocks the plan until then). The spec must have non-placeholder `## Test Strategy` and `## Test Cases` sections, with at least one `- Case: <condition>. Expected: <observable outcome>.` bullet. Then use [`superpowers:writing-plans`](https://github.com/obra/superpowers/blob/main/skills/writing-plans/SKILL.md) on the spec; save the plan under `docs/superpowers/plans/` and link it as `Plan: <path>`. The plan must also have non-placeholder `## Test Strategy` and `## Test Cases` sections with expected outcomes, and map cases to test-first implementation and verification steps. For a categorised task, run `node .claude/tools/evaluation.mjs plan <plan> --category <id>` before the quiz; `start` refuses a plan whose `## Evaluation` section is missing, edited by hand, or for another category. Then confirm the user understood and approves them: ask the spec quiz from the `confirming-specs` skill, approve it with `node .claude/tools/spec-quiz.mjs approve <quiz>`, and link it as `Approval: <path>`. **Do not run `start` until the note, spec, plan and approval meet these requirements.**
+3. **Design and plan before starting:** use [`superpowers:brainstorming`](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md) with the task note as input; save the spec under `docs/design/` and link it as `Spec: <path>`. List every decision you made that the user did not state under the spec's `## Assumptions`, and have the user confirm or deny each one before planning (`confirming-specs` skill; the assumptions hook blocks the plan until then). The spec must have non-placeholder `## Test Strategy` and `## Test Cases` sections, with at least one `- Case: <condition>. Expected: <observable outcome>.` bullet. Then use [`superpowers:writing-plans`](https://github.com/obra/superpowers/blob/main/skills/writing-plans/SKILL.md) on the spec; save the plan under `docs/design/plans/` and link it as `Plan: <path>`. The plan must also have non-placeholder `## Test Strategy` and `## Test Cases` sections with expected outcomes, and map cases to test-first implementation and verification steps. For a categorised task, run `node .claude/tools/evaluation.mjs plan <plan> --category <id>` before the quiz; `start` refuses a plan whose `## Evaluation` section is missing, edited by hand, or for another category. Then confirm the user understood and approves them: ask the spec quiz from the `confirming-specs` skill, approve it with `node .claude/tools/spec-quiz.mjs approve <quiz>`, and link it as `Approval: <path>`. **Do not run `start` until the note, spec, plan and approval meet these requirements.**
 4. **Start:** run `start <id>` only after the readiness artifacts exist. The task tool checks the note, links, files, test strategy, cases and, when the note has an `Approval:` line, that the spec quiz is approved and the spec and plan haven't changed since, before changing task status, branch/base metadata, or board state. If validation fails, fix the named item and retry. One task is current at a time; finish or block the current one first. Starting a blocked task applies the same gate and retains its original base. From a terminal, `start` opens a Claude Code session with the note and implementation workflow; inside Claude Code it only updates the board (`--session` forces one, `--no-session` skips it).
 5. **Build and verify:** follow the linked plan with [`superpowers:subagent-driven-development`](https://github.com/obra/superpowers/blob/main/skills/subagent-driven-development/SKILL.md) or [`superpowers:executing-plans`](https://github.com/obra/superpowers/blob/main/skills/executing-plans/SKILL.md), and use [`superpowers:test-driven-development`](https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md) when implementing behavior. Use [`superpowers:verification-before-completion`](https://github.com/obra/superpowers/blob/main/skills/verification-before-completion/SKILL.md) before marking the task done. Keep the board note as the concise contract and status record; the linked spec and plan contain design and execution detail.
 6. **Blocked:** `block <id> "<reason>"` names what it waits on. `start` resumes it later with its original base commit, after readiness validation.
@@ -87,7 +87,7 @@ node .claude/tools/tasks.mjs sync                          # rewrite state/*.md 
 
 ## Reviewing a task
 
-`review` writes one file for the reviewer, `.claude/reviews/<id>.md` (git-ignored): verdict, findings, what the task promised, each scenario with whether a changed test mentions it, commits, files changed with their change kind, and the full diff. It exits 1 when the task is **NOT READY**. Findings:
+`review` writes one file for the reviewer, `docs/logs/reviews/<id>.md` (git-ignored): verdict, findings, what the task promised, each scenario with whether a changed test mentions it, commits, files changed with their change kind, and the full diff. It exits 1 when the task is **NOT READY**. Findings:
 
 | Finding | Fix |
 | --- | --- |

@@ -18,7 +18,7 @@ Nodes are internal modules (files, or packages when files are too fine). Edges a
 
 | Source | Command |
 | --- | --- |
-| Code graph (ai-stones) | `.claude/graph/project.json`: `files[path].imports` are internal edges; pass it with `--graph` |
+| Code graph (ai-stones) | `docs/graph/project.json`: `files[path].imports` are internal edges; pass it with `--graph` |
 | JS / TS | `npx madge --json src/` (object of `file: [imports]`), or `dependency-cruiser --output-type json` |
 | Python | `pydeps src/pkg --show-deps --no-output --only pkg` (JSON of `imports`) |
 | Go | `go list -json ./...`, keep `Imports` that start with the module path |

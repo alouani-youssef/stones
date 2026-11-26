@@ -17,7 +17,7 @@ const note = ({
 function project(activeNote) {
   const root = mkdtempSync(join(tmpdir(), 'testing-hook-'));
   if (activeNote !== undefined) {
-    const file = join(root, 'context/tasks/active.md');
+    const file = join(root, 'docs/tasks/active.md');
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, activeNote);
   }
@@ -37,7 +37,7 @@ describe('testing hook', () => {
   it('blocks a test run when the active task note is missing', () => {
     const result = evaluate(bash('npm test'), { projectDir: project() });
     assert.equal(result.block, true);
-    assert.match(result.reason, /context\/tasks\/active\.md/);
+    assert.match(result.reason, /docs\/tasks\/active\.md/);
   });
 
   it('blocks a test run when a scenario has no expected outcome', () => {
@@ -58,8 +58,8 @@ describe('testing hook', () => {
   });
 
   it('blocks test runs until the spec and plan the note links to exist', () => {
-    const spec = 'docs/superpowers/specs/2026-11-16-tokens-design.md';
-    const plan = 'docs/superpowers/plans/2026-11-16-tokens.md';
+    const spec = 'docs/design/2026-11-16-tokens-design.md';
+    const plan = 'docs/design/plans/2026-11-16-tokens.md';
     const linked = (specLine, planLine) => `${note()}\n## Spec and plan\n\nSpec: ${specLine}\nPlan: ${planLine}\n`;
 
     const placeholder = evaluate(bash('npm test'), { projectDir: project(linked('TODO: superpowers:brainstorming spec', 'TODO: superpowers:writing-plans plan')) });
@@ -69,7 +69,7 @@ describe('testing hook', () => {
     const root = project(linked(spec, plan));
     const missing = evaluate(bash('npm test'), { projectDir: root });
     assert.equal(missing.block, true);
-    assert.match(missing.reason, /docs\/superpowers\/specs\/2026-11-16-tokens-design\.md does not exist/);
+    assert.match(missing.reason, /docs\/design\/2026-11-16-tokens-design\.md does not exist/);
 
     for (const file of [spec, plan]) {
       mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -80,7 +80,7 @@ describe('testing hook', () => {
 
   it('lets the superpowers spec and plan be written before the note is complete', () => {
     const root = project();
-    for (const file of ['docs/superpowers/specs/2026-11-16-tokens-design.md', 'docs/superpowers/plans/2026-11-16-tokens.md']) {
+    for (const file of ['docs/design/2026-11-16-tokens-design.md', 'docs/design/plans/2026-11-16-tokens.md']) {
       assert.deepEqual(evaluate(edit(join(root, file)), { projectDir: root }), { block: false }, file);
     }
     assert.equal(evaluate(edit(join(root, 'docs/specs/tokens.spec.md')), { projectDir: root }).block, true);
@@ -121,8 +121,8 @@ describe('testing hook', () => {
     for (const file of [
       'src/auth/auth.spec.ts',
       'tests/authentication.test.ts',
-      'openspec/specs/authentication/spec.md',
-      'openspec/changes/auth-expiry/specs/authentication/spec.md',
+      'docs/specs/authentication/spec.md',
+      'docs/specs/changes/auth-expiry/specs/authentication/spec.md',
       'src/components/__snapshots__/button.test.tsx.snap',
       'src/components/button.snap',
     ]) {
@@ -143,7 +143,7 @@ describe('testing hook', () => {
   it('allows spec and test edits when an expected behavior change is explained', () => {
     const root = project(note({ contractChange: 'behavior changed: expired tokens must now return 403.' }));
     assert.deepEqual(evaluate(edit('tests/authentication.test.ts'), { projectDir: root }), { block: false });
-    assert.deepEqual(evaluate(edit('openspec/specs/authentication/spec.md'), { projectDir: root }), { block: false });
+    assert.deepEqual(evaluate(edit('docs/specs/authentication/spec.md'), { projectDir: root }), { block: false });
   });
 
   it('does not block ordinary source edits or unrelated shell commands', () => {
@@ -165,6 +165,6 @@ describe('testing hook', () => {
       env: { ...process.env, CLAUDE_PROJECT_DIR: root },
     });
     assert.equal(result.status, 2);
-    assert.match(result.stderr, /Create context\/tasks\/active\.md/);
+    assert.match(result.stderr, /Create docs\/tasks\/active\.md/);
   });
 });

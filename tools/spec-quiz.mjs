@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const QUIZ_DIR = 'docs/superpowers/approvals';
+export const QUIZ_DIR = 'docs/design/approvals';
 export const MIN_QUESTIONS = 3;
 const PLACEHOLDER = /\b(?:TODO|TBD)\b/;
 

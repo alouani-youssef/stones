@@ -52,8 +52,8 @@ function fakeClaude({ code = 0, error } = {}) {
   return { calls, run };
 }
 
-const SPEC = 'docs/superpowers/specs/2026-11-16-login-rate-limit-design.md';
-const PLAN = 'docs/superpowers/plans/2026-11-16-login-rate-limit.md';
+const SPEC = 'docs/design/2026-11-16-login-rate-limit-design.md';
+const PLAN = 'docs/design/plans/2026-11-16-login-rate-limit.md';
 
 function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
   const text = read(root, task.path)
@@ -73,7 +73,7 @@ function fillTask(root, task, { scope = 'src/**, test/**' } = {}) {
   write(root, task.path, read(root, task.path).replace(/^Approval: .*$/m, `Approval: ${QUIZ}`));
 }
 
-const QUIZ = 'docs/superpowers/approvals/2026-11-16-login-rate-limit.md';
+const QUIZ = 'docs/design/approvals/2026-11-16-login-rate-limit.md';
 const question = (n, answer = 'B', resolution = '') => `## Question ${n} about the rate limit decision?
 
 - A. The account is locked
@@ -91,7 +91,7 @@ describe('task board', () => {
     const { root } = repo();
     const { code, out } = await cli(root, 'add', 'Add login rate limit', '--scope', 'src/**');
     assert.equal(code, 0);
-    assert.match(out, /context\/tasks\/list\/0001-add-login-rate-limit\.md/);
+    assert.match(out, /docs\/tasks\/list\/0001-add-login-rate-limit\.md/);
     const task = findTask(root, '1');
     assert.equal(task.status, 'next');
     assert.equal(task.scope, 'src/**');
@@ -100,7 +100,7 @@ describe('task board', () => {
     assert.match(task.text, /## Test Cases/);
     assert.equal(tasksIn(root, 'next').length, 1);
     for (const s of ['current', 'blocked', 'done']) assert.equal(tasksIn(root, s).length, 0);
-    assert.match(read(root, 'context/tasks/state/next.md'), /^- \[0001 Add login rate limit\]\(\.\.\/list\/0001-add-login-rate-limit\.md\)$/m);
+    assert.match(read(root, 'docs/tasks/state/next.md'), /^- \[0001 Add login rate limit\]\(\.\.\/list\/0001-add-login-rate-limit\.md\)$/m);
     assert.equal(addTask(root, 'Second').id, '0002');
   });
 
@@ -151,7 +151,7 @@ describe('task board', () => {
     assert.equal(currentTaskOf(unapproved.root), null);
     const stale = await start((root) => write(root, SPEC, `${read(root, SPEC)}\nAccounts are locked after 5 failures.\n`));
     assert.match(stale.message, /changed after/);
-    const other = await start((root) => write(root, QUIZ, read(root, QUIZ).replace(/^Plan: .*$/m, 'Plan: docs/superpowers/plans/other.md')));
+    const other = await start((root) => write(root, QUIZ, read(root, QUIZ).replace(/^Plan: .*$/m, 'Plan: docs/design/plans/other.md')));
     assert.match(other.message, /different spec or plan|does not exist/);
     const legacy = await start((root, task) => write(root, task.path, read(root, task.path).replace(/^Approval: .*\n/m, '')));
     assert.ok(legacy.ok, 'notes written before approvals existed are not gated');
@@ -175,6 +175,15 @@ describe('task board', () => {
     assert.equal(currentTaskOf(root), null);
   });
 
+  it('rejects a plan linked as the spec', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    write(root, task.path, read(root, task.path).replace(`Spec: ${SPEC}`, `Spec: ${PLAN}`));
+    await assert.rejects(cli(root, 'start', '1'), /link the spec directly under docs\/design\//);
+    assert.equal(currentTaskOf(root), null);
+  });
+
   it('rejects linked design documents outside the project', async () => {
     const { root } = repo();
     const task = addTask(root, 'First');
@@ -188,7 +197,7 @@ describe('task board', () => {
     const { root } = repo();
     const task = addTask(root, 'First');
     fillTask(root, task);
-    const linkedSpec = 'docs/superpowers/specs/linked.md';
+    const linkedSpec = 'docs/design/linked.md';
     const outside = join(root, '..', `stones-outside-${process.pid}.md`);
     writeFileSync(outside, read(root, SPEC));
     rmSync(join(root, SPEC));
@@ -285,7 +294,7 @@ describe('task board', () => {
     await cli(root, 'start', '1');
     await cli(root, 'block', '3', 'waiting for API keys');
     const current = (await cli(root, 'current')).out;
-    assert.match(current, /^current: 0001 First · branch main\nfile: context\/tasks\/list\/0001-first\.md\n\n# 0001 First/);
+    assert.match(current, /^current: 0001 First · branch main\nfile: docs\/tasks\/list\/0001-first\.md\n\n# 0001 First/);
     assert.match(current, /## Scenarios/);
 
     const next = await cli(root, 'next');
@@ -417,7 +426,7 @@ describe('task state in the notes', () => {
 
   it('merges branches that finish different tasks without conflicts', async () => {
     const { root, run } = repo();
-    write(root, '.gitignore', 'context/tasks/state/\n.claude/\n');
+    write(root, '.gitignore', 'docs/tasks/state/\n.claude/\n');
     fillTask(root, addTask(root, 'First'));
     fillTask(root, addTask(root, 'Second'));
     run('add', '.');
@@ -438,10 +447,10 @@ describe('task state in the notes', () => {
     assert.deepEqual(tasksIn(root, 'done').map((t) => t.id), ['0001', '0002']);
     assert.equal(currentTaskOf(root), null);
     // The state files were never committed; sync rebuilds this checkout's copy from the merged notes.
-    assert.equal(execFileSync('git', ['ls-files', 'context/tasks/state'], { cwd: root, encoding: 'utf8' }), '');
-    assert.match((await cli(root, 'sync')).out, /rewrote (?:\S+, )*context\/tasks\/state\/done\.md/);
-    assert.equal(read(root, 'context/tasks/state/next.md').match(/^- \[/gm), null);
-    assert.equal(read(root, 'context/tasks/state/done.md').match(/^- \[/gm).length, 2);
+    assert.equal(execFileSync('git', ['ls-files', 'docs/tasks/state'], { cwd: root, encoding: 'utf8' }), '');
+    assert.match((await cli(root, 'sync')).out, /rewrote (?:\S+, )*docs\/tasks\/state\/done\.md/);
+    assert.equal(read(root, 'docs/tasks/state/next.md').match(/^- \[/gm), null);
+    assert.equal(read(root, 'docs/tasks/state/done.md').match(/^- \[/gm).length, 2);
     assert.match((await cli(root, 'sync')).out, /already matches the notes/);
   });
 
@@ -454,8 +463,8 @@ describe('task state in the notes', () => {
       write(root, t.path, read(root, t.path).replace(/^Status: next$/m, `Status: ${status}`));
     }
     const line = (t, extra) => `- [${t.id} ${t.title}](../list/${t.file})${extra ? ` · ${extra}` : ''}`;
-    write(root, 'context/tasks/state/blocked.md', `# Blocked\n\n${line(b, 'waiting for keys')}\n`);
-    write(root, 'context/tasks/state/done.md', `# Done\n\n${line(c, 'commits abc1234..def5678 · tests: npm test → ok')}\n`);
+    write(root, 'docs/tasks/state/blocked.md', `# Blocked\n\n${line(b, 'waiting for keys')}\n`);
+    write(root, 'docs/tasks/state/done.md', `# Done\n\n${line(c, 'commits abc1234..def5678 · tests: npm test → ok')}\n`);
     assert.equal(currentTask(root).path, a.path);
 
     const out = (await cli(root, 'list')).out;
@@ -463,8 +472,8 @@ describe('task state in the notes', () => {
     assert.equal(findTask(root, '3').result, 'commits abc1234..def5678 · tests: npm test → ok');
     assert.match(out, /current \(1\)\n  \[0001 First\]/);
     assert.match(out, /blocked \(1\)\n  \[0002 Second\] · waiting for keys/);
-    assert.match(read(root, 'context/tasks/state/current.md'), /^- \[0001 First\]\(\.\.\/list\/0001-first\.md\)$/m);
-    assert.match(read(root, 'context/tasks/state/done.md'), /· commits abc1234\.\.def5678 · tests: npm test → ok$/m);
+    assert.match(read(root, 'docs/tasks/state/current.md'), /^- \[0001 First\]\(\.\.\/list\/0001-first\.md\)$/m);
+    assert.match(read(root, 'docs/tasks/state/done.md'), /· commits abc1234\.\.def5678 · tests: npm test → ok$/m);
     assert.deepEqual(migrateBoard(root), []);
   });
 
@@ -472,14 +481,14 @@ describe('task state in the notes', () => {
     const { root } = repo();
     fillTask(root, addTask(root, 'First'));
     await cli(root, 'start', '1');
-    assert.match(read(root, 'context/tasks/state/current.md'), /^- \[0001 First\]\(\.\.\/list\/0001-first\.md\) · branch main$/m);
-    write(root, 'context/tasks/state/current.md', '# Current\n');
+    assert.match(read(root, 'docs/tasks/state/current.md'), /^- \[0001 First\]\(\.\.\/list\/0001-first\.md\) · branch main$/m);
+    write(root, 'docs/tasks/state/current.md', '# Current\n');
     assert.equal(currentTaskOf(root).id, '0001', 'the note decides');
     await cli(root, 'list');
-    assert.match(read(root, 'context/tasks/state/current.md'), /0001 First/);
+    assert.match(read(root, 'docs/tasks/state/current.md'), /0001 First/);
     await cli(root, 'block', '1', 'waiting');
-    assert.equal(read(root, 'context/tasks/state/current.md').match(/^- \[/gm), null);
-    assert.match(read(root, 'context/tasks/state/blocked.md'), /0001 First\]\(\.\.\/list\/0001-first\.md\) · waiting$/m);
+    assert.equal(read(root, 'docs/tasks/state/current.md').match(/^- \[/gm), null);
+    assert.match(read(root, 'docs/tasks/state/blocked.md'), /0001 First\]\(\.\.\/list\/0001-first\.md\) · waiting$/m);
   });
 
   it('starts queued tasks in the order of next.md', async () => {
@@ -487,9 +496,9 @@ describe('task state in the notes', () => {
     fillTask(root, addTask(root, 'First'));
     fillTask(root, addTask(root, 'Second'));
     fillTask(root, addTask(root, 'Third'));
-    const next = read(root, 'context/tasks/state/next.md').split('\n');
+    const next = read(root, 'docs/tasks/state/next.md').split('\n');
     const [one, two, three] = next.filter((l) => l.startsWith('- ['));
-    write(root, 'context/tasks/state/next.md', next.map((l) => (l === one ? three : l === three ? one : l)).join('\n'));
+    write(root, 'docs/tasks/state/next.md', next.map((l) => (l === one ? three : l === three ? one : l)).join('\n'));
     assert.deepEqual(tasksIn(root, 'next').map((t) => t.id), ['0003', '0002', '0001']);
     await cli(root, 'start', '2');
     assert.match((await cli(root, 'done', '--no-pr', ...PASS)).out, /started 0003 Third/);
@@ -519,10 +528,10 @@ describe('task state in the notes', () => {
 
     const r = await cli(root, 'done', ...PASS);
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /PR draft: \.claude\/pr\.md \(complete\)\nopen the PR with:\n  git add context\/tasks && git commit -m 'chore\(tasks\): close 0001 Add login rate limit'\n  git push -u origin feat\/login-rate-limit\n  node \.claude\/tools\/create-pr\.mjs create --body-file \.claude\/pr\.md --base main$/m);
+    assert.match(r.out, /PR draft: \.claude\/pr\.md \(complete\)\nopen the PR with:\n  git add docs\/tasks && git commit -m 'chore\(tasks\): close 0001 Add login rate limit'\n  git push -u origin feat\/login-rate-limit\n  node \.claude\/tools\/create-pr\.mjs create --body-file \.claude\/pr\.md --base main$/m);
     const draft = read(root, '.claude/pr.md');
     assert.match(draft, /^<!-- title: feat: rate limit logins \| base: main \| zone: none -->/);
-    assert.match(draft, /^## Summary\nAdd login rate limit: Logins are rate limited per IP\.\n\nTask: \[0001 Add login rate limit\]\(context\/tasks\/list\/0001-add-login-rate-limit\.md\)/m);
+    assert.match(draft, /^## Summary\nAdd login rate limit: Logins are rate limited per IP\.\n\nTask: \[0001 Add login rate limit\]\(docs\/tasks\/list\/0001-add-login-rate-limit\.md\)/m);
     assert.match(draft, /Scenarios:\n- Scenario: sixth login attempt within a minute\./);
     assert.match(draft, /^## Risk\nNo contract change: .*\(src\/\*\*, test\/\*\*\)\.$/m);
     assert.match(draft, /^## Rollback\nRevert this PR/m);
@@ -546,9 +555,9 @@ describe('task state in the notes', () => {
     addTask(root, 'First');
     run('add', '.');
     run('commit', '-qm', 'board');
-    assert.match((await cli(root, 'list')).out, /context\/tasks\/state\/ is committed[\s\S]*git rm -r --cached context\/tasks\/state/);
-    run('rm', '-r', '-q', '--cached', 'context/tasks/state');
-    write(root, '.gitignore', 'context/tasks/state/\n');
+    assert.match((await cli(root, 'list')).out, /docs\/tasks\/state\/ is committed[\s\S]*git rm -r --cached docs\/tasks\/state/);
+    run('rm', '-r', '-q', '--cached', 'docs/tasks/state');
+    write(root, '.gitignore', 'docs/tasks/state/\n');
     run('add', '.');
     run('commit', '-qm', 'untrack');
     assert.doesNotMatch((await cli(root, 'list')).out, /is committed/);
@@ -576,7 +585,7 @@ describe('task review', () => {
     const r = await cli(root, 'review', '--run-tests', '--', 'node', '-e', '0');
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^READY/);
-    const pkg = read(root, '.claude/reviews/0001.md');
+    const pkg = read(root, 'docs/logs/reviews/0001.md');
     assert.match(pkg, /- \[x\] Scenario: sixth login attempt/);
     assert.match(pkg, /test\/rate\.test\.js \(test\)/);
     assert.match(pkg, /```diff[\s\S]*export const limit = 5/);
@@ -714,10 +723,10 @@ describe('task evaluation', () => {
     await cli(root, 'start', '1');
     const r = await cli(root, 'done', '1', '--', 'node', '-e', '0');
     assert.equal(r.code, 1);
-    assert.match(r.out, /evaluation PENDING: 0001 NOT done — context\/tasks\/evaluations\/0001\.md/);
+    assert.match(r.out, /evaluation PENDING: 0001 NOT done — docs\/tasks\/evaluations\/0001\.md/);
     assert.match(r.out, /^- caching\.hit-ratio: waiting/m);
     assert.equal(currentTaskOf(root).id, '0001');
-    assert.ok(existsSync(join(root, 'context/tasks/evaluations/0001.md')));
+    assert.ok(existsSync(join(root, 'docs/tasks/evaluations/0001.md')));
   });
 
   it('finishes with human checks waiting, and lists them', async () => {
@@ -727,7 +736,7 @@ describe('task evaluation', () => {
     recordAllAgentKpis(root, '1');
     const r = await cli(root, 'done', '1', '--no-pr', '--', 'node', '-e', '0');
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /evaluation PASS: context\/tasks\/evaluations\/0001\.md/);
+    assert.match(r.out, /evaluation PASS: docs\/tasks\/evaluations\/0001\.md/);
     assert.match(r.out, /human review \(advisory\): caching\.lookup-scaling waiting, caching\.scenarios-failing waiting$/m);
     assert.equal(findTask(root, '1').status, 'done');
   });
@@ -738,8 +747,8 @@ describe('task evaluation', () => {
     await cli(root, 'start', '1');
     const r = await cli(root, 'review', '1');
     assert.equal(r.code, 1);
-    assert.match(r.out, /^- evaluation PENDING: 0 KPIs failing, 13 waiting \(context\/tasks\/evaluations\/0001\.md\)$/m);
-    assert.match(read(root, '.claude/reviews/0001.md'), /^## Evaluation$/m);
+    assert.match(r.out, /^- evaluation PENDING: 0 KPIs failing, 13 waiting \(docs\/tasks\/evaluations\/0001\.md\)$/m);
+    assert.match(read(root, 'docs/logs/reviews/0001.md'), /^## Evaluation$/m);
   });
 
   it('makes the approval stale when a threshold in the plan changes', async () => {

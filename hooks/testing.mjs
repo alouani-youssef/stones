@@ -2,13 +2,13 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// The task in progress: the note in context/tasks/list/ whose Status is
+// The task in progress: the note in docs/tasks/list/ whose Status is
 // current. tools/tasks.mjs keeps each task's state in its own note and writes
-// context/tasks/state/*.md from them; the notes are read here because they
+// docs/tasks/state/*.md from them; the notes are read here because they
 // stay right even before the state files are rewritten after a merge.
-// Projects set up before the task board use the single note at context/tasks/active.md.
-export const LIST = 'context/tasks/list';
-const LEGACY_NOTE = 'context/tasks/active.md';
+// Projects set up before the task board use the single note at docs/tasks/active.md.
+export const LIST = 'docs/tasks/list';
+const LEGACY_NOTE = 'docs/tasks/active.md';
 const START_HINT = 'start one with `node .claude/tools/tasks.mjs start <id>`';
 const isPlaceholder = (text) =>
   /\b(?:TODO|TBD|replace me)\b|\[(?:describe|write|add|replace|reason|expected|condition)\b[^\]]*\]/i.test(text);
@@ -64,8 +64,8 @@ export function currentTask(project) {
 // Tasks created from the current template link the superpowers spec and plan
 // they are built from; notes written before that section existed are not checked.
 const DESIGN_DOCS = [
-  ['Spec', 'superpowers:brainstorming', 'docs/superpowers/specs/'],
-  ['Plan', 'superpowers:writing-plans', 'docs/superpowers/plans/'],
+  ['Spec', 'superpowers:brainstorming', 'docs/design/'],
+  ['Plan', 'superpowers:writing-plans', 'docs/design/plans/'],
 ];
 
 function inspectDesignDocs(text, TASK_NOTE, project) {
@@ -131,11 +131,11 @@ export function isTestOrSpecFile(file) {
   const normalized = file.split(sep).join('/');
   const parts = normalized.split('/');
   const basename = parts.at(-1) ?? '';
-  // superpowers design specs and plans are written before the task note is complete.
-  if (/(?:^|\/)docs\/superpowers\/(?:specs|plans)\/[^/]+\.md$/i.test(normalized)) return false;
+  // superpowers design specs (docs/design/) and plans (docs/design/plans/) are written before the task note is complete.
+  if (/(?:^|\/)docs\/design\/(?:plans\/)?[^/]+\.md$/i.test(normalized)) return false;
   if (/\.(?:feature|snap)$/i.test(basename)) return true;
   if (parts.some((part) => /^(?:__tests__|__snapshots__|tests?|specs?|features)$/i.test(part))) return true;
-  if (/(?:^|\/)openspec\/(?:specs|changes\/[^/]+\/specs)\//i.test(normalized)) return true;
+  if (/(?:^|\/)docs\/specs\//i.test(normalized)) return true;
   if (/(?:^|\/)context\/specs?\//i.test(normalized)) return true;
   return /(?:^|[._-])(?:test|tests|spec|specs|e2e)(?:[._-]|$)/i.test(basename) ||
     /(?:^|\/)test_[^/]+\.py$/i.test(normalized) ||

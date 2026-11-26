@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -497,7 +497,7 @@ describe('init', () => {
     assert.match(JSON.stringify(settings.hooks), /format\.mjs/); // prettier detected
     assert.equal(read(root, 'CLAUDE.md'), '@AGENT.md\n');
     assert.match(read(root, 'AGENT.md'), /^## Workflow$/m);
-    assert.match(read(root, '.gitignore'), /\.claude\/graph\/project\.json/);
+    assert.match(read(root, '.gitignore'), /docs\/graph\/project\.json/);
     assert.equal(JSON.parse(read(root, '.mcp.json')).mcpServers.context7.command, 'npx');
     assert.ok(read(root, '.claude/hooks/access_guard.mjs').length > 0);
     assert.ok(read(root, '.claude/commands/roadmap.md').includes('ROADMAP.md'));
@@ -539,6 +539,66 @@ describe('init', () => {
     assert.ok(!allow.some((rule) => rule.includes('evaluation.mjs')));
   });
 
+  it('moves docs from the old layout into docs/ and keeps what is already there', async () => {
+    const root = nextApp();
+    await runInit(root, { 'install.hooks': ['graph'] });
+    // Put the graph back where earlier versions installed it, tracked under its old path.
+    const manifest = loadManifest(root);
+    for (const file of ['README.md', 'project.json']) {
+      const content = read(root, `docs/graph/${file}`);
+      mkdirSync(join(root, '.claude/graph'), { recursive: true });
+      writeFileSync(join(root, `.claude/graph/${file}`), file === 'project.json' ? '{"mine":true}\n' : content);
+      if (manifest.files[`docs/graph/${file}`]) {
+        manifest.files[`.claude/graph/${file}`] = manifest.files[`docs/graph/${file}`];
+        delete manifest.files[`docs/graph/${file}`];
+      }
+    }
+    rmSync(join(root, 'docs/graph'), { recursive: true });
+    writeFileSync(join(root, '.claude/stones.json'), JSON.stringify(manifest));
+    const old = {
+      'openspec/specs/auth/spec.md': 'auth',
+      'openspec/changes/add-mfa/proposal.md': 'mfa',
+      'docs/superpowers/specs/2026-11-01-x-design.md': 'spec',
+      'docs/superpowers/plans/2026-11-01-x.md': 'plan',
+      'docs/superpowers/approvals/2026-11-01-x.md': 'quiz',
+      'context/decisions/PRODUCT.md': 'old product',
+      'context/integrations/INTEGRATIONS.md': 'integrations',
+      '.claude/four-d.log': 'log',
+      '.claude/reviews/0001.md': 'review',
+    };
+    for (const [path, content] of Object.entries(old)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), content);
+    }
+    mkdirSync(join(root, 'docs/decisions'), { recursive: true });
+    writeFileSync(join(root, 'docs/decisions/PRODUCT.md'), 'new product');
+
+    const { ops } = await runInit(root);
+
+    for (const [path, content] of Object.entries({
+      'docs/specs/auth/spec.md': 'auth',
+      'docs/specs/changes/add-mfa/proposal.md': 'mfa',
+      'docs/design/2026-11-01-x-design.md': 'spec',
+      'docs/design/plans/2026-11-01-x.md': 'plan',
+      'docs/design/approvals/2026-11-01-x.md': 'quiz',
+      'docs/decisions/INTEGRATIONS.md': 'integrations',
+      'docs/logs/four-d.log': 'log',
+      'docs/logs/reviews/0001.md': 'review',
+      'docs/graph/project.json': '{"mine":true}\n',
+    })) assert.equal(read(root, path), content, path);
+    assert.ok(read(root, 'docs/graph/README.md').length > 0);
+    for (const gone of ['openspec', 'docs/superpowers', 'context/integrations', '.claude/graph', '.claude/reviews']) {
+      assert.equal(existsSync(join(root, gone)), false, gone);
+    }
+    // A taken path is not overwritten: the old file stays and is reported.
+    assert.equal(read(root, 'docs/decisions/PRODUCT.md'), 'new product');
+    assert.equal(read(root, 'context/decisions/PRODUCT.md'), 'old product');
+    assert.ok(ops.some((o) => o.action === 'conflict' && o.from === 'context/decisions/PRODUCT.md'));
+    const files = loadManifest(root).files;
+    assert.ok(files['docs/graph/README.md']);
+    assert.equal(Object.keys(files).some((p) => p.startsWith('.claude/graph/')), false);
+  });
+
   it('selects the evaluating-outputs skill by default', async () => {
     const root = nextApp();
     await runInit(root);
@@ -552,26 +612,26 @@ describe('init', () => {
     const settings = JSON.parse(read(withBoard, '.claude/settings.json'));
     assert.ok(read(withBoard, '.claude/hooks/testing.mjs').length > 0);
     assert.match(JSON.stringify(settings.hooks.PreToolUse), /testing\.mjs/);
-    assert.match(read(withBoard, '.gitignore'), /^context\/tasks\/state\/$/m);
-    assert.ok(existsSync(join(withBoard, 'context/tasks/list/.gitkeep')));
+    assert.match(read(withBoard, '.gitignore'), /^docs\/tasks\/state\/$/m);
+    assert.ok(existsSync(join(withBoard, 'docs/tasks/list/.gitkeep')));
     assert.ok(read(withBoard, '.claude/tools/tasks.mjs').length > 0);
     assert.ok(read(withBoard, '.claude/tools/review.mjs').length > 0);
     assert.ok(read(withBoard, '.claude/skills/tracking-tasks/SKILL.md').length > 0);
     assert.ok(settings.permissions.allow.includes('Bash(node .claude/tools/tasks.mjs:*)'));
-    assert.match(read(withBoard, '.gitignore'), /^\.claude\/reviews\/$/m);
-    assert.match(read(withBoard, '.gitignore'), /^\.claude\/quality\/$/m);
+    assert.match(read(withBoard, '.gitignore'), /^docs\/logs\/reviews\/$/m);
+    assert.match(read(withBoard, '.gitignore'), /^docs\/logs\/quality\/$/m);
     assert.match(read(withBoard, '.gitignore'), /^\.claude\/pr\.md$/m);
-    assert.equal(existsSync(join(withBoard, 'context/tasks/active.md')), false);
+    assert.equal(existsSync(join(withBoard, 'docs/tasks/active.md')), false);
 
     // The installed tool runs from .claude/tools and reaches the installed hooks.
     const out = execFileSync('node', ['.claude/tools/tasks.mjs', 'add', 'First task'], { cwd: withBoard, encoding: 'utf8' });
-    assert.match(out, /context\/tasks\/list\/0001-first-task\.md/);
-    assert.match(read(withBoard, 'context/tasks/state/next.md'), /0001 First task/);
+    assert.match(out, /docs\/tasks\/list\/0001-first-task\.md/);
+    assert.match(read(withBoard, 'docs/tasks/state/next.md'), /0001 First task/);
 
     const legacy = nextApp();
     await runInit(legacy, { 'install.hooks': ['testing'], 'install.skills': ['writing-tests'] });
-    assert.match(read(legacy, 'context/tasks/active.md'), /^## Expected behavior$/m);
-    assert.ok(loadManifest(legacy).files['context/tasks/active.md']);
+    assert.match(read(legacy, 'docs/tasks/active.md'), /^## Expected behavior$/m);
+    assert.ok(loadManifest(legacy).files['docs/tasks/active.md']);
     assert.equal(existsSync(join(legacy, '.claude/tools/tasks.mjs')), false);
 
     // The package lister is installed everywhere, allowed, and runs in place.
@@ -590,7 +650,7 @@ describe('init', () => {
 
     const withoutTesting = nextApp();
     await runInit(withoutTesting, { 'install.hooks': ['access_guard'], 'install.skills': ['writing-tests'] });
-    assert.equal(existsSync(join(withoutTesting, 'context/tasks/active.md')), false);
+    assert.equal(existsSync(join(withoutTesting, 'docs/tasks/active.md')), false);
   });
 
   it('is idempotent and keeps user edits on re-run', async () => {

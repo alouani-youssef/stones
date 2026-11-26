@@ -6,7 +6,7 @@
 // reported, unless `--force`. JSON config the user may share with other
 // tools (settings.json, .mcp.json) is merged instead of replaced.
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 import { renderDevcontainer } from '../hooks/devcontainer.mjs';
@@ -17,10 +17,28 @@ import { composeSettings, mergeSettings } from './settings.mjs';
 import { LIST_DIR, STATE_GITIGNORE } from '../tools/tasks.mjs';
 
 export const MANIFEST = '.claude/stones.json';
-const GITIGNORE_LINES = ['.claude/graph/project.json', '.claude/settings.local.json', '.claude/quality/', '.claude/pr.md', '.claude/workflows-run.json', '.act/'];
+// Where earlier versions kept project docs, and where they live now under
+// docs/. On a re-run each entry of an old folder (or the old file) is moved
+// over; one whose new path is already taken is left in place and reported.
+export const LEGACY_MOVES = [
+  ['openspec/specs', 'docs/specs'],
+  ['openspec/changes', 'docs/specs/changes'],
+  ['docs/superpowers/specs', 'docs/design'],
+  ['docs/superpowers/plans', 'docs/design/plans'],
+  ['docs/superpowers/approvals', 'docs/design/approvals'],
+  ['context/tasks', 'docs/tasks'],
+  ['context/decisions', 'docs/decisions'],
+  ['context/integrations', 'docs/decisions'],
+  ['context/references', 'docs/decisions'],
+  ['.claude/graph', 'docs/graph'],
+  ['.claude/reviews', 'docs/logs/reviews'],
+  ['.claude/quality', 'docs/logs/quality'],
+  ['.claude/four-d.log', 'docs/logs/four-d.log'],
+];
+const GITIGNORE_LINES = ['docs/graph/project.json', '.claude/settings.local.json', 'docs/logs/quality/', '.claude/pr.md', '.claude/workflows-run.json', '.act/'];
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
-const FOUR_D_GITIGNORE = ['.claude/four-d.log'];
-const TASKS_GITIGNORE = ['.claude/reviews/', STATE_GITIGNORE];
+const FOUR_D_GITIGNORE = ['docs/logs/four-d.log'];
+const TASKS_GITIGNORE = ['docs/logs/reviews/', STATE_GITIGNORE];
 export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
 // The evaluating-outputs tools. tasks.mjs and review.mjs import them, so they
 // ship with the task board as well as with the skill. `sign` records the
@@ -127,8 +145,8 @@ function hookFiles(answers, root, pkg) {
     for (const file of ANALYZER_FILES) files.push({ path: `.claude/analyzers/${file}`, content: pkg(`analyzers/${file}`), kind: 'managed' });
   }
   if (hooks.includes('graph')) {
-    files.push({ path: '.claude/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
-    files.push({ path: '.claude/graph/project.json', content: pkg('graph/project.json'), kind: 'seed' });
+    files.push({ path: 'docs/graph/README.md', content: pkg('graph/README.md'), kind: 'managed' });
+    files.push({ path: 'docs/graph/project.json', content: pkg('graph/project.json'), kind: 'seed' });
   }
   return files;
 }
@@ -146,7 +164,7 @@ function toolFiles(answers, pkg) {
     // The state files are git-ignored and built from the notes by the task tool on its first run.
     files.push({ path: `${LIST_DIR}/.gitkeep`, content: '', kind: 'seed' });
   } else if (answers.install.hooks.includes('testing')) {
-    files.push({ path: 'context/tasks/active.md', content: LEGACY_TASK_NOTE, kind: 'managed' });
+    files.push({ path: 'docs/tasks/active.md', content: LEGACY_TASK_NOTE, kind: 'managed' });
   }
   if (usesEvaluation(answers)) {
     for (const tool of EVALUATION_TOOLS) files.push({ path: `.claude/tools/${tool}`, content: pkg(`tools/${tool}`), kind: 'managed' });
@@ -296,10 +314,57 @@ function planPendingLines(target, pending) {
   }));
 }
 
-// Decides, per file, what to do: create, update, merge, append, skip or conflict.
-export function plan({ target, answers, stack, force = false, root = PACKAGE_ROOT }) {
-  const manifest = loadManifest(target);
+// One op per entry to move from an old location into docs/.
+function planMoves(target) {
   const ops = [];
+  const claimed = new Set();
+  for (const [from, to] of LEGACY_MOVES) {
+    const abs = join(target, from);
+    if (!existsSync(abs)) continue;
+    const entries = statSync(abs).isDirectory()
+      ? readdirSync(abs).filter((name) => name !== '.DS_Store').map((name) => [`${from}/${name}`, `${to}/${name}`])
+      : [[from, to]];
+    for (const [source, path] of entries) {
+      if (claimed.has(path) || existsSync(join(target, path))) {
+        ops.push({ path, from: source, kind: 'move', action: 'conflict', reason: `not moved from ${source}: already exists` });
+        continue;
+      }
+      claimed.add(path);
+      ops.push({ path, from: source, kind: 'move', action: 'move' });
+    }
+  }
+  return ops;
+}
+
+// Where a path's current content is before the moves run.
+function movedSource(path, moves) {
+  for (const move of moves) {
+    if (path === move.path) return move.from;
+    if (path.startsWith(`${move.path}/`)) return `${move.from}${path.slice(move.path.length)}`;
+  }
+  return path;
+}
+
+// The manifest as it reads once the moves ran: tracked old paths renamed.
+function remapManifest(manifest, ops) {
+  const moves = ops.filter((op) => op.action === 'move');
+  if (!moves.length) return manifest;
+  const rename = (entries = {}) => {
+    const out = {};
+    for (const [path, value] of Object.entries(entries)) {
+      const move = moves.find((m) => path === m.from || path.startsWith(`${m.from}/`));
+      out[move ? `${move.path}${path.slice(move.from.length)}` : path] = value;
+    }
+    return out;
+  };
+  return { ...manifest, files: rename(manifest.files), generated: rename(manifest.generated) };
+}
+
+// Decides, per file, what to do: move, create, update, merge, append, skip or conflict.
+export function plan({ target, answers, stack, force = false, root = PACKAGE_ROOT }) {
+  const ops = planMoves(target);
+  const moves = ops.filter((op) => op.action === 'move');
+  const manifest = remapManifest(loadManifest(target), ops);
   const pending = new Map(); // appended lines per file, so one op per file
 
   // A .devcontainer/ the project already had is theirs, not ours.
@@ -311,7 +376,7 @@ export function plan({ target, answers, stack, force = false, root = PACKAGE_ROO
       continue;
     }
 
-    const current = readText(join(target, file.path));
+    const current = readText(join(target, movedSource(file.path, moves)));
 
     if (file.kind === 'line') {
       recordPendingLine(pending, file, current);
@@ -322,28 +387,28 @@ export function plan({ target, answers, stack, force = false, root = PACKAGE_ROO
   }
 
   ops.push(...planPendingLines(target, pending));
-  ops.push(...planRemovals(target, manifest, new Set(ops.map((o) => o.path))));
+  ops.push(...planRemovals(target, manifest, new Set(ops.map((o) => o.path)), moves));
   return ops;
 }
 
 // Files stones installed on an earlier run that this run no longer wants
 // (a deselected hook, skill, tool...): removed when untouched, left in place
 // and handed over to the user when edited.
-function planRemovals(target, manifest, wanted) {
+function planRemovals(target, manifest, wanted, moves) {
   return Object.entries(manifest.files ?? {})
     .filter(([path]) => !wanted.has(path))
     .map(([path, hash]) => {
-      const current = readText(join(target, path));
+      const current = readText(join(target, movedSource(path, moves)));
       if (current === undefined) return { path, action: 'forget' };
       if (sha(current) === hash) return { path, action: 'remove' };
       return { path, action: 'conflict', orphan: true, reason: 'no longer selected but edited since it was installed; left in place, now yours' };
     });
 }
 
-// Removes now-empty folders left behind under .claude/ and context/.
-function pruneEmptyDirs(target, path) {
+// Removes now-empty folders left behind under `within` (.claude/ by default).
+function pruneEmptyDirs(target, path, within = '.claude') {
   let dir = dirname(join(target, path));
-  while (dir.startsWith(join(target, '.claude')) && dir !== target) {
+  while (dir.startsWith(join(target, within)) && dir !== target) {
     try {
       if (readdirSync(dir).length) return;
       rmdirSync(dir);
@@ -392,12 +457,22 @@ function trackFile(op, manifest) {
   if (op.kind === 'json' && CONTRIBUTED_ACTIONS.has(op.action)) manifest.generated[op.path] = op.value;
 }
 
+function moveEntry(target, op) {
+  mkdirSync(dirname(join(target, op.path)), { recursive: true });
+  renameSync(join(target, op.from), join(target, op.path));
+  pruneEmptyDirs(target, op.from, op.from.split('/')[0]);
+}
+
 export function apply({ target, ops, answers, stack }) {
-  const manifest = loadManifest(target);
+  const manifest = remapManifest(loadManifest(target), ops);
   const files = { ...manifest.files };
   const generated = { ...manifest.generated };
   const tracked = { files, generated };
   for (const op of ops) {
+    if (op.action === 'move') {
+      moveEntry(target, op);
+      continue;
+    }
     if (releasesFile(op)) {
       releaseFile(target, op, tracked);
       continue;
@@ -423,15 +498,15 @@ export function apply({ target, ops, answers, stack }) {
 }
 
 const SYMBOLS = {
-  create: '+', update: '~', merge: '⇄', append: '»', remove: '-', same: '=', keep: '=', conflict: '!',
+  move: '→', create: '+', update: '~', merge: '⇄', append: '»', remove: '-', same: '=', keep: '=', conflict: '!',
 };
 
 export function describePlan(ops) {
-  const order = ['create', 'update', 'merge', 'append', 'remove', 'conflict', 'keep', 'same'];
-  const note = (op) => (op.reason ? `  (${op.reason}${op.orphan ? '' : '; use --force to overwrite'})` : '');
+  const order = ['move', 'create', 'update', 'merge', 'append', 'remove', 'conflict', 'keep', 'same'];
+  const note = (op) => (op.reason ? `  (${op.reason}${op.orphan || op.kind === 'move' ? '' : '; use --force to overwrite'})` : '');
   return [...ops]
     .sort((a, b) => order.indexOf(a.action) - order.indexOf(b.action) || a.path.localeCompare(b.path))
     .filter((op) => op.action !== 'same' && op.action !== 'forget')
-    .map((op) => `  ${SYMBOLS[op.action]} ${op.action.padEnd(8)} ${op.path}${note(op)}`)
+    .map((op) => `  ${SYMBOLS[op.action]} ${op.action.padEnd(8)} ${op.from ? `${op.from} → ` : ''}${op.path}${note(op)}`)
     .join('\n');
 }

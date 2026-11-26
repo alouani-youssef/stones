@@ -1,5 +1,5 @@
 // Code graph hook: the summary layer of the summary-details pattern, applied
-// to the codebase. The graph (`.claude/graph/project.json`) holds a compact
+// to the codebase. The graph (`docs/graph/project.json`) holds a compact
 // node per source file; the file itself is the detail.
 //
 //   node graph.mjs read     PostToolUse Read: inject the file's summary,
@@ -11,7 +11,7 @@
 //   node graph.mjs build    full rebuild of the graph
 //   node graph.mjs mermaid  print the capability graph as a Mermaid diagram
 //
-// Summaries live in OpenSpec docs: `openspec/specs/<capability>/files.md`,
+// Summaries live in spec docs: `docs/specs/<capability>/files.md`,
 // next to that capability's `spec.md`, one line per file or directory:
 //
 //   - `src/auth/session.ts` — Creates and validates user sessions.
@@ -169,23 +169,24 @@ export function indexFile(project, rel) {
   return node;
 }
 
-// ------------------------------------------------------------- openspec
+// ------------------------------------------------------------- specs
 
-// Reads every capability under openspec/specs: its purpose from spec.md and
-// its file summaries from files.md.
+// Reads every capability under docs/specs: its purpose from spec.md and
+// its file summaries from files.md. docs/specs/changes/ holds proposed
+// changes, not a capability.
 export function readSpecs(project) {
-  const root = join(project, 'openspec', 'specs');
+  const root = join(project, 'docs', 'specs');
   const capabilities = {};
   const entries = [];
   let dirs = [];
   try {
-    dirs = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory());
+    dirs = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name !== 'changes');
   } catch {
     return { capabilities, entries };
   }
   for (const { name } of dirs) {
-    const specPath = toPosix(join('openspec', 'specs', name, 'spec.md'));
-    const filesPath = toPosix(join('openspec', 'specs', name, 'files.md'));
+    const specPath = toPosix(join('docs', 'specs', name, 'spec.md'));
+    const filesPath = toPosix(join('docs', 'specs', name, 'files.md'));
     let purpose = '';
     try {
       const spec = readFileSync(join(project, specPath), 'utf8');
@@ -233,7 +234,7 @@ function guessCapability(entries, rel) {
 
 // --------------------------------------------------------------- graph
 
-const graphFile = (project) => join(project, '.claude', 'graph', 'project.json');
+const graphFile = (project) => join(project, 'docs', 'graph', 'project.json');
 
 function loadGraph(project) {
   try {
@@ -327,7 +328,7 @@ function projectPath(project, given) {
   return toPosix(rel);
 }
 
-const isSpecDoc = (rel) => /^openspec\/specs\/[^/]+\/(spec|files)\.md$/.test(rel);
+const isSpecDoc = (rel) => /^docs\/specs\/[^/]+\/(spec|files)\.md$/.test(rel);
 
 function isSummaryStale(entry, known, node) {
   return entry.scope === 'file' && known?.signature && known.signature !== node.signature;
@@ -366,9 +367,9 @@ function missingSummaryHint(specs, rel) {
     return `No summary yet: add "- \`${rel}\` — <one sentence on what it does>" to ${specs.capabilities[guess].files}.`;
   }
   if (names.length) {
-    return `No summary yet: add "- \`${rel}\` — <one sentence>" to openspec/specs/<capability>/files.md (capabilities: ${list(names)}).`;
+    return `No summary yet: add "- \`${rel}\` — <one sentence>" to docs/specs/<capability>/files.md (capabilities: ${list(names)}).`;
   }
-  return `No summary yet and no OpenSpec capabilities exist: create openspec/specs/<capability>/spec.md and add "- \`${rel}\` — <one sentence>" to files.md beside it.`;
+  return `No summary yet and no spec capabilities exist: create docs/specs/<capability>/spec.md and add "- \`${rel}\` — <one sentence>" to files.md beside it.`;
 }
 
 export function onRead(project, rel) {

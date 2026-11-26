@@ -210,11 +210,11 @@ An optional `.claude/evaluation.json` in the target project can change threshold
 
 ### Scorecard
 
-Written to `context/tasks/evaluations/NNNN.md` for a board task, or next to the plan as `<plan>.eval.md` otherwise, and committed. Measurements and sign-offs are stored in `<same name>.json` alongside it.
+Written to `docs/tasks/evaluations/NNNN.md` for a board task, or next to the plan as `<plan>.eval.md` otherwise, and committed. Measurements and sign-offs are stored in `<same name>.json` alongside it.
 
 ```text
 Evaluation: 0007 Cache product lookups — caching
-Plan: docs/superpowers/plans/2026-11-25-product-cache.md (hash a1b2c3)
+Plan: docs/design/plans/2026-11-25-product-cache.md (hash a1b2c3)
 Verdict: FAIL — 1 KPI failing · human review (advisory): 1 waiting
 
 Dimension           KPI                              Threshold   Value    By     Status
@@ -268,7 +268,7 @@ These are design calls made after the review, not stated by the user:
 - A7: `done` is blocked until the scorecard is PASS for any task with a category. Status: confirmed (PASS is decided by the agent-measured KPIs; human checks are advisory, per the spec quiz)
 - A8: Tasks with no category, or `Category: none`, are not affected by any new gate. Status: confirmed
 - A9: The skill is optional in `init` and selected by default when the task board is selected. Status: confirmed
-- A10: Scorecards and their JSON are committed under `context/tasks/evaluations/`. Status: confirmed
+- A10: Scorecards and their JSON are committed under `docs/tasks/evaluations/`. Status: confirmed
 - A11: Every KPI of a category is required; a task opts out of one only with an `NA:` line and a reason, confirmed by the user. Status: confirmed
 - A12: A dimension added to the registry after a plan was approved does not block that task; the plan stays on the registry version it records until it is regenerated. Status: confirmed
 - A13: Projects can add their own dimensions in `.claude/evaluation.json`, but cannot remove or redefine the built-in ones (only mark them `na` per category with a reason). Status: confirmed

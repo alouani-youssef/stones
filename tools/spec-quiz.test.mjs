@@ -6,9 +6,9 @@ import { describe, it } from 'node:test';
 
 import { approveQuiz, parseQuiz, quizProblems, quizStatus, run } from './spec-quiz.mjs';
 
-const SPEC = 'docs/superpowers/specs/2026-11-25-limits-design.md';
-const PLAN = 'docs/superpowers/plans/2026-11-25-limits.md';
-const QUIZ = 'docs/superpowers/approvals/2026-11-25-limits.md';
+const SPEC = 'docs/design/2026-11-25-limits-design.md';
+const PLAN = 'docs/design/plans/2026-11-25-limits.md';
+const QUIZ = 'docs/design/approvals/2026-11-25-limits.md';
 
 function project() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'stones-quiz-')));

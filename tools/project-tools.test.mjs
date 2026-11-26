@@ -58,9 +58,9 @@ describe('quality-check', () => {
     assert.equal(r.passed, false);
     assert.deepEqual(r.results.map((s) => [s.name, s.passed]), [['lint', true], ['test', false], ['build', true]]);
     assert.match(r.results[1].tail, /1 failing/);
-    const last = JSON.parse(readFileSync(join(root, '.claude/quality/last.json'), 'utf8'));
+    const last = JSON.parse(readFileSync(join(root, 'docs/logs/quality/last.json'), 'utf8'));
     assert.equal(last.commit, git('rev-parse', 'HEAD'));
-    assert.match(readFileSync(join(root, '.claude/quality/test.log'), 'utf8'), /^\$ echo "1 failing"/);
+    assert.match(readFileSync(join(root, 'docs/logs/quality/test.log'), 'utf8'), /^\$ echo "1 failing"/);
 
     const fast = qualityCheck(root, { failFast: true });
     assert.deepEqual(fast.results.map((s) => s.name), ['lint', 'test']);
@@ -162,12 +162,12 @@ describe('create-pr', () => {
   it('fills the draft from the board task on the branch and ignores bookkeeping-only commits', () => {
     const { root, git, commit } = repo(manifest({ test: 'echo ok' }));
     git('checkout', '-qb', 'feat/export');
-    write(root, { 'context/tasks/list/0003-export-csv.md': '# 0003 Export CSV\n\nStatus: current\nBranch: feat/export\nScope: src/**\n\n## Expected behavior\n\nUsers download their orders as CSV.\n\n## Scenarios\n\n- Scenario: one order. Expected: a CSV with a header and one row.\n\n## Contract change\n\nbehavior changed: the orders page gains an export button\n\n## Rollback\n\nHide the export button with the EXPORT_CSV flag.\n' });
+    write(root, { 'docs/tasks/list/0003-export-csv.md': '# 0003 Export CSV\n\nStatus: current\nBranch: feat/export\nScope: src/**\n\n## Expected behavior\n\nUsers download their orders as CSV.\n\n## Scenarios\n\n- Scenario: one order. Expected: a CSV with a header and one row.\n\n## Contract change\n\nbehavior changed: the orders page gains an export button\n\n## Rollback\n\nHide the export button with the EXPORT_CSV flag.\n' });
     commit('src/export.js', 'feat: export orders as csv');
     qualityCheck(root);
-    const note = join(root, 'context/tasks/list/0003-export-csv.md');
+    const note = join(root, 'docs/tasks/list/0003-export-csv.md');
     writeFileSync(note, readFileSync(note, 'utf8').replace('Status: current', 'Status: done'));
-    git('add', 'context/tasks');
+    git('add', 'docs/tasks');
     git('commit', '-qm', 'chore(tasks): close 0003');
 
     const pr = draftPr(root);

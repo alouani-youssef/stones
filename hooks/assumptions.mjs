@@ -1,11 +1,11 @@
-// PreToolUse hook: blocks writing a plan under docs/superpowers/plans/ until every assumption in its spec has been confirmed or denied by the user.
+// PreToolUse hook: blocks writing a plan under docs/design/plans/ until every assumption in its spec has been confirmed or denied by the user.
 //
 // The spec lists, under `## Assumptions`, each decision the agent made that
 // the user did not state ("- A1: <assumption>. Status: open"). Planning on an
 // unconfirmed assumption bakes a guess into every later step, so the plan
 // waits until the user has answered each one (see the confirming-specs skill).
 //
-// The spec is the one the plan links (a docs/superpowers/specs/*.md path in
+// The spec is the one the plan links (a docs/design/*.md path in
 // the plan), else the current task's Spec: line, else the newest spec.
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -13,10 +13,10 @@ import { pathToFileURL } from 'node:url';
 
 import { assumptionProblems } from '../tools/spec-quiz.mjs';
 
-export const PLANS = 'docs/superpowers/plans/';
-export const SPECS = 'docs/superpowers/specs/';
-const TASKS = 'context/tasks/list';
-const SPEC_LINK = /docs\/superpowers\/specs\/[\w./-]+?\.md/;
+export const PLANS = 'docs/design/plans/';
+export const SPECS = 'docs/design/';
+const TASKS = 'docs/tasks/list';
+const SPEC_LINK = /docs\/design\/[\w.-]+?\.md/;
 
 const allow = () => ({ block: false });
 const read = (file) => {

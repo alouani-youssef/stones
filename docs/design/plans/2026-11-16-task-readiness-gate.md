@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js ESM, `node:test`, Markdown.
 
-**Spec:** `docs/superpowers/specs/2026-11-16-task-readiness-gate-design.md`
+**Spec:** `docs/design/2026-11-16-task-readiness-gate-design.md`
 
 ## Global Constraints
 

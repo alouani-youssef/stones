@@ -12,7 +12,7 @@
 
 **Tech Stack:** Node.js ≥ 22.13 ESM (`.mjs`), `node:test` and `node:assert/strict`, no dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-11-25-evaluating-outputs-design.md`
+**Spec:** `docs/design/2026-11-25-evaluating-outputs-design.md`
 
 ## Global Constraints
 
@@ -129,7 +129,7 @@ A dimension with `"evidence": "any"` (only `task-kpis` in v1) lets each KPI set 
 **Interfaces:**
 - Consumes: `loadRegistry`, `resolveCategory`, `EvaluationError` (Task 1).
 - Produces:
-  - `export const EVALUATIONS_DIR = 'context/tasks/evaluations'`
+  - `export const EVALUATIONS_DIR = 'docs/tasks/evaluations'`
   - `export function parseEvaluation(planText) -> Parsed | null`, null when there is no `## Evaluation`. `Parsed = { category, version, hash, kpis: ResolvedKpi[], na: {dimension, reason}[], overrides: {id, op, value, unit, reason}[], naLines: {id, reason}[], cases: Map<kpiId, string>, edited: boolean }`.
   - `export function writePlanEvaluation(root, planPath, categoryIds, { registry } = {}) -> Parsed`. `categoryIds` is an array, and its length must be 1.
   - `export function checkPlan(root, planPath, { category, registry } = {}) -> { problems: string[], notes: string[] }`
@@ -202,7 +202,7 @@ Applied: caching.hit-ratio >= 0.9 → >= 0.95 (task: checkout traffic is read-he
 **Interfaces:**
 - Consumes: `parseEvaluation`, `checkPlan` (Task 2); `loadRegistry` (Task 1), used only to read each dimension's `details` field list.
 - Produces:
-  - `export function resolveTarget(root, ref) -> { plan, category, store, scorecard, taskId }`. A `ref` matching `/^\d+$/` is a task: the tool finds `context/tasks/list/<ref padded to 4>-*.md` and reads its `Plan:` and `Category:` lines. The store is then `context/tasks/evaluations/<id>.json` and the scorecard is `<id>.md`. Any other `ref` is a plan path: the store is `<plan minus .md>.eval.json`, the scorecard is `.eval.md`, and `category` comes from the plan's `Category:` line. The tool does not import `tasks.mjs`.
+  - `export function resolveTarget(root, ref) -> { plan, category, store, scorecard, taskId }`. A `ref` matching `/^\d+$/` is a task: the tool finds `docs/tasks/list/<ref padded to 4>-*.md` and reads its `Plan:` and `Category:` lines. The store is then `docs/tasks/evaluations/<id>.json` and the scorecard is `<id>.md`. Any other `ref` is a plan path: the store is `<plan minus .md>.eval.json`, the scorecard is `.eval.md`, and `category` comes from the plan's `Category:` line. The tool does not import `tasks.mjs`.
   - `export function recordKpi(root, ref, kpiId, value, { evidence, details } = {}) -> entry`. `details` is a path to a JSON file.
   - `export function signKpi(root, ref, kpiId, verdict, { note = '' } = {}) -> entry`
   - `export function scoreTarget(root, ref, { registry, write = true } = {}) -> { verdict: 'PASS'|'FAIL'|'PENDING', rows: Row[], problems: string[], scorecard: string, markdown: string }`. `Row = { dimension, id, threshold, value, by, status: 'pass'|'fail'|'waiting'|'stale'|'n/a', human?: 'pass'|'fail'|'waiting' }`. `status` is the agent side (`n/a` for a `human` KPI); `human` is the advisory sign-off, set for `human` and `both` KPIs.
@@ -243,7 +243,7 @@ The rules, each pinned by a test:
   - `it('refuses to sign an agent-only KPI')`.
   - `it('treats entries recorded against an older plan as stale')`: record, edit the plan text, and score. The rows are `stale`, and the verdict is `PENDING`.
   - `it('scores a deprecated dimension still present in an old plan')`: deprecate a dimension in the fixture after generating. Its KPI still scores from the plan.
-  - `it('resolves a task id to its plan, category and evaluation files')`: write `context/tasks/list/0007-cache.md` with `Plan:` and `Category: cache`. `resolveTarget(root, '7').store === 'context/tasks/evaluations/0007.json'`.
+  - `it('resolves a task id to its plan, category and evaluation files')`: write `docs/tasks/list/0007-cache.md` with `Plan:` and `Category: cache`. `resolveTarget(root, '7').store === 'docs/tasks/evaluations/0007.json'`.
 
 - [ ] **Step 2: Run and confirm the new tests fail**
   Run: `node --test tools/evaluation.test.mjs`
@@ -362,7 +362,7 @@ Each `.md` file has one section per dimension, with anchors matching the KPIs' `
   - **`start`:** `validateTaskReadiness` ends with `validateEvaluation(root, task)`. That function returns at once when the note has no `Category:` line or it is `none`. Otherwise it loads the registry: a missing skill fails with the install message, and an unknown category fails with the `resolveCategory` message listing the categories. It then fails with `${task.id} is not ready to start: ${problem}` for the first `checkPlan(root, planPath, { category })` problem.
   - **`done`:** `finishTask` runs `scoreTarget(root, task.id)` after the tests pass, for a categorised task. Unless the verdict is `PASS`, it returns `{ task, tests, finished: false, evaluation }`. `handleDone` then logs `evaluation <verdict>: <task.id> NOT done — <scorecard path>`, followed by one `- <id>: <status>` per row that is not passing, and returns 1.
   - **`review`:** for a categorised task, `reviewTask` adds the finding `evaluation <verdict>: <n> KPI(s) failing, <m> waiting (<scorecard path>)` when the verdict is not PASS, and appends a `## Evaluation` section with the scorecard markdown.
-  - **Unchanged:** `review.mjs`'s `BOOKKEEPING` already excludes `context/tasks/`, so scorecard files never count as scope creep.
+  - **Unchanged:** `review.mjs`'s `BOOKKEEPING` already excludes `docs/tasks/`, so scorecard files never count as scope creep.
 
 - [ ] **Step 1: Write the failing tests** in `tools/tasks.test.mjs`. Add a `fillEvaluatedTask(root, task, category = 'caching')` helper that calls `fillTask`, sets `Category: caching`, runs `writePlanEvaluation` on `PLAN`, and re-approves the quiz.
   - `it('leaves tasks with no category or Category: none unchanged')`: an old-style note without the line, and a `none` note, both start and finish exactly as before (Spec case "no Category line").
@@ -370,7 +370,7 @@ Each `.md` file has one section per dimension, with anchors matching the KPIs' `
   - `it('refuses an unknown category and lists the available ones')` (Review Focus 5).
   - `it('refuses to start when the plan names a different category than the note')`.
   - `it('starts a categorised task whose plan passes check')`.
-  - `it('refuses done while the scorecard is PENDING and lists what waits')`: the task stays `current`, the output lists the waiting agent KPIs, and `context/tasks/evaluations/<id>.md` exists.
+  - `it('refuses done while the scorecard is PENDING and lists what waits')`: the task stays `current`, the output lists the waiting agent KPIs, and `docs/tasks/evaluations/<id>.md` exists.
   - `it('finishes with human checks waiting or failed, and lists them')`: every agent KPI is recorded and passing, and one human KPI is unsigned. The task is done, and the output includes `human review (advisory):` with that KPI as waiting.
   - `it('finishes when the scorecard is PASS')`: record every agent KPI with details through `evaluation.mjs`'s `recordKpi`, then call `done`. The task is done.
   - `it('reports a non-PASS evaluation as a review finding')`.

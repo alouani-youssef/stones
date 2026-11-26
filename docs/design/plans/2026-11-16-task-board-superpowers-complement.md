@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown documentation.
 
-**Spec:** `docs/superpowers/specs/2026-11-16-task-board-superpowers-complement-design.md`
+**Spec:** `docs/design/2026-11-16-task-board-superpowers-complement-design.md`
 
 ## Global Constraints
 

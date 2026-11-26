@@ -3,11 +3,11 @@ node_modules/
 .DS_Store
 # Local Claude Code state (same entries stones adds to target projects)
 .claude/settings.local.json
-.claude/graph/project.json
+docs/graph/project.json
 .claude/history.db*
-.claude/four-d.log
-.claude/quality/
-.claude/reviews/
+docs/logs/four-d.log
+docs/logs/quality/
+docs/logs/reviews/
 .claude/pr.md
 .env
 .package-lock.json

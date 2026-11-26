@@ -58,14 +58,24 @@ CLAUDE.md                 imports AGENT.md (appended if CLAUDE.md exists)
 ├── settings.json         selected hooks, permissions and plugins
 ├── hooks/                selected hooks
 ├── skills/               selected and stack-specific skills
-├── graph/                code graph, when selected
 ├── analyzers/            complexity analyzer, when selected
 ├── commands/             slash commands such as /roadmap
 ├── tools/                project and task-board tools
 ├── scripts/              ci-local.sh, to run the GitHub workflows locally
 └── stones.json           saved answers and installed-file hashes
-context/tasks/            task board, when selected
+docs/
+├── specs/                capability specs and file summaries (specs/changes/ for proposals)
+├── tasks/                task board, when selected
+├── graph/                code graph, when selected
+├── decisions/            product, scope, design, integration and reference decisions
+├── design/               superpowers design specs, with plans/ and approvals/
+└── logs/                 git-ignored run output: four-d.log, reviews/, quality/
 ```
+
+Re-running `init` on a project set up with an earlier version moves the old
+`openspec/specs`, `context/*`, `.claude/graph`, `docs/superpowers/*`,
+`.claude/reviews`, `.claude/quality` and `.claude/four-d.log` into `docs/`; an
+entry whose new path is already taken is left in place and reported.
 
 The exact files depend on your answers and detected stack. Use `--dry-run` to
 preview the planned changes without writing files.
@@ -126,7 +136,7 @@ npx ai-stones roadmap --print-prompt
 ```
 
 The roadmap command starts Claude Code with the `/roadmap` prompt. Claude
-reviews `AGENT.md`, the current roadmap, recent commits and any OpenSpec specs,
+reviews `AGENT.md`, the current roadmap, recent commits and the specs in `docs/specs/`,
 then interviews you and drafts or revises `ROADMAP.md`. In Claude Code, you can
 also run `/roadmap [focus]`.
 
@@ -200,7 +210,7 @@ The `evaluating-outputs` skill gives each task one category: `api`, `db-query`, 
 The KPIs are written into the plan before it is approved, then the built output is scored against them:
 
 ```sh
-node .claude/tools/evaluation.mjs suggest docs/superpowers/specs/<spec>.md   # which category fits
+node .claude/tools/evaluation.mjs suggest docs/design/<spec>.md   # which category fits
 node .claude/tools/evaluation.mjs plan <plan.md> --category caching          # KPIs and cases into the plan
 node .claude/tools/evaluation.mjs record 7 caching.hit-ratio 0.94 \
   --evidence "replay of prod-sample.har" --details results/hit-ratio.json     # a measured value with its full results

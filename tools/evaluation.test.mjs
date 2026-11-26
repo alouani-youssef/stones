@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { loadRegistry } from './evaluation-registry.mjs';
 import { checkPlan, parseEvaluation, recordKpi, resolveTarget, run, scoreTarget, signKpi, suggestCategory, writePlanEvaluation } from './evaluation.mjs';
 
-const PLAN = 'docs/superpowers/plans/2026-11-25-cache.md';
+const PLAN = 'docs/design/plans/2026-11-25-cache.md';
 
 const DIMENSIONS = [
   {
@@ -217,7 +217,7 @@ describe('evaluation plan section', () => {
 });
 
 const P95 = { tool: 'autocannon', tool_version: '7.15.0', run_at: '2026-11-25T10:00:00Z', p50: 2.1, p95: 3.8, p99: 4.6, count: 5000, environment: 'm2 / node 22', samples: [3.1, 3.8, 4.6] };
-const STORE = 'docs/superpowers/plans/2026-11-25-cache.eval.json';
+const STORE = 'docs/design/plans/2026-11-25-cache.eval.json';
 
 function planned() {
   const p = project();
@@ -301,7 +301,7 @@ describe('evaluation records and scoring', () => {
     assert.match(result.markdown, /\| cache\.signoff \| human \| fail \| wants a TTL per tenant \|/);
     assert.match(result.markdown, /Verdict: \*\*PASS\*\* · human review \(advisory\): 1 waiting, 1 failed/);
     assert.equal(cli(p.root, p.dir, 'score', PLAN).code, 0);
-    assert.ok(existsSync(join(p.root, 'docs/superpowers/plans/2026-11-25-cache.eval.md')));
+    assert.ok(existsSync(join(p.root, 'docs/design/plans/2026-11-25-cache.eval.md')));
   });
 
   it('is FAIL when a value breaks its threshold, with threshold and value', () => {
@@ -347,16 +347,16 @@ describe('evaluation records and scoring', () => {
 
   it('resolves a task id to its plan, category and evaluation files', () => {
     const p = planned();
-    writeFile(p.root, 'context/tasks/list/0007-cache.md', `# 0007 Cache product lookups\n\nStatus: current\nCategory: cache\n\n## Spec and plan\n\nPlan: ${PLAN}\n`);
+    writeFile(p.root, 'docs/tasks/list/0007-cache.md', `# 0007 Cache product lookups\n\nStatus: current\nCategory: cache\n\n## Spec and plan\n\nPlan: ${PLAN}\n`);
     const target = resolveTarget(p.root, '7');
     assert.deepEqual(target, {
       plan: PLAN, category: 'cache', taskId: '0007', title: '0007 Cache product lookups',
-      store: 'context/tasks/evaluations/0007.json', scorecard: 'context/tasks/evaluations/0007.md',
+      store: 'docs/tasks/evaluations/0007.json', scorecard: 'docs/tasks/evaluations/0007.md',
     });
     recordKpi(p.root, '7', 'cache.diffs', '0', { evidence: 'node compare.mjs', details: 'results/diffs.json', registry: p.registry });
-    assert.ok(existsSync(join(p.root, 'context/tasks/evaluations/0007.json')));
+    assert.ok(existsSync(join(p.root, 'docs/tasks/evaluations/0007.json')));
     assert.match(scoreTarget(p.root, '7', { registry: p.registry }).markdown, /^# Evaluation: 0007 Cache product lookups$/m);
-    assert.throws(() => resolveTarget(p.root, '9'), /task 0009 is not in context\/tasks\/list/);
+    assert.throws(() => resolveTarget(p.root, '9'), /task 0009 is not in docs\/tasks\/list/);
   });
 
   it('records and signs through the CLI', () => {

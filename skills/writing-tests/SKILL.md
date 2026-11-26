@@ -12,7 +12,7 @@ Tests are evidence that software meets its contract and keeps meeting it. Pick t
 
 ## Active task scenarios (testing hook)
 
-Keep the current task's note complete: the note in `context/tasks/list/` with `Status: current` (see the tracking-tasks skill; projects without the task board use `context/tasks/active.md`). Before running tests, fill in:
+Keep the current task's note complete: the note in `docs/tasks/list/` with `Status: current` (see the tracking-tasks skill; projects without the task board use `docs/tasks/active.md`). Before running tests, fill in:
 
 - **Expected behavior:** what the task should provide.
 - **Scenarios:** at least one `- Scenario: <condition or input>. Expected: <observable outcome>.` Add boundaries and failure paths.

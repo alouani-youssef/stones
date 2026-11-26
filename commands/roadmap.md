@@ -15,8 +15,8 @@ Focus for this session: $ARGUMENTS
   starting over.
 - Skim `git log --oneline -30` and the top-level layout to see what already
   exists and what is moving.
-- If `openspec/` exists, list its capabilities (`openspec/specs/*`) and active
-  changes (`openspec/changes/*`).
+- If `docs/specs/` exists, list its capabilities (`docs/specs/*`) and active
+  changes (`docs/specs/changes/*`).
 
 Then tell me in three or four lines what you understood, including what looks
 done, in progress, or missing.

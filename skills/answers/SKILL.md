@@ -18,12 +18,12 @@ The sources are listed from most to least authoritative for *intent*. The code i
 | --- | --- | --- |
 | This conversation | What the user has just said or decided | It is already in context |
 | `ROADMAP.md` → Decisions | Dated decisions with their reasons, the Now milestone and what is out of scope | `node .claude/tools/roadmap.mjs show --json` |
-| `context/decisions/*.md` | `PRODUCT`, `SCOPE`, `ACTORS`, `SYSTEM_DESIGN`, `EXPOSED_ELEMENTS`, `TECHNICAL_CHOICES` | Read the file that matches the question |
-| `context/references/`, `context/integrations/` | External docs and third-party services | Read the file that matches the question |
+| `docs/decisions/*.md` | `PRODUCT`, `SCOPE`, `ACTORS`, `SYSTEM_DESIGN`, `EXPOSED_ELEMENTS`, `TECHNICAL_CHOICES` | Read the file that matches the question |
+| `docs/decisions/`, `docs/decisions/` | External docs and third-party services | Read the file that matches the question |
 | `.claude/stones.json` → `answers` | The setup interview: `project`, `stack`, `architecture`, `patterns`, `security`, `conventions`, `workflow`, `guardrails`, `install` | Read the file and use only `answers` and `stack`. `files` and `generated` are install hashes |
 | `AGENT.md` | The project brief, rendered from the setup answers | Usually already in context through `CLAUDE.md` |
-| `openspec/specs/<capability>/` | `spec.md` Purpose and requirements, and `files.md` with one-line file summaries | Read them, or search them (commands below) |
-| `.claude/graph/project.json` | Imports, exports and packages for each file | Query it (commands below). Do not edit it |
+| `docs/specs/<capability>/` | `spec.md` Purpose and requirements, and `files.md` with one-line file summaries | Read them, or search them (commands below) |
+| `docs/graph/project.json` | Imports, exports and packages for each file | Query it (commands below). Do not edit it |
 | Source code | What actually runs | Read the file. The graph hook adds its capability, summary and dependents |
 
 Skip a source that does not exist. A decision file that contains only its heading records nothing.
@@ -51,13 +51,13 @@ Run these from the project root.
 node .claude/tools/roadmap.mjs show --json
 
 # Which capability and which file summaries mention a term
-grep -rn -i "invoice" openspec/specs/*/spec.md openspec/specs/*/files.md context/
+grep -rn -i "invoice" docs/specs/*/spec.md docs/specs/*/files.md docs/decisions/
 
 # How capabilities depend on each other (Mermaid)
 node .claude/hooks/graph.mjs mermaid
 
 # Files that import a given file. When the graph is incomplete, run `build` first
-node -e "const g=require('./.claude/graph/project.json');const f=process.argv[1];if(!g.complete)console.error('graph incomplete: run node .claude/hooks/graph.mjs build');console.log(Object.keys(g.files).filter((p)=>(g.files[p].imports??[]).includes(f)).join('\n'))" src/auth/session.ts
+node -e "const g=require('./docs/graph/project.json');const f=process.argv[1];if(!g.complete)console.error('graph incomplete: run node .claude/hooks/graph.mjs build');console.log(Object.keys(g.files).filter((p)=>(g.files[p].imports??[]).includes(f)).join('\n'))" src/auth/session.ts
 ```
 
 Reading a source file with the Read tool returns its graph block: capability, summary, exports, imports and used-by. Prefer this over reading neighboring files blindly.

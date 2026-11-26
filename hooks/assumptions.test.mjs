@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 import { evaluate, specFor } from './assumptions.mjs';
 
-const SPEC = 'docs/superpowers/specs/2026-11-25-limits-design.md';
-const PLAN = 'docs/superpowers/plans/2026-11-25-limits.md';
+const SPEC = 'docs/design/2026-11-25-limits-design.md';
+const PLAN = 'docs/design/plans/2026-11-25-limits.md';
 const spec = (...lines) => `# Login limits\n\n## Assumptions\n\n${lines.join('\n')}\n\n## Test Strategy\n\nUnit tests.\n`;
 
 function project(files = {}) {
@@ -39,7 +39,7 @@ describe('assumptions hook', () => {
   it('blocks a plan whose spec has no assumptions section, or no spec at all', () => {
     assert.match(writePlan(project({ [SPEC]: '# Login limits\n\nNo section.\n' })).reason, /add a ## Assumptions section/);
     assert.match(writePlan(project({ [SPEC]: spec() })).reason, /## Assumptions is empty/);
-    assert.match(writePlan(project(), '# Plan\n').reason, /Write the spec under docs\/superpowers\/specs\/ before the plan/);
+    assert.match(writePlan(project(), '# Plan\n').reason, /Write the spec under docs\/design\/ before the plan/);
   });
 
   it('allows the plan once every assumption is confirmed or denied with a decision', () => {
@@ -48,22 +48,22 @@ describe('assumptions hook', () => {
     assert.equal(evaluate({ tool_name: 'Edit', tool_input: { file_path: join(root, PLAN), new_string: 'step' } }, { projectDir: root }).block, false);
   });
 
-  it('only guards Markdown plans under docs/superpowers/plans', () => {
+  it('only guards Markdown plans under docs/design/plans', () => {
     const root = project({ [SPEC]: spec('- A1: Lock. Status: open') });
     assert.equal(writePlan(root, 'x', 'src/plan.md').block, false);
-    assert.equal(writePlan(root, 'x', 'docs/superpowers/specs/other.md').block, false);
-    assert.equal(writePlan(root, 'x', 'docs/superpowers/plans/notes.txt').block, false);
+    assert.equal(writePlan(root, 'x', 'docs/design/other.md').block, false);
+    assert.equal(writePlan(root, 'x', 'docs/design/plans/notes.txt').block, false);
     assert.equal(evaluate({ tool_name: 'Read', tool_input: { file_path: join(root, PLAN) } }, { projectDir: root }).block, false);
   });
 
   it('finds the spec from the plan link, then the current task, then the newest spec', () => {
-    const older = 'docs/superpowers/specs/2026-11-01-old-design.md';
+    const older = 'docs/design/2026-11-01-old-design.md';
     const root = project({ [SPEC]: spec('- A1: x. Status: confirmed'), [older]: spec('- A1: y. Status: open') });
     utimesSync(join(root, older), new Date(2000, 0, 1), new Date(2000, 0, 1));
     assert.equal(specFor(root, `see ${older}`), older);
     assert.equal(specFor(root, '# Plan'), SPEC, 'newest spec');
-    mkdirSync(join(root, 'context/tasks/list'), { recursive: true });
-    writeFileSync(join(root, 'context/tasks/list/0001-a.md'), `# A\n\nStatus: current\n\n## Spec and plan\n\nSpec: ${older}\n`);
+    mkdirSync(join(root, 'docs/tasks/list'), { recursive: true });
+    writeFileSync(join(root, 'docs/tasks/list/0001-a.md'), `# A\n\nStatus: current\n\n## Spec and plan\n\nSpec: ${older}\n`);
     assert.equal(specFor(root, '# Plan'), older, 'current task spec');
     assert.equal(writePlan(root, '# Plan\n').block, true);
   });

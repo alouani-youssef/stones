@@ -81,7 +81,7 @@ const LOCAL_PATH = /(?:\/Users\/[A-Za-z0-9._-]+\/|private\/tmp\/claude-)/;
 
 // Test fixtures may hold fake secrets on purpose; design notes may quote paths.
 const SECRET_EXEMPT = /(\.test\.mjs$|^scripts\/check-repo\.mjs$)/;
-const PATH_EXEMPT = /(\.test\.mjs$|^docs\/superpowers\/)/;
+const PATH_EXEMPT = /(\.test\.mjs$|^docs\/design\/)/;
 
 function checkSecretsAndPaths() {
   for (const file of tracked) {

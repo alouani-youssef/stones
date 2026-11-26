@@ -26,14 +26,14 @@ Cognitive complexity (what the complexity hook reports) and Big O reasoning are 
 1. **Fix the scope.** Name the directories measured and the exclusions (generated code, vendored code, migrations, tests unless asked). Different scopes give different numbers; write the scope next to every result.
 2. **Collect per-function data** with the language's analyzer (table below) into `functions: [{ name, file, cc, nesting, loc }]`.
 3. **Count lines and symbols** for the same scope: `loc` is non-blank, non-comment lines; `symbols` is declared functions, methods, classes, types and exported constants.
-4. **Collect import edges** between internal modules, `[[from, to], ...]`. In a project with the code graph, use `--graph .claude/graph/project.json` instead.
+4. **Collect import edges** between internal modules, `[[from, to], ...]`. In a project with the code graph, use `--graph docs/graph/project.json` instead.
 5. **Score** with the bundled script and save the JSON as the baseline:
 
    ```sh
-   node .claude/skills/measuring-complexity/complexity-score.mjs metrics.json --graph .claude/graph/project.json --json > .claude/quality/complexity.json
+   node .claude/skills/measuring-complexity/complexity-score.mjs metrics.json --graph docs/graph/project.json --json > docs/logs/quality/complexity.json
    ```
 
-6. **Compare** later runs with `--baseline .claude/quality/complexity.json`. Report the deltas and the worst functions, not just the index.
+6. **Compare** later runs with `--baseline docs/logs/quality/complexity.json`. Report the deltas and the worst functions, not just the index.
 
 Never estimate metrics by reading code. If an analyzer is missing, say which metric could not be measured; the script leaves it out of the index and reports a `measured_weight` below 1.
 

@@ -3,7 +3,7 @@
 // (Summary, Zone, Spec link, Risk, Rollback, Verification) from what the
 // branch already records: its commits and their git-comments, the danger-zone
 // prefix and spec, the last quality-check run, and the board task the branch
-// carries (context/tasks/list/: its title, expected behavior, scenarios,
+// carries (docs/tasks/list/: its title, expected behavior, scenarios,
 // contract change, test result and review verdict). Then opens it with gh.
 //
 //   node .claude/tools/create-pr.mjs draft [--base <ref>] [--task <id>] [--write]
@@ -23,9 +23,9 @@ import { git, NOTES_REF, projectRoot } from './git-comments.mjs';
 const ZONES = { 'db/': 'db', 'deps/': 'packages', 'net/': 'network' };
 const SEP = '\x1f';
 export const PR_FILE = '.claude/pr.md';
-const TASK_LIST = 'context/tasks/list';
+const TASK_LIST = 'docs/tasks/list';
 // Files the task board writes; a commit touching only these does not make a test run stale.
-const BOOKKEEPING = /^context\/tasks\//;
+const BOOKKEEPING = /^docs\/tasks\//;
 
 const USAGE = `create-pr: draft and open a pull request for the current branch
 
@@ -139,7 +139,7 @@ const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
 const isPlaceholder = (text) => /\bTODO\b|\bTBD\b/.test(text);
 
 function reviewVerdict(root, task) {
-  const pkg = readText(join(root, '.claude', 'reviews', `${task.id}.md`));
+  const pkg = readText(join(root, 'docs', 'logs', 'reviews', `${task.id}.md`));
   return pkg && /^Verdict: \*\*(READY|NOT READY)\*\*/m.exec(pkg)?.[1];
 }
 
@@ -159,7 +159,7 @@ function verification(root, task) {
   if (verdict) taskLines.push(`- task review (\`tasks review ${task.id}\`): ${verdict}${verdict === 'READY' ? '' : ' (TODO: fix the findings)'}`);
   let last;
   try {
-    last = JSON.parse(readFileSync(join(root, '.claude', 'quality', 'last.json'), 'utf8'));
+    last = JSON.parse(readFileSync(join(root, 'docs', 'logs', 'quality', 'last.json'), 'utf8'));
   } catch {
     return taskLines.length ? taskLines.join('\n') : 'TODO: run `node .claude/tools/quality-check.mjs` and list what ran.';
   }
@@ -242,10 +242,10 @@ const shellQuote = (text) => (/^[\w@%+=:,./-]+$/.test(text) ? text : `'${text.re
 // board's bookkeeping for the task, push the branch, fill any TODOs, create.
 export function prCommands(root, pr, file = PR_FILE) {
   const commands = [];
-  const bookkeeping = git(root, ['status', '--porcelain', '--', 'context/tasks']).out;
+  const bookkeeping = git(root, ['status', '--porcelain', '--', 'docs/tasks']).out;
   if (bookkeeping) {
     const subject = pr.task ? `chore(tasks): close ${pr.task.id} ${pr.task.title}` : 'chore(tasks): update the task board';
-    commands.push(`git add context/tasks && git commit -m ${shellQuote(subject)}`);
+    commands.push(`git add docs/tasks && git commit -m ${shellQuote(subject)}`);
   }
   const upstream = git(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
   if (!upstream.ok) commands.push(`git push -u origin ${shellQuote(pr.branch)}`);

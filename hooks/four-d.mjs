@@ -23,7 +23,7 @@
 //     "commands": { "test": "make test" },     // verification commands
 //     "rules": { "*": ["..."], "debugging": ["..."] }, // extra Diligence lines
 //     "show": true,                            // also display each block to the user
-//     "log": true,                             // append each block to .claude/four-d.log
+//     "log": true,                             // append each block to docs/logs/four-d.log
 //     "context": {                             // project context (false turns it all off)
 //       "tasks": true, "roadmap": true,        //   current/next tasks, ROADMAP.md Now
 //       "decisions": 5, "history": 3           //   how many decisions / earlier prompts
@@ -31,8 +31,8 @@
 //   }
 //
 // Project context is read from the files the stones tools write, each
-// optional: context/tasks/list/*.md (tasks.mjs), ROADMAP.md (roadmap.mjs,
-// /roadmap), context/decisions/*.md, and .claude/history.db (history hook).
+// optional: docs/tasks/list/*.md (tasks.mjs), ROADMAP.md (roadmap.mjs,
+// /roadmap), docs/decisions/*.md, and .claude/history.db (history hook).
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -420,17 +420,17 @@ const readFile = (project, path) => {
 const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 
-// The task notes in context/tasks/list/ whose Status line is `state`, in id
+// The task notes in docs/tasks/list/ whose Status line is `state`, in id
 // order; a note without a Status is queued (next).
 function boardTasks(project, state) {
   let files;
   try {
-    files = readdirSync(join(project, 'context/tasks/list')).filter((f) => /^\d+-.*\.md$/.test(f)).sort();
+    files = readdirSync(join(project, 'docs/tasks/list')).filter((f) => /^\d+-.*\.md$/.test(f)).sort();
   } catch {
     return [];
   }
   return files.flatMap((file) => {
-    const text = readFile(project, `context/tasks/list/${file}`);
+    const text = readFile(project, `docs/tasks/list/${file}`);
     const status = /^Status:[ \t]*(\S*)/m.exec(text)?.[1] || 'next';
     const title = /^#\s+\d+\s+(.*)$/m.exec(text)?.[1]?.trim() ?? file;
     return status === state ? [{ id: /^(\d+)/.exec(file)[1], title, file }] : [];
@@ -441,7 +441,7 @@ function taskLines(project) {
   const lines = [];
   const [current] = boardTasks(project, 'current');
   if (current) {
-    const text = readFile(project, `context/tasks/list/${current.file}`);
+    const text = readFile(project, `docs/tasks/list/${current.file}`);
     const scope = /^Scope:[ \t]*(.*)$/m.exec(text)?.[1]?.trim();
     const expected = /^## Expected behavior\s*\n([\s\S]*?)(?=\n## |$)/m.exec(text)?.[1]?.trim() ?? '';
     const behavior = expected && !expected.startsWith('TODO') ? `: ${clip(oneLine(expected), 240)}` : '';
@@ -490,15 +490,15 @@ function roadmapLine(sections) {
   return parts.length ? [`Roadmap — ${clip(parts.join(' '), 400)}`] : [];
 }
 
-// Oldest first: context/decisions/*.md by file name, then the ROADMAP.md table.
+// Oldest first: docs/decisions/*.md by file name, then the ROADMAP.md table.
 function readDecisions(project, sections) {
   const decisions = [];
   let files = [];
   try {
-    files = readdirSync(join(project, 'context', 'decisions')).filter((f) => f.endsWith('.md')).sort();
+    files = readdirSync(join(project, 'docs', 'decisions')).filter((f) => f.endsWith('.md')).sort();
   } catch { /* no decision records */ }
   for (const file of files) {
-    const text = readFile(project, `context/decisions/${file}`);
+    const text = readFile(project, `docs/decisions/${file}`);
     const title = /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
     if (!title) continue;
     const summary = text.split(/\n\s*\n/).map((p) => p.trim())
@@ -608,9 +608,9 @@ export function evaluate(event, { projectDir } = {}) {
   return { category, risk, config, project, context: render({ category, secondary, risk, policy, project: context }) };
 }
 
-export const LOG_PATH = '.claude/four-d.log';
+export const LOG_PATH = 'docs/logs/four-d.log';
 
-// One plain-text entry per injection, readable with `tail -f .claude/four-d.log`.
+// One plain-text entry per injection, readable with `tail -f docs/logs/four-d.log`.
 export function logInjection(project, { prompt, sessionId, context, now = new Date() }) {
   const file = join(project, LOG_PATH);
   mkdirSync(dirname(file), { recursive: true });

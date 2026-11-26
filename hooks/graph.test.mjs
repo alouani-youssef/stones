@@ -29,8 +29,8 @@ const app = () =>
     'src/db/client.ts': 'export const db = {};\n',
     'src/api/login.ts': "import { createSession } from '../auth/session';\n",
     'src/auth/token.ts': 'export type Token = string;\n',
-    'openspec/specs/auth/spec.md': AUTH_SPEC,
-    'openspec/specs/auth/files.md':
+    'docs/specs/auth/spec.md': AUTH_SPEC,
+    'docs/specs/auth/files.md':
       '# Files\n\n- `src/auth/session.ts` — Creates and validates user sessions.\n- `src/auth/` — Login, sessions and tokens.\n',
   });
 
@@ -66,7 +66,7 @@ describe('indexing', () => {
 describe('on Read', () => {
   it('injects summary, capability, imports and dependents', () => {
     const context = onRead(app(), 'src/auth/session.ts');
-    assert.match(context, /Capability: auth \(openspec\/specs\/auth\/spec\.md\) — Lets users sign in/);
+    assert.match(context, /Capability: auth \(docs\/specs\/auth\/spec\.md\) — Lets users sign in/);
     assert.match(context, /Summary: Creates and validates user sessions\./);
     assert.match(context, /Imports: src\/db\/client\.ts/);
     assert.match(context, /Used by: src\/api\/login\.ts/);
@@ -79,24 +79,30 @@ describe('on Read', () => {
 
   it('asks for a summary in the nearest capability when unmapped', () => {
     const root = app();
-    put(root, { 'openspec/specs/billing/spec.md': '# billing\n', 'openspec/specs/billing/files.md': '- `src/billing/` — Billing.\n' });
-    assert.match(onRead(root, 'src/db/client.ts'), /No summary yet: .* openspec\/specs\/<capability>\/files\.md \(capabilities: auth, billing\)/);
+    put(root, { 'docs/specs/billing/spec.md': '# billing\n', 'docs/specs/billing/files.md': '- `src/billing/` — Billing.\n' });
+    assert.match(onRead(root, 'src/db/client.ts'), /No summary yet: .* docs\/specs\/<capability>\/files\.md \(capabilities: auth, billing\)/);
     put(root, { 'src/billing/invoice.ts': 'export const total = 0;\n' });
     assert.match(onRead(root, 'src/billing/invoice.ts'), /Summary \(of src\/billing\/\): Billing\./);
     put(root, { 'src/auth/mfa/totp.ts': 'export const verify = 0;\n' });
     assert.match(onRead(root, 'src/auth/mfa/totp.ts'), /Login, sessions and tokens/);
   });
 
+  it('does not read docs/specs/changes as a capability', () => {
+    const root = app();
+    put(root, { 'docs/specs/changes/add-mfa/spec.md': '# add-mfa\n' });
+    assert.match(onRead(root, 'src/db/client.ts'), /\(capabilities: auth\)/);
+  });
+
   it('builds the graph on first read', () => {
     const root = app();
     onRead(root, 'src/db/client.ts');
-    const graph = JSON.parse(readFileSync(join(root, '.claude/graph/project.json'), 'utf8'));
+    const graph = JSON.parse(readFileSync(join(root, 'docs/graph/project.json'), 'utf8'));
     assert.equal(graph.complete, true);
     assert.equal(Object.keys(graph.files).length, 4);
   });
 
   it('ignores non-code files', () => {
-    assert.equal(onRead(app(), 'openspec/specs/auth/spec.md'), undefined);
+    assert.equal(onRead(app(), 'docs/specs/auth/spec.md'), undefined);
   });
 });
 
@@ -109,9 +115,9 @@ describe('on Write/Edit', () => {
     assert.match(onRead(root, 'src/auth/session.ts'), /Summary may be stale/);
 
     put(root, {
-      'openspec/specs/auth/files.md': '- `src/auth/session.ts` — Creates and revokes sessions.\n',
+      'docs/specs/auth/files.md': '- `src/auth/session.ts` — Creates and revokes sessions.\n',
     });
-    onUpdate(root, 'openspec/specs/auth/files.md');
+    onUpdate(root, 'docs/specs/auth/files.md');
     assert.equal(onUpdate(root, 'src/auth/session.ts'), undefined);
   });
 
@@ -125,7 +131,7 @@ describe('on Write/Edit', () => {
   it('nudges for a summary on a new unmapped file', () => {
     const root = app();
     put(root, { 'src/auth/mfa.ts': 'export const verify = () => {};\n' });
-    assert.match(onUpdate(root, 'src/auth/mfa.ts'), /add "- `src\/auth\/mfa\.ts` — .*" to openspec\/specs\/auth\/files\.md/);
+    assert.match(onUpdate(root, 'src/auth/mfa.ts'), /add "- `src\/auth\/mfa\.ts` — .*" to docs\/specs\/auth\/files\.md/);
   });
 });
 

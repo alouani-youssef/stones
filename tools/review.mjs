@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { scoreTarget } from './evaluation.mjs';
 
 const HOOKS = join(dirname(fileURLToPath(import.meta.url)), '..', 'hooks');
-const BOOKKEEPING = [/^context\/tasks\//, /^\.claude\/reviews\//];
+const BOOKKEEPING = [/^docs\/tasks\//, /^docs\/logs\//];
 const DANGER = ['db', 'packages', 'network'];
 const STOPWORDS = new Set(['scenario', 'expected', 'should', 'when', 'then', 'with', 'that', 'this', 'from', 'into', 'returns', 'return', 'given', 'there', 'their', 'which', 'without', 'after', 'before', 'about', 'being', 'have', 'does']);
 
