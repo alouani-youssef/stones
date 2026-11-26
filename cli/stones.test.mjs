@@ -299,6 +299,17 @@ describe('framework skills', () => {
     assert.deepEqual(suggestedPlugins(ui).filter((p) => ['posthog', 'sentry-mcp'].includes(p)).sort(), ['posthog', 'sentry-mcp']);
   });
 
+  it('offers the OpenTelemetry skill only to projects that use OpenTelemetry', async () => {
+    const stack = (files) => detect(project(files));
+    const node = stack({ 'package.json': { dependencies: { express: '5', '@opentelemetry/api': '1' } } });
+    assert.ok(node.frameworks.includes('OpenTelemetry'));
+    assert.ok(stack({ 'requirements.txt': 'fastapi\nopentelemetry-distro\n' }).frameworks.includes('OpenTelemetry'));
+    assert.ok(stack({ 'go.mod': 'module example.com/app\n\nrequire go.opentelemetry.io/otel v1.38.0\n' }).frameworks.includes('OpenTelemetry'));
+    assert.ok((await interview(createScriptedPrompter({}), node)).install.skills.includes('opentelemetry'));
+    const plain = await interview(createScriptedPrompter({}), stack({ 'package.json': { dependencies: { express: '5' } } }));
+    assert.ok(!plain.install.skills.includes('opentelemetry'), 'waits until the project uses OpenTelemetry');
+  });
+
   it('offers the PostHog and Sentry MCP servers over HTTP', () => {
     const servers = Object.fromEntries(mcpCatalog().map((m) => [m.id, m.config]));
     assert.deepEqual(servers.posthog, { type: 'http', url: 'https://mcp.posthog.com/mcp' });
@@ -641,7 +652,7 @@ describe('init', () => {
     assert.ok(listed.some((m) => m.file === 'package.json' && m.packages.length), 'lists the app packages');
     assert.ok(read(legacy, '.claude/tools/create-pr.mjs').length > 0);
     assert.ok(!JSON.parse(read(legacy, '.claude/settings.json')).permissions.allow.some((p) => p.includes('create-pr')), 'opening a PR is not pre-approved');
-    for (const tool of ['git-comments.mjs', 'worktree-history.mjs', 'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs']) {
+    for (const tool of ['git-comments.mjs', 'worktree-history.mjs', 'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs', 'validate-specs.mjs']) {
       assert.ok(JSON.parse(read(legacy, '.claude/settings.json')).permissions.allow.includes(`Bash(node .claude/tools/${tool}:*)`), tool);
     }
     // worktree-history imports git-comments from next to it in .claude/tools.

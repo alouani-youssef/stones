@@ -10,7 +10,7 @@
 // is passed through. files.md (code graph summaries) is staged too; OpenSpec
 // only reads spec.md.
 //
-//   node .claude/tools/validate-specs.mjs [item] [--all|--specs|--changes] [--json] [--no-strict]
+//   node .claude/tools/validate-specs.mjs [item] [--type spec|change] [--all|--specs|--changes] [--json] [--no-strict]
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,6 +33,7 @@ Options
   --all          Validate every spec and change (default without an item)
   --specs        Validate only the specs
   --changes      Validate only the changes (docs/specs/changes/)
+  --type <t>     With an item: spec or change, when the name is both
   --json         Print OpenSpec's JSON report
   --no-strict    Drop OpenSpec's strict mode
   -h, --help     Show this help
@@ -71,20 +72,27 @@ const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // OpenSpec reports paths inside the stage; point them back at docs/specs.
 export function mapPaths(text, stages) {
   let out = text;
-  for (const stage of stages) {
+  // Longest first: on macOS /private/var/... contains the /var/... spelling.
+  for (const stage of [...new Set(stages)].sort((x, y) => y.length - x.length)) {
     out = out.replace(new RegExp(`${escape(stage)}/openspec/changes`, 'g'), CHANGES_DIR);
     out = out.replace(new RegExp(`${escape(stage)}/openspec/specs`, 'g'), SPECS_DIR);
     out = out.replace(new RegExp(`${escape(stage)}/openspec`, 'g'), SPECS_DIR);
   }
   return out
+    .replace(/\bopenspec validate\b/g, 'node .claude/tools/validate-specs.mjs')
     .replace(/(^|[\s"'`(])openspec\/changes\//gm, `$1${CHANGES_DIR}/`)
     .replace(/(^|[\s"'`(])openspec\/specs\//gm, `$1${SPECS_DIR}/`);
 }
 
 export function parseArgs(argv) {
-  const opts = { item: undefined, scope: '--all', json: false, strict: true, help: false };
-  for (const a of argv) {
+  const opts = { item: undefined, type: undefined, scope: '--all', json: false, strict: true, help: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a === '-h' || a === '--help') opts.help = true;
+    else if (a === '--type') {
+      opts.type = argv[++i];
+      if (opts.type !== 'spec' && opts.type !== 'change') throw new SpecsError('--type needs spec or change');
+    }
     else if (a === '--all' || a === '--specs' || a === '--changes') opts.scope = a;
     else if (a === '--json') opts.json = true;
     else if (a === '--no-strict') opts.strict = false;
@@ -102,6 +110,7 @@ export function validateSpecs(root, opts, env = process.env) {
     stageSpecs(root, stage);
     const [file, ...pre] = openspecCommand(root, env);
     const args = [...pre, 'validate', ...(opts.item ? [opts.item] : [opts.scope]), '--no-interactive'];
+    if (opts.item && opts.type) args.push('--type', opts.type);
     if (opts.strict) args.push('--strict');
     if (opts.json) args.push('--json');
     const r = spawnSync(file, args, {

@@ -78,7 +78,9 @@ Rewording a summary marks it current again.
 
 Each capability keeps its file summaries in `files.md` next to its
 `spec.md`, so the spec stays about behavior. `docs/specs/changes/` holds
-proposed changes and is not read as a capability.
+proposed changes and is not read as a capability. Validate the specs with
+`node .claude/tools/validate-specs.mjs`: it stages them as an `openspec/` root
+and runs `openspec validate --all --strict` there, which reads only `spec.md`.
 
 ```
 docs/

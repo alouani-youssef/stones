@@ -76,6 +76,7 @@ function renderWorkflow(answers, stack, { doc }) {
 
   const workflowBullets = bullets([
     'Project docs live in `docs/`: `specs/` (capabilities; `specs/changes/` for proposals), `tasks/`, `graph/`, `decisions/`, `design/` and `logs/`. Save superpowers design specs to `docs/design/`, plans to `docs/design/plans/` and approvals to `docs/design/approvals/`, never `docs/superpowers/`.',
+    'After changing anything under `docs/specs/`, validate it with `node .claude/tools/validate-specs.mjs` (OpenSpec, run on a staged `openspec/` copy; `quality-check` runs it too) and fix what it reports.',
     branching &&`Branching: ${branching.label} — ${branching.hint}; default branch \`${stack.defaultBranch}\`.`,
     answers.workflow.tdd && `Work test-first: write a failing test, make it pass, refactor${docSuffix(doc('test-first-development'))}.`,
     doc('writing-tests') && `Testing strategy: ${docLink(doc('writing-tests'))}.`,

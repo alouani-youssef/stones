@@ -57,6 +57,7 @@ const NODE_FRAMEWORKS = {
   '@sentry/browser': 'Sentry', '@sentry/react': 'Sentry', '@sentry/nextjs': 'Sentry', '@sentry/vue': 'Sentry',
   '@sentry/nuxt': 'Sentry', '@sentry/sveltekit': 'Sentry', '@sentry/angular': 'Sentry', '@sentry/remix': 'Sentry',
   '@sentry/astro': 'Sentry', '@sentry/react-native': 'Sentry', '@sentry/node': 'Sentry', '@sentry/nestjs': 'Sentry',
+  '@opentelemetry/api': 'OpenTelemetry', '@opentelemetry/sdk-node': 'OpenTelemetry', '@vercel/otel': 'OpenTelemetry',
 };
 
 const PY_FRAMEWORKS = {
@@ -65,13 +66,14 @@ const PY_FRAMEWORKS = {
   langchain: 'LangChain', langgraph: 'LangGraph', anthropic: 'Anthropic SDK', openai: 'OpenAI SDK',
   deepeval: 'DeepEval', giskard: 'Giskard',
   supabase: 'Supabase', pymongo: 'MongoDB', motor: 'MongoDB', 'firebase-admin': 'Firebase', redis: 'Redis',
-  posthog: 'PostHog', 'sentry-sdk': 'Sentry',
+  posthog: 'PostHog', 'sentry-sdk': 'Sentry', opentelemetry: 'OpenTelemetry',
 };
 
 // Go modules required in go.mod, matched by module path.
 const GO_FRAMEWORKS = {
   'github.com/gin-gonic/gin': 'Gin', 'github.com/labstack/echo': 'Echo',
   'github.com/gofiber/fiber': 'Fiber', 'github.com/go-chi/chi': 'Chi',
+  'go.opentelemetry.io/otel': 'OpenTelemetry',
 };
 
 function nodePackageManager(root) {

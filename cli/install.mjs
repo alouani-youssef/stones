@@ -53,7 +53,7 @@ const HOOK_LIBS = { access_guard: ['shell.mjs'], atomicity: ['shell.mjs'], workf
 // containers, so Claude asks before running them (workflows list/status are allowed).
 export const PROJECT_TOOLS = [
   'list-packages.mjs', 'git-comments.mjs', 'worktree-history.mjs',
-  'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs', 'create-pr.mjs', 'workflows.mjs', 'spec-quiz.mjs',
+  'quality-check.mjs', 'roadmap.mjs', 'sync-docs.mjs', 'create-pr.mjs', 'workflows.mjs', 'spec-quiz.mjs', 'validate-specs.mjs',
 ];
 const ASK_FIRST_TOOLS = new Set(['create-pr.mjs', 'workflows.mjs']);
 // The single task note for projects without the task board.

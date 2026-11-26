@@ -33,6 +33,7 @@ Options
   -h, --help            Show this help
 
 Commands come from .claude/stones.json (written by \`npx ai-stones init\`).
+When docs/specs/ exists, a specs step validates it with OpenSpec.
 The format step rewrites files, so it runs only with --only format.`;
 
 class QualityError extends Error {}
@@ -40,13 +41,21 @@ const fail = (message) => {
   throw new QualityError(message);
 };
 
+// Validates docs/specs with OpenSpec when the project has specs and the tool is installed.
+export const SPECS_COMMAND = 'node .claude/tools/validate-specs.mjs';
+
 export function configuredCommands(root) {
+  let commands = {};
   try {
     const manifest = JSON.parse(readFileSync(join(root, '.claude', 'stones.json'), 'utf8'));
-    return { ...(manifest.answers?.workflow?.commands ?? {}) };
+    commands = { ...(manifest.answers?.workflow?.commands ?? {}) };
   } catch {
-    return {};
+    // no manifest: only --cmd steps
   }
+  if (!('specs' in commands) && existsSync(join(root, 'docs', 'specs')) && existsSync(join(root, '.claude', 'tools', 'validate-specs.mjs'))) {
+    commands.specs = SPECS_COMMAND;
+  }
+  return commands;
 }
 
 export function planSteps(commands, { only = [], skip = [] } = {}) {

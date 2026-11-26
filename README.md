@@ -99,7 +99,8 @@ preview the planned changes without writing files.
   follow detected commands and ecosystems. Framework plugins and pattern
   skills are offered only when relevant. For example, a UI that uses
   `posthog-js` gets the PostHog setup, experiments and session replay skills.
-  A project that uses `@sentry/*` gets the official Sentry plugin. The PostHog
+  A project that uses `@sentry/*` gets the official Sentry plugin, and one that
+  uses OpenTelemetry gets its tracing, metrics and propagation principles. The PostHog
   and Sentry MCP servers can be added to `.mcp.json` for any project.
 - **Safe to rerun.** Previous answers become defaults. Unedited generated
   files update; edited files are preserved and reported unless `--force` is
@@ -193,7 +194,12 @@ Depending on the selected skills, the setup can include tools to inspect
 dependencies, review worktree history, store Git comments, run project quality
 checks, draft pull requests, manage a roadmap, synchronize documentation,
 track tasks, and quiz you on a spec before implementation starts
-(`spec-quiz.mjs`, used by the `confirming-specs` skill). For example, the dependency listing tool reads manifests without
+(`spec-quiz.mjs`, used by the `confirming-specs` skill), and validate
+`docs/specs/` with the OpenSpec CLI (`validate-specs.mjs`). OpenSpec only reads
+an `openspec/` folder, so the tool copies `docs/specs/` into a temporary
+`openspec/specs/` and `docs/specs/changes/` into `openspec/changes/`, runs
+`openspec validate --all --strict`, and reports paths under `docs/specs/`;
+`quality-check` runs it as its `specs` step when `docs/specs/` exists. For example, the dependency listing tool reads manifests without
 installing packages:
 
 ```sh
