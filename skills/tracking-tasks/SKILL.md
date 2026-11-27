@@ -85,6 +85,28 @@ node .claude/tools/tasks.mjs sync                          # rewrite state/*.md 
 7. **Review:** commit the work, then `review <id> --run-tests`. It reports missing specs/plans and checks the changed work against the task's scenarios. Fix every finding before finishing.
 8. **Finish and move on:** `done <id>` runs the project's test command (or the one after `--`) and sets the task done only when it passes, recording the commit range and test result in its `Result:` line. It writes the pull request draft to `.claude/pr.md` from the task (summary, scenarios, risk from its contract change, rollback, test result and review verdict; a `## Risk` or `## Rollback` section in the note overrides the defaults) and prints the commands that open it: commit the task bookkeeping, push, then `create-pr.mjs create`. Run them in order, after filling any TODOs it reports; opening the PR stays an explicit step. It then starts the next queued task (in `next.md` order) that passes the readiness gate, skipping and naming any queued task that is not ready, and prints the new current task; continue with it (`current` shows its note). From a terminal it opens that task's Claude Code session. Pass `--no-advance` to stop after closing the task, e.g. when tasks are worked on in parallel branches. For a categorised task, `done` also scores the output (`evaluation.mjs score`) and refuses unless the verdict is PASS: record every measured KPI with `evaluation.mjs record` first. Human sign-offs on the scorecard are advisory and listed, never blocking. On test failure, fix the source and run it again; never edit the task or tests to get a pass.
 
+## Subagents
+
+When project subagents are installed in `.claude/agents/`, the task tool names
+the one that runs each step, and only those that are installed:
+
+| Step | Where it is named | Agent | Hand it |
+| --- | --- | --- | --- |
+| Build | the session prompt from `start` | `developer` | one plan step, the task Scope and the scenarios it serves |
+| Build | the session prompt from `start` | `tester` | the scenarios and test cases, tests written failing first |
+| Build | the session prompt from `start` | `devops` | changes to CI, containers, the dev container or release config |
+| Review | the session prompt and `review` output | `critic` | the review package `docs/logs/reviews/<id>.md` |
+| Review | the session prompt and `review` output | `functional` | the task note's scenarios, checked against real behavior |
+| Review | the session prompt and `review` output | `hacker` | the diff, when it touches auth, input, files, secrets, dependencies or network |
+| Finish | `done` output, after the PR draft | `summarizer` | the review package and commits, for the summary in `.claude/pr.md` |
+
+Delegate with the Agent tool (`subagent_type: "<name>"`), give the agent the
+task, its scope and its acceptance criteria, and check its report before
+acting on it: fix every blocker and major finding before `done`. Use the
+`researcher` while writing the spec, to answer open questions with sources,
+before planning. An agent that is not installed leaves its step to the main
+session.
+
 ## Reviewing a task
 
 `review` writes one file for the reviewer, `docs/logs/reviews/<id>.md` (git-ignored): verdict, findings, what the task promised, each scenario with whether a changed test mentions it, commits, files changed with their change kind, and the full diff. It exits 1 when the task is **NOT READY**. Findings:

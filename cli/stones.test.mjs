@@ -633,6 +633,7 @@ describe('init', () => {
     assert.ok(existsSync(join(withBoard, 'docs/tasks/list/.gitkeep')));
     assert.ok(read(withBoard, '.claude/tools/tasks.mjs').length > 0);
     assert.ok(read(withBoard, '.claude/tools/review.mjs').length > 0);
+    assert.ok(read(withBoard, '.claude/tools/subagents.mjs').length > 0, 'tasks.mjs imports it');
     assert.ok(read(withBoard, '.claude/skills/tracking-tasks/SKILL.md').length > 0);
     assert.ok(settings.permissions.allow.includes('Bash(node .claude/tools/tasks.mjs:*)'));
     assert.match(read(withBoard, '.gitignore'), /^docs\/logs\/reviews\/$/m);

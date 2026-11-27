@@ -39,7 +39,7 @@ const GITIGNORE_LINES = ['docs/graph/project.json', '.claude/settings.local.json
 const HISTORY_GITIGNORE = ['.claude/history.db*'];
 const FOUR_D_GITIGNORE = ['docs/logs/four-d.log'];
 const TASKS_GITIGNORE = ['docs/logs/reviews/', STATE_GITIGNORE];
-export const TASK_TOOLS = ['tasks.mjs', 'review.mjs'];
+export const TASK_TOOLS = ['tasks.mjs', 'review.mjs', 'subagents.mjs'];
 // The evaluating-outputs tools. tasks.mjs and review.mjs import them, so they
 // ship with the task board as well as with the skill. `sign` records the
 // user's own answer, so it is left out of permissions.allow and always asks.

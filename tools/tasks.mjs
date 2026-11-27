@@ -27,6 +27,7 @@ import { EvaluationError, loadRegistry } from './evaluation-registry.mjs';
 import { checkPlan, scoreTarget } from './evaluation.mjs';
 import { reviewTask } from './review.mjs';
 import { quizStatus } from './spec-quiz.mjs';
+import { dispatchText, installedAgents } from './subagents.mjs';
 
 export const TASKS_DIR = 'docs/tasks';
 export const LIST_DIR = `${TASKS_DIR}/list`;
@@ -456,7 +457,9 @@ export const SUPERPOWERS_WORKFLOW = [
 ].join('\n');
 
 // The opening prompt of a task's session: the task note plus how to work it.
-export function taskPrompt(task, { blockedReason = '' } = {}) {
+// `agents` are the installed project subagents the build and review steps go to.
+export function taskPrompt(task, { blockedReason = '', agents = [] } = {}) {
+  const review = `${REVIEWS_DIR}/${task.id}.md`;
   const todo = /TODO:/.test(task.text);
   const where = [task.branch && `branch ${task.branch}`, task.base && `base ${task.base.slice(0, 7)}`].filter(Boolean).join(', ');
   return [
@@ -470,6 +473,8 @@ export function taskPrompt(task, { blockedReason = '' } = {}) {
       ? 'The note still has TODOs: fill them in before writing code, asking me when the expected behavior is unclear. Task start and the testing hook both enforce the required task details.'
       : '',
     SUPERPOWERS_WORKFLOW,
+    dispatchText(agents, 'build'),
+    dispatchText(agents, 'review', { review }),
     `Only change files inside its Scope. Commit the work, check it with \`node .claude/tools/tasks.mjs review ${task.id} --run-tests\`,`
       + ` then finish with \`node .claude/tools/tasks.mjs done ${task.id}\`; it marks the task done, writes the PR draft to .claude/pr.md with the commands that open it, and starts the next ready task on the board.`
       + ` If it cannot be finished, \`node .claude/tools/tasks.mjs block ${task.id} "<reason>"\`.`,
@@ -482,7 +487,7 @@ export const canOpenSession = (env = process.env) => !env.CLAUDECODE && Boolean(
 
 // Opens an interactive Claude Code session in `root` with the task's prompt.
 export function startSession(root, task, { claude = process.env.STONES_CLAUDE || 'claude', blockedReason = '', run = spawn } = {}) {
-  const prompt = taskPrompt(task, { blockedReason });
+  const prompt = taskPrompt(task, { blockedReason, agents: installedAgents(root) });
   return new Promise((done) => {
     const child = run(claude, [prompt], { cwd: root, stdio: 'inherit' });
     child.on('exit', (code) => done({ started: true, code: code ?? 1 }));
@@ -652,7 +657,11 @@ async function handleDone(root, rest, after, { log, refOrCurrent, session, claud
     return tests.status || 1;
   }
   log(`done ${task.id} ${task.title}`);
-  if (!rest.includes('--no-pr')) log(await draftPullRequest(root, task));
+  if (!rest.includes('--no-pr')) {
+    log(await draftPullRequest(root, task));
+    const dispatch = dispatchText(installedAgents(root), 'done', { review: `${REVIEWS_DIR}/${task.id}.md` });
+    if (dispatch) log(dispatch);
+  }
   if (noAdvance) return 0;
   // Another task may already be current (e.g. `done` on a task that was not the current one).
   const current = currentTaskOf(root);
@@ -700,6 +709,8 @@ async function handleReview(root, rest, after, { log, refOrCurrent }) {
   log(`${result.ready ? 'READY' : 'NOT READY'}: ${task.id} ${task.title}`);
   for (const f of result.findings) log(`- ${f}`);
   log(`review package: ${out}`);
+  const dispatch = dispatchText(installedAgents(root), 'review', { review: out });
+  if (dispatch) log(dispatch);
   return result.ready ? 0 : 1;
 }
 

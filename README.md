@@ -290,6 +290,13 @@ them.
 | `devops` | read, edit, shell | CI/CD, containers, dev container and release config, verified locally |
 | `automator` | read, edit, shell | Turns a repeated manual step into a script, hook, command or CI job |
 
+With the task board (`tracking-tasks`), the task tool dispatches them: the
+session `tasks start` opens hands the build to `developer`, `tester` and
+`devops`; the session prompt and `tasks review` hand the review package to
+`critic`, `functional` and `hacker`; `tasks done` hands the PR summary to
+`summarizer`. Only installed agents are named, so a deselected one leaves its
+step to the main session.
+
 ### Project tools
 
 Installed in `.claude/tools/` and run with `node .claude/tools/<tool>`.
@@ -309,7 +316,7 @@ and `sign` records your own sign-off, so Claude asks first.
 | `sync-docs.mjs` | Finds Markdown that no longer matches the repository: dead links, missing scripts |
 | `spec-quiz.mjs` | The quiz `confirming-specs` runs before implementation |
 | `validate-specs.mjs` | Validates `docs/specs/` with the OpenSpec CLI |
-| `tasks.mjs` / `review.mjs` | The task board and the review package (with `tracking-tasks`) |
+| `tasks.mjs` / `review.mjs` / `subagents.mjs` | The task board, the review package and which subagent runs each step (with `tracking-tasks`) |
 | `evaluation.mjs` | Category KPIs, recorded measurements and the scorecard (with `evaluating-outputs`) |
 
 ### Slash commands, plugins and MCP servers

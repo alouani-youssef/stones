@@ -13,6 +13,7 @@ import { approveQuiz } from './spec-quiz.mjs';
 import { loadRegistry } from './evaluation-registry.mjs';
 import { parseEvaluation, recordKpi, writePlanEvaluation } from './evaluation.mjs';
 import { addTask, currentTaskOf, findTask, main, migrateBoard, tasksIn, taskPrompt } from './tasks.mjs';
+import { dispatchText, installedAgents } from './subagents.mjs';
 
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'stones-tasks-'));
@@ -659,6 +660,75 @@ function recordAllAgentKpis(root, id) {
     recordKpi(root, id, k.id, String(k.value), { evidence: `measured ${k.id}`, details: file, registry });
   }
 }
+
+describe('subagent dispatch', () => {
+  const agent = (root, name) => write(root, `.claude/agents/${name}.md`, `---\nname: ${name}\ndescription: Use to test.\ntools: Read\nmodel: inherit\n---\n\nPrompt.\n`);
+
+  it('names only the installed agents for each step', () => {
+    const { root } = repo();
+    agent(root, 'developer');
+    agent(root, 'critic');
+    write(root, '.claude/agents/notes.txt', 'not an agent');
+    assert.deepEqual(installedAgents(root), ['critic', 'developer']);
+    const build = dispatchText(installedAgents(root), 'build');
+    assert.match(build, /`developer`/);
+    assert.doesNotMatch(build, /`tester`|`critic`/);
+    assert.equal(dispatchText([], 'build'), '');
+    assert.deepEqual(installedAgents(repo().root), []);
+  });
+
+  it('puts the build and review agents in the task session prompt', async () => {
+    const { root } = repo();
+    for (const name of ['developer', 'tester', 'critic', 'functional']) agent(root, name);
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    const fake = fakeClaude();
+    await main(['start', '1'], { root, log: () => {}, session: true, run: fake.run });
+    const prompt = fake.calls[0].args[0];
+    assert.match(prompt, /subagent_type: "developer"/);
+    assert.match(prompt, /`tester`/);
+    assert.match(prompt, /`critic`[^\n]*docs\/logs\/reviews\/0001\.md/);
+    assert.doesNotMatch(prompt, /`hacker`|`summarizer`/);
+    assert.doesNotMatch(taskPrompt(findTask(root, '1')), /subagent_type/, 'no agents passed, no dispatch');
+  });
+
+  it('hands the review package to the review agents', async () => {
+    const { root, run } = repo();
+    for (const name of ['critic', 'hacker']) agent(root, name);
+    const task = addTask(root, 'Add login rate limit');
+    fillTask(root, task);
+    await cli(root, 'start', '1');
+    write(root, 'src/rate.js', 'export const limit = 5;\n');
+    run('add', '.');
+    run('commit', '-qm', 'rate limit');
+    const r = await cli(root, 'review', '1');
+    assert.match(r.out, /`critic`: [^\n]*docs\/logs\/reviews\/0001\.md/);
+    assert.match(r.out, /`hacker`: /);
+    assert.doesNotMatch(r.out, /`functional`/);
+  });
+
+  it('hands the PR summary to the summarizer when a task is done', async () => {
+    const { root } = repo();
+    agent(root, 'summarizer');
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    await cli(root, 'start', '1');
+    const r = await cli(root, 'done', '1', '--no-advance', '--', 'node', '-e', '0');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /`summarizer`: [^\n]*docs\/logs\/reviews\/0001\.md[^\n]*\.claude\/pr\.md/);
+    const quiet = await cli(root, 'done', '1', '--no-advance', '--no-pr', '--', 'node', '-e', '0');
+    assert.doesNotMatch(quiet.out, /`summarizer`/, 'no PR draft, no summary to write');
+  });
+
+  it('adds no dispatch to the review output without installed agents', async () => {
+    const { root } = repo();
+    const task = addTask(root, 'First');
+    fillTask(root, task);
+    await cli(root, 'start', '1');
+    const r = await cli(root, 'review', '1');
+    assert.doesNotMatch(r.out, /subagent/i);
+  });
+});
 
 describe('task evaluation', () => {
   it('writes Category: none in new notes and sets it with --category', async () => {
