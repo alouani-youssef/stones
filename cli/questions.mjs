@@ -1,6 +1,6 @@
 // The setup interview. Defaults come from the previous run's answers first,
 // then from stack detection, so re-running `init` is mostly pressing Enter.
-import { currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, pluginCatalog, skillCatalog, suggestedPlugins } from './catalog.mjs';
+import { agentCatalog, currentSkillIds, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, pluginCatalog, skillCatalog, suggestedPlugins } from './catalog.mjs';
 import { devcontainerStack } from './devcontainer.mjs';
 import { knownWorkflows, WORKFLOW_CATALOG } from './github-setup.mjs';
 
@@ -59,6 +59,7 @@ export async function interview(ask, stack, previous = {}) {
   const p = (path, fallback) => path.split('.').reduce((o, k) => o?.[k], previous) ?? fallback;
   const hooks = hookCatalog();
   const skills = skillCatalog();
+  const agents = agentCatalog();
   const mcps = mcpCatalog();
   const plugins = pluginCatalog();
 
@@ -138,6 +139,15 @@ export async function interview(ask, stack, previous = {}) {
     previousSkills(previous, guideSkills, stack).filter((id) => !coreSkills.includes(id)),
   );
   const selectedSkills = [...new Set([...coreSkills, ...chosenSkills])];
+  // A setup saved before agents existed gets all of them, like a new one.
+  const selectedAgents = agents.length
+    ? await ask.multi(
+      'install.agents',
+      'Subagents to install in .claude/agents (Claude delegates to one when its role fits the task)',
+      agents.map((a) => ({ value: a.id, label: a.id, hint: a.description.split('. ')[0] })),
+      p('install.agents', agents.map((a) => a.id)),
+    )
+    : [];
   const selectedPlugins = plugins.length
     ? await ask.multi(
       'install.plugins',
@@ -183,7 +193,7 @@ export async function interview(ask, stack, previous = {}) {
     workflow: { branching, commands, tdd },
     guardrails: { notes: guardrailNotes },
     github: { workflows },
-    install: { hooks: selectedHooks, skills: selectedSkills, plugins: selectedPlugins, mcp: selectedMcps, sandbox, devcontainer },
+    install: { hooks: selectedHooks, skills: selectedSkills, agents: selectedAgents, plugins: selectedPlugins, mcp: selectedMcps, sandbox, devcontainer },
   };
 }
 

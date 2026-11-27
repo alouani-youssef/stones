@@ -27,6 +27,7 @@
     "settings/*.json",
     "!settings/settings.json",
     "skills/",
+    "agents/",
     "devcontainer/",
     "graph/",
     "commands/",

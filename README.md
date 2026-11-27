@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/ai-stones)](https://www.npmjs.com/package/ai-stones)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://alouani-youssef.github.io/stones/)
 
 **ai-stones creates a project-aware Claude Code setup.** It detects your
 language, framework, tooling and conventions, then builds a focused `.claude/`
@@ -472,7 +473,10 @@ npm test          # unit and hook tests
 npm run smoke     # exercise commands on throwaway projects
 ```
 
-The repository has no CI: run these checks before a commit or a release.
+The repository has no CI for tests: run these checks before a commit or a
+release. The only workflow, `.github/workflows/pages.yml`, publishes this README
+to [GitHub Pages](https://alouani-youssef.github.io/stones/) whenever
+`README.md` changes on `main`.
 `npm run check` also runs shellcheck on the shell scripts when it is installed.
 Releases are versioned from `package.json` and tagged as `v<version>`.
 

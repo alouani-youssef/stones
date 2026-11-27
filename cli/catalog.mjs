@@ -134,6 +134,28 @@ export function skillCatalog(root = PACKAGE_ROOT) {
   return skills.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+// Every `agents/<name>/AGENT.md`, installed as a Claude Code project subagent
+// in `.claude/agents/<name>.md`. The file is the subagent definition as is:
+// frontmatter `name`, `description`, `tools`, `model`, then the system prompt.
+// Folders without an AGENT.md are drafts and skipped.
+export function agentCatalog(root = PACKAGE_ROOT) {
+  const agentsRoot = join(root, 'agents');
+  if (!existsSync(agentsRoot)) return [];
+  const agents = [];
+  for (const d of readdirSync(agentsRoot, { withFileTypes: true })) {
+    const main = join(agentsRoot, d.name, 'AGENT.md');
+    if (!d.isDirectory() || !nonEmpty(main)) continue;
+    const fm = skillFrontmatter(readFileSync(main, 'utf8'));
+    agents.push({
+      id: d.name,
+      description: fm.description || '',
+      tools: (fm.tools ?? '').split(',').map((t) => t.trim()).filter(Boolean),
+      main: `${d.name}/AGENT.md`,
+    });
+  }
+  return agents.sort((a, b) => a.id.localeCompare(b.id));
+}
+
 // Guide ids from before guides became skills, so saved answers keep working.
 export const LEGACY_SKILL_IDS = {
   atomicity: 'atomic-changes',

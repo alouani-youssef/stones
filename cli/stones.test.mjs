@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import { inspectSpec } from '../hooks/atomicity.mjs';
 import { parseDockerfile, renderDevcontainer } from '../hooks/devcontainer.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, PACKAGE_ROOT, pluginCatalog, skillCatalog, skillFrontmatter, suggestedPlugins } from './catalog.mjs';
+import { agentCatalog, hookCatalog, LEGACY_SKILL_IDS, mcpCatalog, PACKAGE_ROOT, pluginCatalog, skillCatalog, skillFrontmatter, suggestedPlugins } from './catalog.mjs';
 import { detect } from './detect.mjs';
 import { DEVCONTAINER_STACKS, devcontainerStack } from './devcontainer.mjs';
 import { apply, loadManifest, plan } from './install.mjs';
@@ -776,6 +776,68 @@ describe('init', () => {
     assert.equal(existsSync(join(root, '.claude/hooks/format.mjs')), true);
     assert.equal(loadManifest(root).files['.claude/hooks/naming.mjs'], undefined);
     assert.ok(existsSync(join(root, '.claude/skills/writing-tests/SKILL.md')));
+  });
+});
+
+describe('agents', () => {
+  const agents = agentCatalog();
+  const AGENT_IDS = ['automator', 'critic', 'developer', 'devops', 'functional', 'hacker', 'researcher', 'summarizer', 'tester'];
+  const TOOLS = new Set(['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', 'WebFetch', 'WebSearch']);
+
+  it('ships the normalized agent roster', () => {
+    assert.deepEqual(agents.map((a) => a.id), AGENT_IDS);
+  });
+
+  it('gives every agent Claude Code subagent frontmatter', () => {
+    for (const agent of agents) {
+      const text = readFileSync(join(PACKAGE_ROOT, 'agents', agent.main), 'utf8');
+      const fm = skillFrontmatter(text);
+      assert.equal(fm.name, agent.id, `${agent.id}: name matches folder`);
+      assert.match(fm.description, /^Use (when|to|for) /, `${agent.id}: description says when to delegate`);
+      const tools = fm.tools.split(',').map((t) => t.trim());
+      assert.ok(tools.length && tools.every((t) => TOOLS.has(t)), `${agent.id}: known tools only (${fm.tools})`);
+      assert.ok(['inherit', 'sonnet', 'opus', 'haiku'].includes(fm.model), `${agent.id}: model`);
+      assert.ok(text.split(/\n---\n/)[1]?.trim().length > 200, `${agent.id}: has a system prompt`);
+    }
+  });
+
+  it('keeps reviewing agents read-only', () => {
+    for (const id of ['critic', 'functional', 'hacker', 'researcher', 'summarizer']) {
+      const tools = agents.find((a) => a.id === id).tools;
+      assert.ok(!tools.includes('Edit') && !tools.includes('Write'), `${id} cannot edit`);
+    }
+  });
+
+  it('installs every agent by default as a project subagent in .claude/agents', async () => {
+    const root = nextApp();
+    const { answers } = await runInit(root);
+    assert.deepEqual(answers.install.agents, AGENT_IDS);
+    for (const id of AGENT_IDS) {
+      assert.equal(read(root, `.claude/agents/${id}.md`), readFileSync(join(PACKAGE_ROOT, 'agents', id, 'AGENT.md'), 'utf8'));
+    }
+    assert.match(read(root, 'AGENT.md'), /`critic`/);
+  });
+
+  it('removes deselected agents and keeps the selection on a re-run', async () => {
+    const root = nextApp();
+    await runInit(root);
+    const { ops } = await runInit(root, { 'install.agents': ['developer', 'tester'] });
+    assert.equal(actions(ops)['.claude/agents/critic.md'], 'remove');
+    assert.equal(existsSync(join(root, '.claude/agents/critic.md')), false);
+    assert.ok(existsSync(join(root, '.claude/agents/tester.md')));
+    const { answers } = await runInit(root);
+    assert.deepEqual(answers.install.agents, ['developer', 'tester']);
+    assert.doesNotMatch(read(root, 'AGENT.md'), /`critic`/);
+  });
+
+  it('adds agents to a setup saved before agents existed', async () => {
+    const root = nextApp();
+    await runInit(root);
+    const manifest = loadManifest(root);
+    delete manifest.answers.install.agents;
+    writeFileSync(join(root, '.claude/stones.json'), JSON.stringify(manifest));
+    const { answers } = await runInit(root);
+    assert.deepEqual(answers.install.agents, AGENT_IDS);
   });
 });
 

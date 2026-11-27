@@ -11,7 +11,7 @@ import { basename, dirname, join } from 'node:path';
 
 import { renderDevcontainer } from '../hooks/devcontainer.mjs';
 import { renderAgentDoc } from './agent-doc.mjs';
-import { commandCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT, skillCatalog } from './catalog.mjs';
+import { agentCatalog, commandCatalog, hookCatalog, mcpCatalog, PACKAGE_ROOT, skillCatalog } from './catalog.mjs';
 import { shippedDockerfile } from './devcontainer.mjs';
 import { composeSettings, mergeSettings } from './settings.mjs';
 import { LIST_DIR, STATE_GITIGNORE } from '../tools/tasks.mjs';
@@ -191,6 +191,14 @@ function skillFiles(answers, root, pkg) {
   return files;
 }
 
+// Selected agents as project subagents, one file each in .claude/agents/.
+function agentFiles(answers, root, pkg) {
+  const selected = new Set(answers.install.agents ?? []);
+  return agentCatalog(root)
+    .filter((a) => selected.has(a.id))
+    .map((a) => ({ path: `.claude/agents/${a.id}.md`, content: pkg(`agents/${a.main}`), kind: 'managed' }));
+}
+
 function settingsFile(answers, stack, root) {
   const extraAllow = [
     ...PROJECT_TOOLS.filter((tool) => !ASK_FIRST_TOOLS.has(tool)).map((tool) => `Bash(node .claude/tools/${tool}:*)`),
@@ -240,6 +248,7 @@ function desiredFiles({ answers, stack, root, target }) {
     ...toolFiles(answers, pkg),
     ...atomicityFiles(answers, stack, pkg),
     ...skillFiles(answers, root, pkg),
+    ...agentFiles(answers, root, pkg),
     ...commandCatalog(root).map((cmd) => ({
       path: `.claude/commands/${cmd.file}`,
       content: pkg(`commands/${cmd.file}`),

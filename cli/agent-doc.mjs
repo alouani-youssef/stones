@@ -89,6 +89,7 @@ function renderWorkflow(answers, stack, { doc }) {
     'When a change touches documented behavior, run `node .claude/tools/sync-docs.mjs` and fix what it reports in the same change.',
     'Check what matters now with `node .claude/tools/roadmap.mjs show`; record decisions with `roadmap.mjs decide "<decision>" "<why>"`.',
     'Before adding a dependency, check what the project already declares with `node .claude/tools/list-packages.mjs` (`--grep <name>`, `--prod`, `--json`) and reuse a package that does the job.',
+    answers.install.agents?.length && `Delegate to the subagents in \`.claude/agents/\` when a task fits their role: ${answers.install.agents.map((id) => `\`${id}\``).join(', ')}. Give each the task, its scope and its acceptance criteria, and check its report before relying on it.`,
     'When resuming work in a branch or worktree, read its history first with `node .claude/tools/worktree-history.mjs show` (`list` for every worktree).',
     'Leave context on commits with `node .claude/tools/git-comments.mjs set|append <rev> <text>` (why it exists, what was verified, what is left); read it with `get` or `list`. Comments are git notes and never change the commit.',
   ]);
