@@ -9,6 +9,9 @@
     "show-me-the-work": {
       "source": { "source": "github", "repo": "pinetreeB/show-me-the-work", "ref": "v2.8.2" }
     },
+    "caveman": {
+      "source": { "source": "github", "repo": "JuliusBrussee/caveman", "ref": "v4.2.0" }
+    },
     "posthog": {
       "source": { "source": "github", "repo": "PostHog/ai-plugin", "ref": "a804d475f1253eca470d95f216b3dfea6df3a390" }
     },
@@ -27,6 +30,7 @@
     { "id": "pr-review-toolkit", "hint": "specialized PR review agents (tests, errors, types, comments)" },
     { "id": "feature-dev", "hint": "guided feature development with explorer and architect agents" },
     { "id": "show-me-the-work", "marketplace": "show-me-the-work", "hint": "blocks \"done\" until executed verification evidence exists (needs Python 3.12+ and the smtw package)" },
+    { "id": "caveman", "marketplace": "caveman", "hint": "terse, token-saving replies that keep code, commands and errors exact (community, pinned)" },
 
     { "id": "frontend-design", "when": { "frameworks": ["React", "Next.js", "Vue", "Nuxt", "Svelte", "SvelteKit", "Angular", "Remix", "Astro"] }, "hint": "distinctive, production-grade UI" },
     { "id": "nestjs-best-practices", "marketplace": "stones", "when": { "frameworks": ["NestJS"] }, "hint": "NestJS best-practice skill (community, pinned)" },

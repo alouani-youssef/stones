@@ -165,6 +165,12 @@ describe('settings', () => {
       'show-me-the-work': { source: { source: 'github', repo: 'pinetreeB/show-me-the-work', ref: 'v2.8.2' } },
     });
     assert.ok(!pluginCatalog().find((p) => p.id === 'show-me-the-work').default, 'its Stop gate stays opt-in');
+    const terse = composeSettings({ plugins: ['caveman'] });
+    assert.equal(terse.enabledPlugins['caveman@caveman'], true);
+    assert.deepEqual(terse.extraKnownMarketplaces, {
+      caveman: { source: { source: 'github', repo: 'JuliusBrussee/caveman', ref: 'v4.2.0' } },
+    });
+    assert.ok(!pluginCatalog().find((p) => p.id === 'caveman').default, 'terse mode stays opt-in');
     const none = composeSettings({});
     assert.equal(none.enabledPlugins, undefined);
     assert.equal(none.extraKnownMarketplaces, undefined);

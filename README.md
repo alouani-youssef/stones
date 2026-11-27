@@ -47,7 +47,7 @@ about project context it cannot infer, and then writes a tailored setup.
    Use `npx ai-stones detect` to inspect the result as JSON.
 2. **Asks for project context:** purpose, top-level folders, architecture,
    design patterns, security conventions, branching and TDD preferences, and
-   which hooks, skills, plugins and MCP servers to include. Detected values
+   which hooks, skills, subagents, plugins and MCP servers to include. Detected values
    become defaults.
 3. **Installs only the selected setup:**
 
@@ -59,6 +59,7 @@ CLAUDE.md                 imports AGENT.md (appended if CLAUDE.md exists)
 ├── settings.json         selected hooks, permissions and plugins
 ├── hooks/                selected hooks
 ├── skills/               selected and stack-specific skills
+├── agents/               selected subagents (developer, tester, critic...)
 ├── analyzers/            complexity analyzer, when selected
 ├── commands/             slash commands such as /roadmap
 ├── tools/                project and task-board tools
@@ -161,7 +162,7 @@ Further tips:
 
 ## The stones
 
-Each stone is a hook, a skill, a tool, a slash command, a plugin or an MCP
+Each stone is a hook, a skill, a subagent, a tool, a slash command, a plugin or an MCP
 server. `init` offers only the stones that fit the detected stack.
 
 ### Hooks
@@ -269,6 +270,26 @@ comes up, so an installed skill costs nothing until it is needed.
 | `deepeval` | Pytest-style evals with calibrated judges, gated in CI |
 | `giskard` | Scenario checks and vulnerability scans whose findings become regression tests |
 
+### Subagents
+
+Subagents are installed in `.claude/agents/`, where Claude Code registers them
+for delegation (`@critic`, or automatically when a task fits the role). Each
+runs in its own context with only the tools its role needs. All are selected
+by default; deselected ones are removed on the next `init` unless you edited
+them.
+
+| Agent | Tools | What it is for |
+| --- | --- | --- |
+| `developer` | read, edit, shell | Implements one scoped change test-first and reports what it verified |
+| `tester` | read, edit, shell | Writes and runs the tests that prove a behavior; edits tests only |
+| `critic` | read, shell | Reviews a diff, branch or plan and reports verified problems by severity |
+| `functional` | read, shell | Checks a change against its spec or acceptance criteria, as a user would |
+| `hacker` | read, shell | Security review of the project's own code, config and dependencies |
+| `researcher` | read, web | Answers a question with sourced evidence before a decision |
+| `summarizer` | read, shell | Condenses branches, diffs, PR threads and logs into a short report |
+| `devops` | read, edit, shell | CI/CD, containers, dev container and release config, verified locally |
+| `automator` | read, edit, shell | Turns a repeated manual step into a script, hook, command or CI job |
+
 ### Project tools
 
 Installed in `.claude/tools/` and run with `node .claude/tools/<tool>`.
@@ -302,8 +323,8 @@ and `sign` records your own sign-off, so Claude asks first.
   database plugins (Prisma, Supabase, MongoDB, Neon, Firebase, Redis), the
   official PostHog and Sentry plugins, and pinned NestJS, Gin and Flask
   best-practice plugins. Others such as `code-simplifier`, `commit-commands`,
-  `pr-review-toolkit`, `feature-dev` and `show-me-the-work` are one
-  keypress away.
+  `pr-review-toolkit`, `feature-dev`, `show-me-the-work` and `caveman`
+  (terse, token-saving replies) are one keypress away.
 - **MCP servers** for `.mcp.json`, none selected by default: `context7`,
   `postman`, `notion`, `posthog`, `sentry` and `playwright`.
 
